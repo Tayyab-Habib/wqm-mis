@@ -1,0 +1,33 @@
+.stat-card {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  background: #fff;
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+
+  &__icon { font-size: 2rem; }
+
+  &__title {
+    font-size: 0.8125rem;
+    color: #64748b;
+    margin: 0;
+  }
+
+  &__value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #0f172a;
+    margin: 0;
+  }
+
+  &__trend {
+    margin-left: auto;
+    font-size: 0.875rem;
+    font-weight: 600;
+
+    &--up { color: #16a34a; }
+    &--down { color: #dc2626; }
+  }
+}

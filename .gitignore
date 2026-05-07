@@ -1,0 +1,15 @@
+# Root gitignore
+.DS_Store
+Thumbs.db
+
+# Frontend
+new frontend/node_modules/
+new frontend/dist/
+new frontend/.env
+
+# Backend
+wqm-mis-backend/vendor/
+wqm-mis-backend/.env
+wqm-mis-backend/storage/*.key
+wqm-mis-backend/public/storage
+wqm-mis-backend/public/hot

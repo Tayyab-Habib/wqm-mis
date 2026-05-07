@@ -1,0 +1,77 @@
+<?php
+
+namespace App\Services;
+
+use App\Http\Resources\LaboratoryAssetResource;
+use App\Models\Asset\LaboratoryAsset;
+use App\Models\Laboratories\Laboratory;
+use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Http\JsonResponse;
+use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
+
+class FetchAssetService
+{
+    private $authUser;
+
+    public function __construct()
+    {
+        $this->authUser = auth()->user();
+    }
+
+    /**
+     * Display a listing of the materials related to laboratory.
+     *
+     * @param Laboratory $laboratory
+     * @return mixed
+     */
+    public function fetch(Laboratory $laboratory = null)
+    {
+        $query = $this->authUser->laboratoryUser;
+
+        if ($laboratory) {
+            $query = $laboratory;
+        }
+
+        $materials = $query->laboratoryAssets()
+            ->withWhereHas('asset:id,name')
+            ->get();
+
+        return LaboratoryAssetResource::collection($materials);
+    }
+
+    public function fetchAll(): Collection
+    {
+        return LaboratoryAsset::query()
+            ->with([
+                'asset:id,name',
+                'laboratory:id,name',
+            ])
+            ->get();
+    }
+
+    /**
+     * Display a specific asset related to laboratory.
+     *
+     * @param LaboratoryAsset $laboratoryAsset
+     * @return JsonResponse
+     */
+    public function show(LaboratoryAsset $laboratoryAsset): JsonResponse
+    {
+        if (!$this->authUser->hasRole('system-administrator') && $this->authUser->laboratoryUser->id !== (int)$laboratoryAsset->laboratory_id) {
+            return response()->json([
+                'message' => 'You are not authorize to access data',
+                'data' => '',
+            ], SymfonyResponse::HTTP_BAD_REQUEST);
+        }
+
+        $laboratoryAsset->load([
+            'asset',
+            'laboratoryAssetLogs'
+        ]);
+
+        return response()->json([
+            'message' => 'Success fetching laboratory asset',
+            'data' => (new LaboratoryAssetResource($laboratoryAsset))
+        ]);
+    }
+}

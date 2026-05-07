@@ -1,0 +1,13 @@
+.rag-badge {
+  display: inline-block;
+  padding: 0.2em 0.6em;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+
+  &--red    { background: #fee2e2; color: #dc2626; }
+  &--amber  { background: #fef3c7; color: #d97706; }
+  &--green  { background: #dcfce7; color: #16a34a; }
+}

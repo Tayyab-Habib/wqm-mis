@@ -1,0 +1,33 @@
+.data-table {
+  overflow-x: auto;
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+
+  &__table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #fff;
+    font-size: 0.875rem;
+
+    th, td {
+      padding: 0.75rem 1rem;
+      text-align: left;
+      border-bottom: 1px solid #e2e8f0;
+    }
+
+    th {
+      background: #f8fafc;
+      font-weight: 600;
+      color: #475569;
+    }
+
+    tbody tr:hover { background: #f1f5f9; }
+  }
+
+  &__loading,
+  &__empty {
+    text-align: center;
+    color: #94a3b8;
+    padding: 2rem !important;
+  }
+}

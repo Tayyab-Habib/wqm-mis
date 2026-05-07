@@ -1,0 +1,23 @@
+<?php
+
+namespace Database\Seeders;
+
+use App\Models\Client;
+use Illuminate\Database\Console\Seeds\WithoutModelEvents;
+use Illuminate\Database\Seeder;
+
+class ClientSeeder extends Seeder
+{
+    /**
+     * Run the database seeds.
+     *
+     * @return void
+     */
+    public function run()
+    {
+        if (0 === Client::count()) {
+            Client::factory(10)
+                ->create();
+        }
+    }
+}
