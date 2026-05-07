@@ -39,17 +39,17 @@ onMounted(async () => {
       api.get('/reason-for-testing-status'),
       api.get('/get-clients'),
     ])
-    allDivisions.value = divRes.data  || []
-    allDistricts.value = distRes.data || []
-    allPhedDivs.value  = phdRes.data  || []
-    allHubLabs.value   = hlRes.data   || []
-    allRegions.value   = regRes.data  || []
-    allCircles.value   = cirRes.data  || []
-    allProvinces.value = provRes.data || []
-    wssOptions.value   = wssRes.data  || []
-    collectedInOpts.value = ciRes.data  || []
-    reasonOpts.value      = rfRes.data  || []
-    clients.value         = clientRes.data || []
+    allDivisions.value = divRes.data?.data  || divRes.data  || []
+    allDistricts.value = distRes.data?.data || distRes.data || []
+    allPhedDivs.value  = phdRes.data?.data  || phdRes.data  || []
+    allHubLabs.value   = hlRes.data?.data   || hlRes.data   || []
+    allRegions.value   = regRes.data?.data  || regRes.data  || []
+    allCircles.value   = cirRes.data?.data  || cirRes.data  || []
+    allProvinces.value = provRes.data?.data || provRes.data || []
+    wssOptions.value   = wssRes.data?.data  || wssRes.data  || []
+    collectedInOpts.value = Object.keys(ciRes.data?.data  || ciRes.data  || {})
+    reasonOpts.value      = Object.keys(rfRes.data?.data  || rfRes.data  || {})
+    clients.value         = clientRes.data?.data || clientRes.data || []
 
     // Pre-fill location from logged-in user's district
     const user = userStore.currentUser
@@ -68,7 +68,8 @@ function resolveLocation(districtId) {
   if (!district) return {}
   const division = allDivisions.value.find(d => d.id == district.division_id)
   const circle   = allCircles.value.find(c => c.id == district.circle_id)
-  const region   = allRegions.value.find(r => r.id == division?.region_id)
+  // region_id lives on circle, not division (division.region_id is null in DB)
+  const region   = allRegions.value.find(r => r.id == circle?.region_id)
   const province = allProvinces.value.find(p => p.id == division?.province_id)
   const hubLab   = allHubLabs.value.find(h => h.id == circle?.hub_lab_id)
   const phedDiv  = allPhedDivs.value.find(p => p.district_id == districtId)
@@ -99,6 +100,15 @@ const pheHubLabs = computed(() =>
     ? allHubLabs.value.filter(h => h.division_id == pheForm.value.division_id)
     : allHubLabs.value
 )
+
+// Check if selected district is Peshawar
+const isPeshawarDistrictPHE = computed(() => {
+  if (!pheForm.value.district_id || !allDistricts.value.length) return false
+  const district = allDistricts.value.find(d => d.id == pheForm.value.district_id)
+  const name = district?.name?.trim().toLowerCase() || ''
+  return name === 'peshawar' || name.startsWith('peshawar')
+})
+
 const pvtDistricts = computed(() =>
   pvtForm.value.division_id
     ? allDistricts.value.filter(d => d.division_id == pvtForm.value.division_id)
@@ -112,7 +122,13 @@ function addDays(d, n) {
   return dt.toISOString().split('T')[0]
 }
 function toDateTime(date, time = '09:00:00') {
-  return date ? `${date} ${time}` : ''
+  if (!date) return ''
+  // Ensure sampled_at is never in the future — cap to current time if needed
+  const dt = new Date(`${date}T${time}`)
+  const now = new Date()
+  const final = dt > now ? now : dt
+  const pad = n => String(n).padStart(2, '0')
+  return `${final.getFullYear()}-${pad(final.getMonth()+1)}-${pad(final.getDate())} ${pad(final.getHours())}:${pad(final.getMinutes())}:${pad(final.getSeconds())}`
 }
 
 // ── Desired test mapping: UI testType → backend desired_test array ────
@@ -148,7 +164,7 @@ const pheForm = ref({
   reasonForTesting: 'General Q.Analysis',
   // Testing
   testType: 'PCM', testMethod: 'MF Method — Membrane Filtration',
-  collectionPoint: 'Source', sourceType: 'Pumping',
+  collectionPoint: 'Source', sourceType: 'Pumping', sourceSubType: 'Tube Well',
   temperature: 20,
   sample_name: '', water_sample_address: '',
 })
@@ -212,10 +228,7 @@ async function savePhe() {
   if (!pheForm.value.division_id)      { errorMsg.value = 'Please select a Division'; return }
   if (!pheForm.value.district_id)      { errorMsg.value = 'Please select a District'; return }
   if (!pheForm.value.province_id)      { errorMsg.value = 'Province could not be resolved — check location data'; return }
-  if (!pheForm.value.region_id)        { errorMsg.value = 'Region could not be resolved — check location data'; return }
-  if (!pheForm.value.circle_id)        { errorMsg.value = 'Circle could not be resolved — check location data'; return }
-  if (!pheForm.value.hub_lab_id)       { errorMsg.value = 'Hub Lab could not be resolved — check location data'; return }
-  if (!pheForm.value.phed_division_id) { errorMsg.value = 'Please select a PHED Division'; return }
+  if (isPeshawarDistrictPHE.value && !pheForm.value.phed_division_id) { errorMsg.value = 'Please select a PHED Division'; return }
 
   const [lat, lng] = pheForm.value.sourceGps.split(',').map(s => s.trim())
   if (!lat || !lng) { errorMsg.value = 'GPS coordinates are required (select a WSS)'; return }
@@ -230,6 +243,7 @@ async function savePhe() {
       water_sample_address:  pheForm.value.water_sample_address || pheForm.value.sample_name,
       sampling_point:        pheForm.value.collectionPoint,
       source_type:           pheForm.value.sourceType || 'Pumping',
+      source_sub_type:       pheForm.value.sourceSubType || 'Tube Well',
       latitude:              lat,
       longitude:             lng,
       sampled_at:            toDateTime(pheForm.value.collectionDate, pheForm.value.collectionTime + ':00'),
@@ -242,11 +256,11 @@ async function savePhe() {
       temperature_in_celsius: pheForm.value.temperature,
       division_id:           pheForm.value.division_id,
       district_id:           pheForm.value.district_id,
-      circle_id:             pheForm.value.circle_id,
-      region_id:             pheForm.value.region_id,
+      circle_id:             pheForm.value.circle_id   || undefined,
+      region_id:             pheForm.value.region_id   || undefined,
       province_id:           pheForm.value.province_id,
-      hub_lab_id:            pheForm.value.hub_lab_id,
-      phed_division_id:      pheForm.value.phed_division_id,
+      hub_lab_id:            pheForm.value.hub_lab_id  || undefined,
+      phed_division_id:      pheForm.value.phed_division_id || undefined,
     }
 
     const res = await api.post('/water-samples', payload)
@@ -262,10 +276,11 @@ async function savePhe() {
     pheParams.value   = { physical:[], chemical:[], microbial:[] }
   } catch (e) {
     const errs = e.response?.data?.errors
-    errorMsg.value = errs
-      ? Object.values(errs).flat().join(' | ')
+    const msg = errs
+      ? Object.entries(errs).map(([field, msgs]) => `${field}: ${Array.isArray(msgs) ? msgs[0] : msgs}`).join(' | ')
       : (e.response?.data?.message || e.message || 'Error saving sample')
-    console.error('PHE save error:', e.response?.data || e)
+    errorMsg.value = msg
+    console.error('PHE save error full:', JSON.stringify(e.response?.data, null, 2))
   } finally {
     saveLoading.value = false
   }
@@ -331,13 +346,20 @@ const pvtHubLabs = computed(() =>
     : allHubLabs.value
 )
 
+// Check if selected district is Peshawar (Private form)
+const isPeshawarDistrictPVT = computed(() => {
+  if (!pvtForm.value.district_id || !allDistricts.value.length) return false
+  const district = allDistricts.value.find(d => d.id == pvtForm.value.district_id)
+  const name = district?.name?.trim().toLowerCase() || ''
+  return name === 'peshawar' || name.startsWith('peshawar')
+})
+
 async function savePvt() {
   errorMsg.value   = ''
   successMsg.value = ''
   if (!pvtForm.value.district_id)  { errorMsg.value = 'Please select a District'; return }
   if (!pvtForm.value.province_id)  { errorMsg.value = 'Province could not be resolved'; return }
-  if (!pvtForm.value.hub_lab_id)   { errorMsg.value = 'Hub Lab could not be resolved'; return }
-  if (!pvtForm.value.phed_division_id) { errorMsg.value = 'Please select a PHED Division'; return }
+  if (isPeshawarDistrictPVT.value && !pvtForm.value.phed_division_id) { errorMsg.value = 'Please select a PHED Division'; return }
   if (pvtClientType.value === 'new') {
     if (!pvtForm.value.name)    { errorMsg.value = 'Client name is required'; return }
     if (!pvtForm.value.phone)   { errorMsg.value = 'Client phone is required'; return }
@@ -365,6 +387,7 @@ async function savePvt() {
       water_sample_address:  pvtForm.value.sampleName || clientData.address,
       sampling_point:        pvtForm.value.collectionPoint,
       source_type:           pvtForm.value.sourceType || 'Pumping',
+      source_sub_type:       pvtForm.value.sourceSubType || 'Tube Well',
       latitude:              lat || '0',
       longitude:             lng || '0',
       sampled_at:            toDateTime(pvtForm.value.collectionDate, pvtForm.value.collectionTime + ':00'),
@@ -430,6 +453,7 @@ async function savePT() {
       desired_test:          ['Physical', 'Physical & Chemical', 'Microbiological(MF)'],
       sampling_point:        'Source',
       source_type:           'Pumping',
+      source_sub_type:       'Tube Well',
       collected_by:          'Laboratory Staff',
       collected_in:          'Plastic Bottle',
       complaint:             'General Q.Analysis',
@@ -505,12 +529,16 @@ async function savePT() {
               <option v-for="d in pheDistricts" :key="d.id" :value="d.id">{{ d.name }}</option>
             </select>
           </div>
-          <div class="fg2" v-if="phePhedDivs.length">
+          <div class="fg2" v-if="isPeshawarDistrictPHE">
             <label>PHE Division *</label>
             <select v-model="pheForm.phed_division_id">
               <option value="">— Select PHE Division —</option>
               <option v-for="d in phePhedDivs" :key="d.id" :value="d.id">{{ d.name }}</option>
             </select>
+          </div>
+          <!-- DEBUG: remove after confirming it works -->
+          <div v-if="pheForm.district_id && !isPeshawarDistrictPHE" style="font-size:10px;color:var(--muted);padding:4px 8px;background:#fff3cd;border-radius:4px">
+            Selected district: "{{ allDistricts.find(d => d.id == pheForm.district_id)?.name }}" — PHE Division only shown for Peshawar
           </div>
           <div class="fg2 span2">
             <label>Water Supply Scheme (WSS) *</label>
@@ -525,6 +553,16 @@ async function savePT() {
               <option value="Source">Source (WSS Outlet)</option>
               <option value="Consumer End">C/End</option>
               <option value="Mid">Mid</option>
+            </select>
+          </div>
+          <div class="fg2">
+            <label>Source Sub-Type *</label>
+            <select v-model="pheForm.sourceSubType">
+              <option value="Tube Well">Tube Well</option>
+              <option value="Hand Pump">Hand Pump</option>
+              <option value="Dam">Dam</option>
+              <option value="Reservoir">Reservoir</option>
+              <option value="Press: Pump">Press: Pump</option>
             </select>
           </div>
           <div class="fg2" v-if="!showConsumerFields">
@@ -742,7 +780,7 @@ async function savePT() {
               <option v-for="d in pvtDistricts" :key="d.id" :value="d.id">{{ d.name }}</option>
             </select>
           </div>
-          <div class="fg2" v-if="pvtPhedDivs.length">
+          <div class="fg2" v-if="isPeshawarDistrictPVT">
             <label>PHED Division *</label>
             <select v-model="pvtForm.phed_division_id">
               <option value="">— Select PHED Division —</option>

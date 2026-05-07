@@ -14,7 +14,7 @@ class DivisionController extends Controller
     {
         $divisions = Division::query()
             ->when($request->region_id, fn($query) => $query->where('region_id', $request->region_id))
-            ->select('id', 'name', 'region_id')
+            ->select('id', 'name', 'region_id', 'province_id')
             ->get();
 
         return response()->json([

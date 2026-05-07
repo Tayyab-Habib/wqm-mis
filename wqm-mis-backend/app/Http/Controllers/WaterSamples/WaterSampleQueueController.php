@@ -27,6 +27,12 @@ class WaterSampleQueueController extends Controller
                 'qr_code',
                 'sampled_at',
                 'water_scheme_id',
+                'laboratory_id',
+                'collectable_type',
+                'sampling_point',
+                'collected_by',
+                'water_sample_address',
+                'is_draft',
                 'created_by',
                 'modified_by',
                 'temperature_in_celsius',
@@ -41,7 +47,10 @@ class WaterSampleQueueController extends Controller
                 'current_status',
                 'created_at'
             ])
-            ->where('is_draft', $isDraft)
+            ->where(function ($q) use ($isDraft) {
+                $q->where('is_draft', $isDraft)
+                  ->orWhereNull('is_draft');
+            })
             ->withCount('tests')
             ->with([
                 'waterScheme:id,name',

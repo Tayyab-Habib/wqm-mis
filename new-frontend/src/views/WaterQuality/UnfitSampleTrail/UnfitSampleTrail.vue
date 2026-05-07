@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { sampleService } from '../../../services/sampleService.js'
+import { exportToExcel } from '../../../utils/exportHelpers.js'
 
 const loading    = ref(false)
 const errorMsg   = ref('')
@@ -117,6 +118,28 @@ const summaryCards = [
 
 function ragClass(rag) { return rag }
 
+function exportUnfitSamples() {
+  if (!filteredRows.value.length) {
+    alert('No data to export.')
+    return
+  }
+  
+  const exportData = filteredRows.value.map(r => ({
+    'Sample ID': r.id,
+    'WSS Name': r.wss,
+    'PHE Division': r.div,
+    'District': r.district,
+    'Result Date': r.date,
+    'Cause': r.cause,
+    'Value / Limit': r.value,
+    'Status': r.status,
+    'Retest Stage': r.stage,
+    'Retest Result': r.result
+  }))
+  
+  exportToExcel(exportData, 'Unfit_Sample_Trail', { includeTimestamp: true })
+}
+
 onMounted(loadUnfitSamples)
 </script>
 
@@ -193,7 +216,7 @@ onMounted(loadUnfitSamples)
         <span @click="statusFilter=''" style="cursor:pointer;color:var(--red)">✕ Clear</span>
       </div>
       <div class="tsp"></div>
-      <button class="btn btn-sec btn-sm">⬇ Export</button>
+      <button class="btn btn-sec btn-sm" @click="exportUnfitSamples">⬇ Export</button>
     </div>
 
     <!-- Main table -->

@@ -60,6 +60,7 @@ class UserController extends Controller
                 'phedDivision:id,name',
                 'roles:id,name',
             ])
+            ->reorder('users.id', 'asc')
             ->get();
 
         if ($users->isEmpty()) {
@@ -99,7 +100,10 @@ class UserController extends Controller
             }
 
             $user = User::query()
-                ->create(array_merge($validatedData, ['image' => $image]));
+                ->create(array_merge($validatedData, [
+                    'image'      => $image,
+                    'created_by' => auth()->id(),
+                ]));
 
             if (isset($request->laboratory_id)) {
                 $user->laboratories()
@@ -187,7 +191,10 @@ class UserController extends Controller
             if ($request->hasFile('image')) {
                 $image = Storage::disk('public')->putFile($path, $request->file('image'));
             }
-            $user->update(array_merge($validatedData, ['image' => $image]));
+            $user->update(array_merge($validatedData, [
+                'image'       => $image,
+                'modified_by' => auth()->id(),
+            ]));
 
             if (isset($request->laboratory_id)) {
                 $user->laboratories()

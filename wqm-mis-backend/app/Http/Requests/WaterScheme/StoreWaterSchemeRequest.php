@@ -55,6 +55,7 @@ class StoreWaterSchemeRequest extends FormRequest
             'district_id' => ['required', 'exists:districts,id', new DistrictRule()],
             'division_id' => ['required', 'exists:divisions,id', new DivisionRule()],
             'province_id' => ['required', 'exists:provinces,id'],
+            'phed_division_id' => ['nullable', 'exists:phed_divisions,id'],
         ];
     }
 }

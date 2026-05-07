@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { reportService } from '../../../services/reportService.js'
 import { dropdownService } from '../../../services/dropdownService.js'
+import { exportToExcel } from '../../../utils/exportHelpers.js'
 
 const loading      = ref(false)
 const errorMsg     = ref('')
@@ -84,6 +85,48 @@ async function generateReport() {
 const fitCount   = computed(() => rows.value.filter(r => r.result === 'Fit').length)
 const unfitCount = computed(() => rows.value.filter(r => r.result === 'Unfit').length)
 
+function exportReport() {
+  if (!rows.value.length) {
+    alert('No data to export. Please generate the report first.')
+    return
+  }
+  
+  const exportData = rows.value.map(r => ({
+    'S#': r.sn,
+    'Sample ID': r.id,
+    'WSS / Client': r.wss,
+    'Sampling Date': r.date,
+    'PHE Region': r.ce,
+    'Laboratory': r.lab,
+    'District': r.district,
+    'PHE Division': r.div,
+    'Latitude': r.lat,
+    'Longitude': r.lng,
+    'Test Type': r.type,
+    'Aesthetic': r.aesthetic,
+    'Turbidity': r.turbidity,
+    'EC': r.ec,
+    'pH': r.ph,
+    'TDS': r.tds,
+    'Hardness': r.hardness,
+    'Calcium': r.ca,
+    'Magnesium': r.mg,
+    'Alkalinity': r.alk,
+    'Bicarbonate': r.bic,
+    'Chloride': r.cl,
+    'Sulphate': r.so4,
+    'Nitrate': r.no3,
+    'Fluoride': r.fl,
+    'Arsenic': r.as,
+    'Iron': r.fe,
+    'Total Coliform': r.coliform,
+    'E. Coli': r.ecoli,
+    'Result': r.result
+  }))
+  
+  exportToExcel(exportData, 'ASR_Analysis_Summary_Report', { includeTimestamp: true })
+}
+
 onMounted(loadDropdowns)
 </script>
 
@@ -108,7 +151,7 @@ onMounted(loadDropdowns)
       </div>
       <div class="tsp"></div>
       <button class="btn btn-pri btn-sm" @click="generateReport" :disabled="loading">{{ loading ? '🔄…' : 'Generate' }}</button>
-      <button class="btn btn-sec btn-sm">⬇ Export .xlsx</button>
+      <button class="btn btn-sec btn-sm" @click="exportReport">⬇ Export .xlsx</button>
       <button class="btn btn-sec btn-sm">🖨 Print PDF</button>
     </div>
 

@@ -29,10 +29,12 @@ class WaterSchemeController extends Controller
                 'is_active',
                 'source_type',
                 'power_input',
+                'operation',
                 'union_council_id',
                 'tehsil_id',
                 'district_id',
                 'division_id',
+                'phed_division_id',
                  'created_at'
             ])
             ->with([
@@ -40,6 +42,7 @@ class WaterSchemeController extends Controller
                 'tehsil',
                 'district',
                 'division',
+                'phedDivision:id,name,district_id,circle_id',
                 'createdByUser:id,name',
             ])
             ->when(!$authUser->hasRole('system-administrator'), fn($query) => $query->where('division_id', '=', $authUser->district->division_id))

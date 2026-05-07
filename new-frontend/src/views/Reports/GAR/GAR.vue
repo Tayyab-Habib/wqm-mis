@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { reportService } from '../../../services/reportService.js'
 import { dropdownService } from '../../../services/dropdownService.js'
+import { exportToExcel } from '../../../utils/exportHelpers.js'
 
 const loading    = ref(false)
 const errorMsg   = ref('')
@@ -75,6 +76,27 @@ async function generateReport() {
 const expanded = ref({})
 function toggle(id) { expanded.value[id] = !expanded.value[id] }
 
+function exportReport() {
+  if (!labRows.value.length) {
+    alert('No data to export. Please generate the report first.')
+    return
+  }
+  
+  const exportData = labRows.value.map(r => ({
+    'Laboratory': r.lab,
+    'CE Region': r.ce,
+    'Division': r.div,
+    'Districts Covered': r.districts,
+    'Total Tested': r.tested,
+    'Fit': r.fit,
+    'Unfit': r.unfit,
+    '% Unfit': r.pct,
+    'RAG Status': r.ragLabel
+  }))
+  
+  exportToExcel(exportData, 'GAR_General_Abstract_Report', { includeTimestamp: true })
+}
+
 onMounted(async () => {
   await loadDropdowns()
 })
@@ -102,7 +124,7 @@ onMounted(async () => {
       </div>
       <div class="tsp"></div>
       <button class="btn btn-pri btn-sm" @click="generateReport" :disabled="loading">{{ loading ? '🔄 Generating…' : '⚙ Generate' }}</button>
-      <button class="btn btn-sec btn-sm">⬇ Export .xlsx</button>
+      <button class="btn btn-sec btn-sm" @click="exportReport">⬇ Export .xlsx</button>
       <button class="btn btn-sec btn-sm">🖨 Print / PDF</button>
     </div>
 

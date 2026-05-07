@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { reportService } from '../../../services/reportService.js'
 import { dropdownService } from '../../../services/dropdownService.js'
+import { exportToExcel } from '../../../utils/exportHelpers.js'
 
 const loading    = ref(false)
 const errorMsg   = ref('')
@@ -86,6 +87,44 @@ const grandTotal = computed(() => ({
 
 const uniqueCEs = computed(() => [...new Set(districtRows.value.map(r => r.ce))])
 
+function exportReport() {
+  if (!ceRows.value.length && !districtRows.value.length) {
+    alert('No data to export. Please generate the report first.')
+    return
+  }
+  
+  // Export CE-wise summary
+  const ceExportData = ceRows.value.map(r => ({
+    'Chief Engineer': r.ce,
+    'Districts': r.districts,
+    'Divisions': r.divisions,
+    'Total Tested': r.total,
+    'Fit': r.fit,
+    'Unfit': r.unfit,
+    '% Fit': r.pctFit,
+    'RAG Status': r.ragLabel
+  }))
+  
+  // Export district-wise detail
+  const districtExportData = districtRows.value.map(r => ({
+    'S#': r.sn,
+    'District': r.district,
+    'Division': r.division,
+    'CE Region': r.ce,
+    'Total Tested': r.total,
+    'Fit': r.fit,
+    'Unfit': r.unfit,
+    '% Fit': r.pctFit,
+    'Remarks': r.remark
+  }))
+  
+  // Export both sheets as separate CSV files
+  exportToExcel(ceExportData, 'CEWise_Annexure7_CE_Summary', { includeTimestamp: true })
+  setTimeout(() => {
+    exportToExcel(districtExportData, 'CEWise_Annexure7_District_Detail', { includeTimestamp: true })
+  }, 500)
+}
+
 onMounted(loadDropdowns)
 </script>
 
@@ -103,7 +142,7 @@ onMounted(loadDropdowns)
       </div>
       <div class="tsp"></div>
       <button class="btn btn-pri btn-sm" @click="generateReport" :disabled="loading">{{ loading ? '🔄…' : 'Generate' }}</button>
-      <button class="btn btn-sec btn-sm">⬇ Export Annexure-7</button>
+      <button class="btn btn-sec btn-sm" @click="exportReport">⬇ Export Annexure-7</button>
     </div>
 
     <div v-if="errorMsg" style="background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;padding:10px 14px;margin-bottom:10px;color:#b91c1c;font-size:12px">⚠️ {{ errorMsg }}</div>

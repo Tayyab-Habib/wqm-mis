@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { reportService } from '../../../services/reportService.js'
 import { dropdownService } from '../../../services/dropdownService.js'
+import { exportToExcel } from '../../../utils/exportHelpers.js'
 
 const loading    = ref(false)
 const errorMsg   = ref('')
@@ -74,6 +75,30 @@ const fitCount   = computed(() => filteredRows.value.filter(r => r.result === 'F
 const unfitCount = computed(() => filteredRows.value.filter(r => r.result === 'Unfit').length)
 const pct        = computed(() => filteredRows.value.length > 0 ? ((unfitCount.value / filteredRows.value.length) * 100).toFixed(1) + '%' : '—')
 
+function exportReport() {
+  if (!filteredRows.value.length) {
+    alert('No data to export. Please generate the report first.')
+    return
+  }
+  
+  const exportData = filteredRows.value.map(r => ({
+    'S#': r.sn,
+    'Sample ID': r.id,
+    'WSS / Client Name': r.wss,
+    'Sampling Date': r.date,
+    'Sampling Point': r.point,
+    'PHE Division': r.div,
+    'Latitude': r.lat,
+    'Longitude': r.lng,
+    'Test Type': r.type,
+    'Result': r.result,
+    'Cause': r.cause,
+    'Specific Ion / Component': r.ion
+  }))
+  
+  exportToExcel(exportData, 'GSR_General_Summary_Report', { includeTimestamp: true })
+}
+
 onMounted(loadDropdowns)
 </script>
 
@@ -107,7 +132,7 @@ onMounted(loadDropdowns)
       </div>
       <div class="tsp"></div>
       <button class="btn btn-pri btn-sm" @click="generateReport" :disabled="loading">{{ loading ? '🔄…' : '⚙ Generate' }}</button>
-      <button class="btn btn-sec btn-sm">⬇ Export .xlsx</button>
+      <button class="btn btn-sec btn-sm" @click="exportReport">⬇ Export .xlsx</button>
       <button class="btn btn-sec btn-sm">🖨 Print PDF</button>
     </div>
 

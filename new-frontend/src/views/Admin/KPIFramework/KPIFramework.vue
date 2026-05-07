@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { dropdownService } from '../../../services/dropdownService.js'
 import { dashboardService } from '../../../services/dashboardService.js'
+import { exportToExcel } from '../../../utils/exportHelpers.js'
 
 const laboratories = ref([])
 const selectedLab  = ref('')
@@ -34,6 +35,19 @@ const kpis = ref([
   { id:'KPI-009', name:'Data Verification',              val:91.5, target:'100%',  color:'var(--amber)', rag:'r-amber' },
 ])
 
+function exportKPIs() {
+  const exportData = kpis.value.map(k => ({
+    'KPI ID': k.id,
+    'KPI Name': k.name,
+    'Current Value (%)': k.val,
+    'Target': k.target,
+    'RAG Status': k.rag === 'r-green' ? 'Green' : k.rag === 'r-amber' ? 'Amber' : 'Red',
+    'Lab': selectedLab.value || 'All Labs'
+  }))
+  
+  exportToExcel(exportData, 'KPI_Framework_Report', { includeTimestamp: true })
+}
+
 onMounted(loadData)
 </script>
 
@@ -45,7 +59,7 @@ onMounted(loadData)
         <option v-for="l in laboratories" :key="l.id" :value="l.id">{{ l.name }}</option>
       </select>
       <div class="tsp"></div>
-      <button class="btn btn-sec btn-sm">⬇ Export</button>
+      <button class="btn btn-sec btn-sm" @click="exportKPIs">⬇ Export</button>
     </div>
 
     <div class="kpi-row">

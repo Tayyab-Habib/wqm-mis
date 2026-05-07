@@ -23,18 +23,33 @@ const activeTestId = ref(null)   // WaterSampleTest.id for the active round
 
 // ── Map queue response row ────────────────────────────────────────────
 function mapRow(s) {
+  // current_status is an integer enum from backend — convert to string label
+  const statusMap = { 1: 'Pending', 2: 'Fit', 3: 'Unfit', 4: 'In Progress', 5: 'Closed' }
+  const rawStatus = s.current_status
+  const statusStr = rawStatus !== null && rawStatus !== undefined
+    ? (statusMap[rawStatus] ?? String(rawStatus))
+    : (s.result || 'Pending')
+
   return {
-    id:        s.id,
-    slug:      s.slug || String(s.id),
-    wss:       s.water_scheme?.name || s.waterScheme?.name || s.water_sample_address || '—',
-    district:  s.district?.name || '—',
-    type:      s.test_type || '—',
-    point:     s.sampling_point || '—',
-    by:        s.created_by_user?.name || s.createdByUser?.name || '—',
-    date:      s.sampled_at ? s.sampled_at.split(' ')[0] : '—',
-    status:    s.current_status || 'Pending',
-    isPT:      s.collectable_type === 'PT',
+    id:          s.id,
+    slug:        s.slug || String(s.id),
+    wss:         s.water_scheme?.name || s.waterScheme?.name || s.water_sample_address || '—',
+    district:    s.district?.name || '—',
+    type:        s.test_type || '—',
+    point:       s.sampling_point || '—',
+    by:          s.collected_by || s.created_by_user?.name || s.createdByUser?.name || '—',
+    date:        s.sampled_at ? formatDate(s.sampled_at.split(' ')[0]) : '—',
+    status:      statusStr,
+    isPT:        (s.collectable_type || '').toUpperCase() === 'PT' || (s.slug || '').startsWith('PT/'),
+    ptProgramme: s.water_sample_address || '',
   }
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return '—'
+  const d = new Date(dateStr)
+  if (isNaN(d)) return dateStr
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }).replace(/ /g, '-')
 }
 
 async function loadQueue() {
@@ -42,8 +57,13 @@ async function loadQueue() {
   errorMsg.value = ''
   try {
     const res  = await api.get('/water-samples-queue/0')
-    const data = res.data?.water_samples?.data || res.data?.data || res.data || []
-    queue.value  = Array.isArray(data) ? data.map(mapRow) : []
+    // Handle both: data with water_samples (has results) and data without (empty)
+    const payload = res.data?.data || res.data || {}
+    const data = payload?.water_samples?.data
+               || payload?.water_samples
+               || (Array.isArray(payload) ? payload : null)
+               || []
+    queue.value = Array.isArray(data) ? data.map(mapRow) : []
   } catch (e) {
     errorMsg.value = 'Failed to load queue: ' + (e.response?.data?.message || e.message)
     console.error(e)
@@ -308,26 +328,22 @@ onMounted(loadQueue)
     <!-- Queue header -->
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
       <div>
-        <h2 style="margin:0 0 2px">Pending Analysis Queue</h2>
-        <span style="font-size:12px;background:var(--sky2);color:var(--navy2);border:1px solid var(--sky);border-radius:10px;padding:2px 10px;font-weight:600">
+        <h2 style="margin:0 0 4px;font-size:15px;font-weight:700">Pending Analysis Queue</h2>
+        <span style="font-size:11px;background:#dbeafe;color:#1e40af;border:1px solid #93c5fd;border-radius:10px;padding:2px 10px;font-weight:600">
           Awaiting: {{ pendingCount }}
         </span>
       </div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap">
-        <select v-model="typeFilter" style="border:1px solid var(--input-border);border-radius:4px;padding:4px 8px;font-size:11.5px;font-family:inherit">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <select v-model="typeFilter" style="border:1px solid var(--input-border);border-radius:4px;padding:5px 8px;font-size:11.5px;font-family:inherit">
           <option value="">All Test Types</option>
-          <option>PCM</option><option>PC</option><option>M</option><option>P</option><option>C</option>
+          <option>PCM</option><option>PC</option><option>M</option><option>P</option><option>C</option><option>PT</option>
         </select>
-        <select v-model="statusFilter" style="border:1px solid var(--input-border);border-radius:4px;padding:4px 8px;font-size:11.5px;font-family:inherit">
-          <option value="">All Statuses</option>
-          <option value="Pending">Pending</option>
-          <option value="In Progress">In Progress</option>
-          <option value="Fit">Fit</option>
-          <option value="Unfit">Unfit</option>
-        </select>
-        <input type="text" v-model="searchText" placeholder="🔍 Sample ID or WSS…"
-          style="border:1px solid var(--input-border);border-radius:4px;padding:4px 10px;font-size:11.5px;font-family:inherit;width:180px">
-        <button class="btn btn-sec" @click="loadQueue" :disabled="loading" style="font-size:11.5px">
+        <div style="position:relative">
+          <span style="position:absolute;left:8px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:12px">🔍</span>
+          <input type="text" v-model="searchText" placeholder="Sample ID or WSS…"
+            style="border:1px solid var(--input-border);border-radius:4px;padding:5px 10px 5px 26px;font-size:11.5px;font-family:inherit;width:190px">
+        </div>
+        <button class="btn btn-sec btn-sm" @click="loadQueue" :disabled="loading">
           {{ loading ? '⏳' : '↺ Refresh' }}
         </button>
       </div>
@@ -336,47 +352,93 @@ onMounted(loadQueue)
     <!-- Queue table -->
     <div class="tbl-wrap" style="margin-bottom:14px">
       <div v-if="loading" style="text-align:center;padding:30px;color:var(--muted);font-size:13px">⏳ Loading queue…</div>
-      <div v-else-if="!filtered.length" style="text-align:center;padding:30px;color:var(--muted);font-size:13px">
-        No samples found{{ searchText || typeFilter || statusFilter ? ' matching filters' : '' }}.
-      </div>
-      <table v-else>
+      <table v-else style="font-size:12px">
         <thead>
-          <tr>
-            <th>Sample ID</th>
-            <th>WSS / Client</th>
-            <th>District</th>
-            <th>Test Type</th>
-            <th>Collection Date</th>
-            <th>Collected By</th>
-            <th>Status</th>
-            <th>Action</th>
+          <tr style="background:var(--navy);color:#fff">
+            <th style="color:#fff">Sample ID</th>
+            <th style="color:#fff">WSS / Client</th>
+            <th style="color:#fff">District</th>
+            <th style="color:#fff;text-align:center">Test Type</th>
+            <th style="color:#fff">Collection Point</th>
+            <th style="color:#fff">Collected By</th>
+            <th style="color:#fff">Collection Date</th>
+            <th style="color:#fff">Action</th>
           </tr>
         </thead>
         <tbody>
+          <!-- Empty state row -->
+          <tr v-if="!filtered.length">
+            <td colspan="8" style="text-align:center;padding:32px;color:var(--muted);font-size:13px">
+              {{ loading ? '' : 'No samples in queue. Register a sample first.' }}
+            </td>
+          </tr>
+
           <tr v-for="(row, i) in filtered" :key="row.id"
               :class="i % 2 === 1 ? 'alt' : ''"
               :style="row.isPT ? 'background:#f5f0ff' : ''">
-            <td class="mono" :style="row.isPT ? 'color:#7c3aed;font-weight:700' : ''">
+
+            <!-- Sample ID -->
+            <td class="mono" style="font-size:11.5px" :style="row.isPT ? 'color:#7c3aed;font-weight:700' : ''">
+              <template v-if="row.isPT">
+                <span style="font-size:10px;margin-right:4px">🧫</span>
+                <span style="font-size:10px;background:#ede9fe;color:#6d28d9;border-radius:3px;padding:1px 5px;margin-right:4px;font-weight:600">PT Sample</span>
+              </template>
               {{ row.slug }}
-              <span v-if="row.isPT" style="font-size:9px;background:#7c3aed;color:#fff;border-radius:3px;padding:1px 5px;margin-left:4px">PT</span>
             </td>
-            <td>{{ row.wss }}</td>
-            <td>{{ row.district }}</td>
-            <td><span class="rag r-blue">{{ row.type }}</span></td>
-            <td>{{ row.date }}</td>
-            <td>{{ row.by }}</td>
-            <td><span class="rag" :class="statusClass(row.status)">{{ statusLabel(row.status) }}</span></td>
+
+            <!-- WSS / Client -->
             <td>
-              <template v-if="['pending','in_progress','in progress'].includes(row.status?.toLowerCase())">
-                <button class="btn btn-pri btn-xs" @click="openAnalysis(row)">
-                  {{ row.status?.toLowerCase() === 'in_progress' || row.status?.toLowerCase() === 'in progress' ? '🔬 Continue' : '▶ Start Analysis' }}
+              <template v-if="row.isPT">
+                <span style="font-size:11px;color:#7c3aed">{{ row.ptProgramme || row.wss }}</span>
+              </template>
+              <template v-else>{{ row.wss }}</template>
+            </td>
+
+            <!-- District -->
+            <td>{{ row.isPT ? '—' : row.district }}</td>
+
+            <!-- Test Type badge -->
+            <td style="text-align:center">
+              <span class="rag"
+                :style="row.isPT
+                  ? 'background:#7c3aed;color:#fff;border-color:#7c3aed'
+                  : row.type === 'PCM' ? 'background:#1d4ed8;color:#fff;border-color:#1d4ed8'
+                  : row.type === 'M'   ? 'background:#0891b2;color:#fff;border-color:#0891b2'
+                  : row.type === 'PC'  ? 'background:#0d9488;color:#fff;border-color:#0d9488'
+                  : 'background:#6b7280;color:#fff;border-color:#6b7280'">
+                {{ row.isPT ? 'PT' : row.type }}
+              </span>
+            </td>
+
+            <!-- Collection Point -->
+            <td>{{ row.isPT ? 'N/A — Blind' : row.point }}</td>
+
+            <!-- Collected By -->
+            <td>{{ row.by }}</td>
+
+            <!-- Collection Date -->
+            <td style="white-space:nowrap">{{ row.date }}</td>
+
+            <!-- Action -->
+            <td style="white-space:nowrap">
+              <template v-if="row.isPT">
+                <button class="btn btn-xs"
+                  style="background:#7c3aed;color:#fff;border:none;font-size:11px"
+                  @click="openAnalysis(row)">
+                  🧫 Enter PT Results
+                </button>
+              </template>
+              <template v-else-if="['pending','in_progress','in progress'].includes(row.status?.toLowerCase())">
+                <button class="btn btn-pri btn-xs" @click="openAnalysis(row)"
+                  style="background:#1d4ed8;border-color:#1d4ed8;font-size:11px">
+                  ▶ Start Analysis
                 </button>
               </template>
               <template v-else-if="row.status?.toLowerCase() === 'unfit'">
-                <button class="btn btn-xs" style="background:#dc2626;color:#fff;border:none" @click="openAnalysis(row)">🔄 Re-Analyse</button>
+                <button class="btn btn-xs" style="background:#dc2626;color:#fff;border:none;font-size:11px" @click="openAnalysis(row)">🔄 Re-Analyse</button>
               </template>
               <template v-else>
-                <span class="rag r-green">✅ Done</span>
+                <span class="rag r-green" style="font-size:11px">✅ Done</span>
               </template>
             </td>
           </tr>

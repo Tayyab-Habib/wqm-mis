@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\PowerInputEnum;
+use App\Models\PhedDivision;
 use App\Models\Scopes\LatestScope;
 use App\Models\WaterSamples\WaterSample;
 use App\Traits\CreatedModifiedByTrait;
@@ -49,6 +50,7 @@ class WaterScheme extends Model
         'district_id',
         'division_id',
         'province_id',
+        'phed_division_id',
     ];
 
     protected $hidden = [
@@ -118,6 +120,11 @@ class WaterScheme extends Model
     public function waterSamples(): HasMany
     {
         return $this->hasMany(WaterSample::class);
+    }
+
+    public function phedDivision(): BelongsTo
+    {
+        return $this->belongsTo(PhedDivision::class);
     }
 
     public function waterSample(): HasOne

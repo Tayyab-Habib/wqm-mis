@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { financeService } from '../../../services/financeService.js'
+import { exportToExcel } from '../../../utils/exportHelpers.js'
 
 const loading  = ref(false)
 const errorMsg = ref('')
@@ -124,6 +125,60 @@ const typeColors = { Invoice:'#e0f0ff', Payment:'#e8f5e9', SBP:'#fef9c3' }
 // Use invoicesList as the store.invoices equivalent
 const store = { invoices: invoicesList, totals, ledger }
 
+function exportIndividualInvoices() {
+  if (!invoicesList.value.length) {
+    alert('No invoices to export.')
+    return
+  }
+  const exportData = invoicesList.value.map(inv => ({
+    'Invoice ID': inv.slug || inv.id,
+    'Client / WSS': inv.client,
+    'Lab': inv.lab,
+    'Date': inv.date,
+    'Samples': inv.samples,
+    'Amount (PKR)': inv.total,
+    'Received (PKR)': inv.received,
+    'Balance (PKR)': inv.balance,
+    'Status': inv.status
+  }))
+  exportToExcel(exportData, 'Individual_Invoices', { includeTimestamp: true })
+}
+
+function exportLedger() {
+  if (!ledgerRunning.value.length) {
+    alert('No ledger entries to export.')
+    return
+  }
+  const exportData = ledgerRunning.value.map(r => ({
+    'Date': r.date,
+    'Transaction ID': r.txId,
+    'Type': r.type,
+    'Client / Reference': r.client,
+    'Lab': r.lab,
+    'Debit (PKR)': r.debit || '',
+    'Credit (PKR)': r.credit || '',
+    'Running Balance (PKR)': Math.abs(r.running) + (r.running > 0 ? ' Dr' : ' Cr'),
+    'Notes': r.note
+  }))
+  exportToExcel(exportData, 'Revenue_Ledger', { includeTimestamp: true })
+}
+
+function exportDues() {
+  if (!dueInvoices.value.length) {
+    alert('No dues to export.')
+    return
+  }
+  const exportData = dueInvoices.value.map(inv => ({
+    'Invoice ID': inv.id,
+    'Client': inv.client,
+    'Lab': inv.lab,
+    'Invoice Date': inv.date,
+    'Amount (PKR)': inv.total,
+    'Balance (PKR)': inv.balance
+  }))
+  exportToExcel(exportData, 'Dues_Register', { includeTimestamp: true })
+}
+
 onMounted(loadInvoices)
 </script>
 
@@ -148,7 +203,7 @@ onMounted(loadInvoices)
       <div class="toolbar">
         <div class="tsp"></div>
         <button class="btn btn-pri btn-sm" @click="openClubbed">+ Generate Clubbed Invoice</button>
-        <button class="btn btn-sec btn-sm">⬇ Export</button>
+        <button class="btn btn-sec btn-sm" @click="exportIndividualInvoices">⬇ Export</button>
       </div>
       <div class="tbl-wrap">
         <table>
@@ -222,7 +277,7 @@ onMounted(loadInvoices)
           <option value="SBP">SBP Deposit</option>
         </select>
         <div class="tsp"></div>
-        <button class="btn btn-sec btn-sm">⬇ Export .xlsx</button>
+        <button class="btn btn-sec btn-sm" @click="exportLedger">⬇ Export .xlsx</button>
       </div>
       <div class="tbl-wrap">
         <table style="font-size:11.5px">
@@ -254,7 +309,7 @@ onMounted(loadInvoices)
       <div class="toolbar">
         <input type="text" v-model="duesSearch" placeholder="🔍 Client name, Invoice ID…">
         <div class="tsp"></div>
-        <button class="btn btn-sec btn-sm">⬇ Export</button>
+        <button class="btn btn-sec btn-sm" @click="exportDues">⬇ Export</button>
       </div>
       <div class="tbl-wrap">
         <table style="font-size:11.5px">
