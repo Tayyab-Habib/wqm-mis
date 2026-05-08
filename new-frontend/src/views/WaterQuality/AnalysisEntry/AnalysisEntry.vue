@@ -30,6 +30,8 @@ function mapRow(s) {
     ? (statusMap[rawStatus] ?? String(rawStatus))
     : (s.result || 'Pending')
 
+  const round = s.current_round || 0
+
   return {
     id:          s.id,
     slug:        s.slug || String(s.id),
@@ -40,6 +42,8 @@ function mapRow(s) {
     by:          s.collected_by || s.created_by_user?.name || s.createdByUser?.name || '—',
     date:        s.sampled_at ? formatDate(s.sampled_at.split(' ')[0]) : '—',
     status:      statusStr,
+    round,
+    isRetest:    round > 0,
     isPT:        (s.collectable_type || '').toUpperCase() === 'PT' || (s.slug || '').startsWith('PT/'),
     ptProgramme: s.water_sample_address || '',
   }
@@ -277,10 +281,28 @@ async function sendForReanalysis() {
   if (!currentRow.value) return
   saveLoading.value = true
   try {
-    // Submit current results as draft, backend will keep status pending
-    const payload = { ...buildPayload(), is_draft: true }
+    // Force result as Unfit — QC failed, sample needs re-collection
+    const payload = { ...buildPayload(), is_draft: false, force_unfit: true }
     await api.put(`/water-sample-tests/${currentRow.value.id}/analyze`, payload)
-    successMsg.value  = `🔄 Sample ${currentRow.value.slug} sent for re-analysis`
+    successMsg.value  = `❌ Sample ${currentRow.value.slug} marked Unfit — sent to trail`
+    showQcModal.value = false
+    showModal.value   = false
+    await loadQueue()
+  } catch (e) {
+    errorMsg.value = e.response?.data?.message || e.message || 'Error'
+  } finally {
+    saveLoading.value = false
+  }
+}
+
+async function overrideAndAccept() {
+  if (!currentRow.value) return
+  saveLoading.value = true
+  try {
+    // Force Fit — Override & Accept, current_status = 2
+    const payload = { ...buildPayload(), is_draft: false, force_fit: true }
+    await api.put(`/water-sample-tests/${currentRow.value.id}/analyze`, payload)
+    successMsg.value  = `✅ Analysis accepted for ${currentRow.value.slug} — marked Done`
     showQcModal.value = false
     showModal.value   = false
     await loadQueue()
@@ -431,7 +453,7 @@ onMounted(loadQueue)
               <template v-else-if="['pending','in_progress','in progress'].includes(row.status?.toLowerCase())">
                 <button class="btn btn-pri btn-xs" @click="openAnalysis(row)"
                   style="background:#1d4ed8;border-color:#1d4ed8;font-size:11px">
-                  ▶ Start Analysis
+                  {{ row.isRetest ? `▶ Retest R${row.round}` : '▶ Start Analysis' }}
                 </button>
               </template>
               <template v-else-if="row.status?.toLowerCase() === 'unfit'">
@@ -671,7 +693,7 @@ onMounted(loadQueue)
                 🔄 Send for Re-Analysis
               </button>
               <button v-if="!qc.pass.value" class="btn btn-sec" style="font-size:11px"
-                @click="submitResults" :disabled="saveLoading">
+                @click="overrideAndAccept" :disabled="saveLoading">
                 ⚠ Override &amp; Accept
               </button>
               <button v-if="qc.pass.value" class="btn" style="background:#16a34a;color:#fff;border-color:#16a34a;font-weight:700"

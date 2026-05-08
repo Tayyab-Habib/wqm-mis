@@ -119,7 +119,11 @@ class WaterSampleTestController extends Controller
     {
         DB::beginTransaction();
         try {
-            $activeTest = $waterSample->tests()->whereIn('status', [WaterSampleTestStatusEnum::PENDING->value, WaterSampleTestStatusEnum::IN_PROGRESS->value])->latest()->first();
+            $activeTest = $waterSample->tests()->whereIn('status', [
+                WaterSampleTestStatusEnum::PENDING->value,
+                WaterSampleTestStatusEnum::IN_PROGRESS->value,
+                WaterSampleTestStatusEnum::COMPLETED->value,
+            ])->latest()->first();
             
             if (!$activeTest) {
                 return response()->json([
@@ -157,7 +161,12 @@ class WaterSampleTestController extends Controller
         $authUserId = auth()->id();
         $testResults = collect($validatedData['analysis_results']);
 
-        $activeTest = $waterSample->tests()->whereIn('status', [WaterSampleTestStatusEnum::PENDING->value, WaterSampleTestStatusEnum::IN_PROGRESS->value])->latest()->first();
+        // Accept PENDING, IN_PROGRESS, or COMPLETED (re-analysis scenario)
+        $activeTest = $waterSample->tests()->whereIn('status', [
+            WaterSampleTestStatusEnum::PENDING->value,
+            WaterSampleTestStatusEnum::IN_PROGRESS->value,
+            WaterSampleTestStatusEnum::COMPLETED->value,
+        ])->latest()->first();
 
         if (!$activeTest) {
             return response()->json([
@@ -198,6 +207,16 @@ class WaterSampleTestController extends Controller
         $finalResultString = $notTested !== $waterQualityParameterResults->count() && !$request->is_draft
             ? (in_array('Unfit', $waterParameterResult) ? 'Unfit' : 'Fit')
             : null;
+
+        // force_unfit: QC failed and analyst chose Re-Analysis — mark as Unfit directly
+        if ($request->boolean('force_unfit')) {
+            $finalResultString = 'Unfit';
+        }
+
+        // force_fit: Override & Accept — mark as Fit regardless of QC
+        if ($request->boolean('force_fit')) {
+            $finalResultString = 'Fit';
+        }
             
         $finalResultEnum = $finalResultString === 'Fit' ? WaterSampleTestResultEnum::FIT : ($finalResultString === 'Unfit' ? WaterSampleTestResultEnum::UNFIT : null);
 
@@ -233,32 +252,31 @@ class WaterSampleTestController extends Controller
 
             // SLA Logic: Trigger notification if UNFIT
             if ($finalResultString === 'Unfit') {
-                $xens = User::role(UserRoleEnum::xenTierRoles())
-                    ->where('phed_division_id', $waterSample->phed_division_id)
-                    ->get();
-                
-                foreach ($xens as $xen) {
-                    DB::table('notifications')->insert([
-                        'id' => \Illuminate\Support\Str::uuid(),
-                        'type' => 'App\Notifications\WaterSampleUnfit',
-                        'notifiable_type' => User::class,
-                        'notifiable_id' => $xen->id,
-                        'data' => json_encode([
-                            'message' => "Water Sample #{$waterSample->id} is UNFIT. Corrective action required.",
-                            'sample_id' => $waterSample->id,
-                            'status' => 'UNFIT'
-                        ]),
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                        // Extended SLA fields
-                        'water_sample_id' => $waterSample->id,
-                        'round' => $activeTest->round,
-                        'role' => 'XEN',
-                        'status' => 1, // Pending
-                        'notified_at' => now(),
-                        'due_at' => now()->addDays(15),
-                        'type_key' => 'SAMPLE_UNFIT'
-                    ]);
+                try {
+                    $xens = User::role(UserRoleEnum::xenTierRoles())
+                        ->where('phed_division_id', $waterSample->phed_division_id)
+                        ->get();
+                    
+                    foreach ($xens as $xen) {
+                        DB::table('notifications')->insert([
+                            'id' => \Illuminate\Support\Str::uuid(),
+                            'type' => 'App\Notifications\WaterSampleUnfit',
+                            'notifiable_type' => User::class,
+                            'notifiable_id' => $xen->id,
+                            'data' => json_encode([
+                                'message' => "Water Sample #{$waterSample->slug} is UNFIT. Corrective action required.",
+                                'sample_id' => $waterSample->id,
+                                'sample_slug' => $waterSample->slug,
+                                'status' => 'UNFIT',
+                                'round' => $activeTest->round,
+                            ]),
+                            'created_at' => now(),
+                            'updated_at' => now(),
+                        ]);
+                    }
+                } catch (\Exception $notifException) {
+                    // Non-fatal — notification failure should not block result saving
+                    info('Notification insert failed: ' . $notifException->getMessage());
                 }
             }
             
@@ -280,5 +298,55 @@ class WaterSampleTestController extends Controller
             'message' => $message,
             'data' => $waterSample->load('tests.waterSampleDetails'),
         ], SymfonyResponse::HTTP_OK);
+    }
+
+    /**
+     * Record WSS Fate Decision — lightweight endpoint, no full sample update required
+     */
+    public function recordFate(Request $request, WaterSample $waterSample): JsonResponse
+    {
+        $request->validate([
+            'decision'          => ['required', 'string', 'in:monitor,advisory,decommission'],
+            'authorised_by'     => ['nullable', 'string', 'max:255'],
+            'decision_date'     => ['nullable', 'date'],
+            'remarks'           => ['required', 'string', 'max:65535'],
+            'doc_ref'           => ['nullable', 'string', 'max:255'],
+        ]);
+
+        try {
+            // Store fate decision in remarks field and mark sample as closed
+            $decisionLabel = match($request->decision) {
+                'monitor'       => 'Continue Monitoring',
+                'advisory'      => 'Issue Public Advisory',
+                'decommission'  => 'Decommission / Abandon WSS',
+                default         => $request->decision,
+            };
+
+            $fateNote = implode(' | ', array_filter([
+                'FATE DECISION: ' . strtoupper($decisionLabel),
+                $request->authorised_by ? 'Auth: ' . $request->authorised_by : null,
+                $request->decision_date ? 'Date: ' . $request->decision_date : null,
+                'Remarks: ' . $request->remarks,
+                $request->doc_ref ? 'Ref: ' . $request->doc_ref : null,
+            ]));
+
+            $waterSample->update([
+                'remarks'        => $fateNote,
+                'is_closed'      => true,
+                'current_status' => WaterSampleCurrentStatusEnum::CLOSED->value,
+            ]);
+
+            return response()->json([
+                'message' => 'Fate decision recorded successfully',
+                'data'    => ['decision' => $decisionLabel],
+            ], SymfonyResponse::HTTP_OK);
+
+        } catch (\Exception $e) {
+            info('Fate decision error: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Error recording fate decision',
+                'data'    => null,
+            ], SymfonyResponse::HTTP_INTERNAL_SERVER_ERROR);
+        }
     }
 }

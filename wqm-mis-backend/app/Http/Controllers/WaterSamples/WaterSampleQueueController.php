@@ -45,6 +45,7 @@ class WaterSampleQueueController extends Controller
                 'hub_lab_id',
                 'result',
                 'current_status',
+                'current_round',
                 'created_at'
             ])
             ->where(function ($q) use ($isDraft) {

@@ -11,8 +11,8 @@ const router = useRouter()
 const filters = ref({
   client: 'PHE',
   from: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
-  to:   new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString().split('T')[0],
-  allTime: false,
+  to:   new Date().toISOString().split('T')[0],  // today, not end of month
+  allTime: true,   // default to all-time so no date filter on initial load
   region: '',
   division: '',
   divisionId: '',
@@ -240,13 +240,14 @@ function buildPayload() {
   const p = {}
   // Only send type filter if explicitly set (not the default 'PHE' which shows all)
   if (filters.value.client && filters.value.client !== 'ALL') p.type = filters.value.client
-  if (filters.value.divisionId)  p.division_id   = filters.value.divisionId
-  if (filters.value.districtId)  p.district_id   = filters.value.districtId
-  if (filters.value.labId)       p.laboratory_id  = filters.value.labId
+  // division_id is required_with district_id — always send both together
+  if (filters.value.divisionId)  p.division_id  = filters.value.divisionId
+  if (filters.value.districtId && filters.value.divisionId) p.district_id = filters.value.districtId
+  if (filters.value.labId)       p.laboratory_id = filters.value.labId
   if (!filters.value.allTime && filters.value.from && filters.value.to) {
-    // Ensure start < end (backend requires before/after)
+    // Ensure start strictly before end (backend requires before/after)
     if (filters.value.from < filters.value.to) {
-      p.duration    = 'month'   // DurationEnum::MONTH = 'month' (lowercase)
+      p.duration    = 'month'
       p.start_month = filters.value.from
       p.end_month   = filters.value.to
     }

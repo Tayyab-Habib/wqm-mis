@@ -1,15 +1,44 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useUiStore } from '../../../stores/useUiStore.js'
+import { api } from '../../../services/api.js'
 
 const store = useUiStore()
+
+// ── Dynamic badge counts ──────────────────────────────────────────────
+const unfitCount = ref(0)
+
+async function fetchUnfitCount() {
+  try {
+    const res = await api.post('/search-water-sample', { result: 'Unfit' })
+    const data = res.data?.data
+    // Handle paginated response
+    if (data?.total !== undefined) {
+      unfitCount.value = data.total
+    } else if (Array.isArray(data)) {
+      unfitCount.value = data.length
+    } else if (data?.data) {
+      unfitCount.value = data.data.length
+    }
+  } catch (e) {
+    // Silently fail — badge just won't show
+  }
+}
+
+// Refresh every 2 minutes
+let refreshTimer = null
+onMounted(() => {
+  fetchUnfitCount()
+  refreshTimer = setInterval(fetchUnfitCount, 120_000)
+})
+onUnmounted(() => clearInterval(refreshTimer))
 
 const navItems = [
   { label: 'Dashboard',           icon: '🏠', route: '/dashboard' },
   { section: 'Water Quality' },
   { label: 'Sample Registration', icon: '🧪', route: '/water-quality/sample-registration' },
   { label: 'Analysis Entry',      icon: '⚗️', route: '/water-quality/analysis-entry' },
-  { label: 'Unfit Sample Trail',  icon: '⚠️', route: '/water-quality/unfit-sample-trail', badge: 12 },
+  { label: 'Unfit Sample Trail',  icon: '⚠️', route: '/water-quality/unfit-sample-trail', badgeKey: 'unfit' },
   { section: 'Reports' },
   { label: 'Individual Sample Report', icon: '🧪', route: '/reports/individual-sample' },
   { label: 'GAR (Abstract)',      icon: '📄', route: '/reports/gar' },
@@ -31,6 +60,11 @@ const navItems = [
   { label: 'Diaries / Dispatches', icon: '📝', route: '/admin/diaries-dispatches' },
   { label: 'Water Scheme Details', icon: '💧', route: '/wss-details' },
 ]
+
+function getBadge(item) {
+  if (item.badgeKey === 'unfit') return unfitCount.value || null
+  return item.badge || null
+}
 </script>
 
 <template>
@@ -57,7 +91,7 @@ const navItems = [
         >
           <span class="ic">{{ item.icon }}</span>
           {{ item.label }}
-          <span v-if="item.badge" class="badge">{{ item.badge }}</span>
+          <span v-if="getBadge(item)" class="badge">{{ getBadge(item) }}</span>
         </RouterLink>
       </template>
     </nav>

@@ -15,7 +15,7 @@ export const sampleService = {
   updateResults: (id, data) => api.put(`/water-sample-results/${id}`, data),
 
   // Retest
-  requestRetest: (id) => api.post(`/water-sample-tests/${id}/retest`),
+  requestRetest: (id, data = {}) => api.post(`/water-sample-tests/${id}/retest`, data),
 
   // Start analysis
   startAnalysis: (id) => api.patch(`/water-sample-tests/${id}/start`),

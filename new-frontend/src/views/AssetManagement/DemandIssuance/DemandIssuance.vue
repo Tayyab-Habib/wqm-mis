@@ -8,17 +8,22 @@ const demands  = ref([])
 const stockItems = ref([])
 
 function mapDemand(inv) {
-  const detail = inv.inventoryDetails?.[0] || {}
+  const detail = inv.inventory_details?.[0] || inv.inventoryDetails?.[0] || {}
+  const itemName = detail.inventoryable?.name || detail.material?.name || detail.asset?.name || '—'
+  const unit = detail.unit || ''
+  const qty = detail.quantity ? `${parseFloat(detail.quantity)} ${unit}`.trim() : '—'
+  const daysPending = inv.created_at
+    ? Math.floor((Date.now() - new Date(inv.created_at)) / (1000 * 60 * 60 * 24))
+    : 0
   return {
     id: inv.id,
+    slug: inv.slug || `INV-${inv.id}`,
     detailId: detail.id || null,
     from: inv.laboratory?.name || '—',
-    item: detail.material?.name || detail.asset?.name || '—',
-    qty: `${detail.quantity || 1} ${detail.unit || ''}`.trim(),
+    item: itemName,
+    qty,
     urgency: inv.urgency || 'Routine',
-    daysPending: inv.created_at
-      ? Math.floor((Date.now() - new Date(inv.created_at)) / (1000 * 60 * 60 * 24))
-      : 0,
+    daysPending,
     status: inv.status || 'Pending',
   }
 }
@@ -31,10 +36,11 @@ async function loadData() {
       assetService.getInventories(),
       assetService.getMaterials(),
     ])
-    const invData = invRes.data?.data || invRes.data || []
+    // Handle paginated response: { data: { data: [...] } }
+    const invData = invRes.data?.data?.data || invRes.data?.data || invRes.data || []
     const matData = matRes.data?.data || matRes.data || []
-    demands.value    = invData.map(mapDemand)
-    stockItems.value = matData
+    demands.value    = Array.isArray(invData) ? invData.map(mapDemand) : []
+    stockItems.value = Array.isArray(matData) ? matData : []
   } catch (e) {
     errorMsg.value = 'Failed to load demand data'
     console.error('Demand load error:', e)
@@ -55,27 +61,26 @@ async function approveDemand(demand) {
 }
 
 const showDemandModal = ref(false)
-const demandForm = ref({ item:'', unit:'', qty:'', urgency:'', reqDate:'', remarks:'' })
+const demandForm = ref({ itemId: '', itemName: '', unit: '', qty: '', urgency: '', reqDate: '', remarks: '' })
 
 async function saveDemand() {
-  if (!demandForm.value.item || !demandForm.value.qty || !demandForm.value.urgency) {
+  if (!demandForm.value.itemId || !demandForm.value.qty || !demandForm.value.urgency) {
     alert('Please fill all required fields.'); return
   }
   try {
     await assetService.createInventory({
-      urgency: demandForm.value.urgency,
-      required_by: demandForm.value.reqDate,
-      remarks: demandForm.value.remarks,
-      items: [{
-        name: demandForm.value.item,
-        quantity: demandForm.value.qty,
-        unit: demandForm.value.unit,
+      details: [{
+        inventoryable_type: 'material',
+        inventoryable_id: demandForm.value.itemId,
+        quantity: parseFloat(demandForm.value.qty).toFixed(2),
+        unit: demandForm.value.unit || 'pcs',
       }],
     })
     await loadData()
     showDemandModal.value = false
+    demandForm.value = { itemId: '', itemName: '', unit: '', qty: '', urgency: '', reqDate: '', remarks: '' }
   } catch (e) {
-    alert('Failed to submit demand: ' + (e?.message || 'Unknown error'))
+    alert('Failed to submit demand: ' + (e?.response?.data?.message || e?.message || 'Unknown error'))
     console.error('Demand save error:', e)
   }
 }
@@ -150,9 +155,9 @@ onMounted(loadData)
           <div class="form-grid c2">
             <div class="fg2 span2">
               <label>Item *</label>
-              <select v-model="demandForm.item">
+              <select v-model="demandForm.itemId" @change="() => { const m = stockItems.find(i => i.id == demandForm.itemId); demandForm.unit = m?.unit || 'pcs'; demandForm.itemName = m?.name || '' }">
                 <option value="">— Select Item —</option>
-                <option v-for="item in stockItems" :key="item.id" :value="item.name">{{ item.name }} ({{ item.unit }})</option>
+                <option v-for="item in stockItems" :key="item.id" :value="item.id">{{ item.name }} ({{ item.unit || 'pcs' }})</option>
               </select>
             </div>
             <div class="fg2"><label>Quantity *</label><input type="number" v-model="demandForm.qty" min="1" placeholder="e.g. 10"></div>

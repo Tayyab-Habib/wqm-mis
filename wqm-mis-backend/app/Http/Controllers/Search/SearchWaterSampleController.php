@@ -23,10 +23,12 @@ class SearchWaterSampleController extends Controller
             'waterScheme:id,name',
             'division:id,name',
             'district:id,name',
+            'phedDivision:id,name',
             'tehsil:id,name',
             'unionCouncil:id,name',
             'createdByUser:id,name',
-            'waterSampleInvoice:id,water_sample_id,price,paid,balance'
+            'waterSampleInvoice:id,water_sample_id,price,paid,balance',
+            'tests' => fn($q) => $q->orderBy('round')->select(['id','water_sample_id','round','status','result','sampled_at','analyzed_at']),
         ]);
 
         $validatedData = $request->validated();
@@ -68,6 +70,16 @@ class SearchWaterSampleController extends Controller
 
         if (isset($validatedData['province_id'])) {
             $query->where('province_id', '=', $validatedData['province_id']);
+        }
+
+        // Filter by result (Fit/Unfit)
+        if ($request->has('result') && $request->result) {
+            $query->where('result', '=', $request->result);
+        }
+
+        // Filter by current_status integer
+        if ($request->has('current_status') && $request->current_status !== null) {
+            $query->where('current_status', '=', $request->current_status);
         }
 
         $waterSamples = $query->paginate(20);

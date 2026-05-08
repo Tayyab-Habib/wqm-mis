@@ -305,13 +305,13 @@ const pvtForm = ref({
   sampleName: '', gps: '',
   collectionDate: today(), collectionTime: '10:15',
   reportingDate: addDays(today(), 3),
-  collectionPoint: 'Source', sourceType: 'Pumping',
+  collectionPoint: 'Source', sourceType: 'Pumping', sourceSubType: 'Tube Well',
   containerType: 'Plastic Bottle', collectedBy: 'Laboratory Staff',
   reasonForTesting: 'General Q.Analysis',
   testType: 'PCM', testMethod: 'MF Method — Membrane Filtration',
   temperature: 20,
   // New client fields
-  name: '', phone: '', email: '', address: '', type: 'Individual', organization_name: '',
+  name: '', phone: '', email: '', address: '', type: 'individual', organization_name: '',
 })
 
 watch(() => pvtForm.value.division_id, () => {
@@ -376,7 +376,7 @@ async function savePvt() {
     const clientData = pvtClientType.value === 'existing'
       ? { name: selectedClient.value.name, phone: selectedClient.value.phone,
           email: selectedClient.value.email || '', address: selectedClient.value.address || '',
-          type: selectedClient.value.type || 'Individual' }
+          type: selectedClient.value.type || 'individual' }
       : { name: pvtForm.value.name, phone: pvtForm.value.phone,
           email: pvtForm.value.email, address: pvtForm.value.address,
           type: pvtForm.value.type, organization_name: pvtForm.value.organization_name }
@@ -746,7 +746,7 @@ async function savePT() {
       <!-- New client fields -->
       <div v-if="pvtClientType === 'new'" class="form-grid" style="margin-bottom:12px">
         <div class="fg2"><label>Client Type *</label>
-          <select v-model="pvtForm.type"><option value="Individual">Individual</option><option value="Organization">Organization</option></select>
+          <select v-model="pvtForm.type"><option value="individual">Individual</option><option value="organization">Organization</option></select>
         </div>
         <div class="fg2 span2"><label>Full Name / Organization Name *</label>
           <input type="text" v-model="pvtForm.name" placeholder="e.g. Ahmad Khan, Al-Noor Hospital…">

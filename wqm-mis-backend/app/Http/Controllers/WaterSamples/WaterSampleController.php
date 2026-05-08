@@ -161,17 +161,24 @@ class WaterSampleController extends Controller
             }
 
             $waterSample = WaterSample::query()
-                ->create(array_merge($validatedData, [
-                    'collectable_id' => $collectableId,
-                    'collectable_type' => $collectableType,
-                    'laboratory_id' => $laboratoryId,
-                    'sampled_at' => $request->sampled_at,
-                    'reported_at' => $request->reported_at,
-                    'desired_test' => implode(', ', $request->desired_test),
-                    'current_status' => WaterSampleCurrentStatusEnum::PENDING->value,
-                    'current_round' => 0,
-                    'is_closed' => false,
-                ]));
+                ->create(array_merge(
+                    // Remove water_scheme_id for Private samples — it must be null
+                    collect($validatedData)->when(
+                        $validatedData['collectable_type'] !== CollectableTypeEnum::PHE->value,
+                        fn($c) => $c->except(['water_scheme_id'])
+                    )->toArray(),
+                    [
+                        'collectable_id' => $collectableId,
+                        'collectable_type' => $collectableType,
+                        'laboratory_id' => $laboratoryId,
+                        'sampled_at' => $request->sampled_at,
+                        'reported_at' => $request->reported_at,
+                        'desired_test' => implode(', ', $request->desired_test),
+                        'current_status' => WaterSampleCurrentStatusEnum::PENDING->value,
+                        'current_round' => 0,
+                        'is_closed' => false,
+                    ]
+                ));
 
             $waterSampleTest = WaterSampleTest::create([
                 'water_sample_id' => $waterSample->id,
