@@ -83,6 +83,7 @@ use App\Http\Controllers\Inventory\InventoryLogController;
 use App\Http\Controllers\Inventory\InventoryReceivedController;
 use App\Http\Controllers\Inventory\UpdateInventoryApproveStatusController;
 use App\Http\Controllers\Inventory\UpdateInventoryIssueStatusController;
+use App\Http\Controllers\Finance\FinanceInvoiceController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\Issues\AssignIssueController;
 use App\Http\Controllers\Issues\IssueController;
@@ -341,6 +342,14 @@ Route::middleware('auth:sanctum')->group(callback: function () {
     //End Reports
     Route::middleware(['update_modified_user'])->group(function () {
         Route::apiResource('invoices', InvoiceController::class);
+    });
+
+    // ── Finance Module Routes ────────────────────────────────────────────
+    Route::prefix('finance')->group(function () {
+        Route::get('invoices', [FinanceInvoiceController::class, 'index']);
+        Route::get('ledger',   [FinanceInvoiceController::class, 'ledger']);
+        Route::get('dues',     [FinanceInvoiceController::class, 'dues']);
+        Route::post('record-payment/{waterSampleInvoice}', [FinanceInvoiceController::class, 'recordPayment']);
     });
     //start payment management routes
     Route::apiResource('payments', PaymentController::class)->middleware('update_modified_user');

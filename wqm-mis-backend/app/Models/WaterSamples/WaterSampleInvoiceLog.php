@@ -21,6 +21,8 @@ class WaterSampleInvoiceLog extends Model
         'user_id',
         'paid',
         'balance',
+        'payment_mode',
+        'note',
     ];
 
     public function getActivitylogOptions(): LogOptions
