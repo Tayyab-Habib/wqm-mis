@@ -28,16 +28,15 @@ class DiaryDispatchController extends Controller
         $diaryDispatches = DiaryDispatch::query()
             ->where('type', '=', $enum->value)
             ->select([
-                'id',
-                'subject',
-                'type',
-                'person_name',
-                'date_on_letter',
-//                'receival_date',
-                'designation_id',
-                'folder_id',
-                'laboratory_id',
-                'created_at'
+                'id', 'subject', 'type', 'person_name', 'date_on_letter',
+                'designation_id', 'folder_id', 'laboratory_id', 'created_at',
+                // SRS fields
+                'reference_no', 'category', 'priority', 'remarks',
+                'from_sender', 'addressed_to', 'action_required',
+                'action_due_date', 'action_taken', 'action_status',
+                'to_recipient', 'reference_diary_no', 'mode_of_dispatch',
+                'dispatch_reference_no', 'prepared_by', 'dispatched_by',
+                'attachment', 'attachment_name',
             ])
             ->with([
                 'laboratory:id,name',
@@ -45,7 +44,7 @@ class DiaryDispatchController extends Controller
                 'folder:id,name',
                 'createdByUser:id,name',
             ])
-            ->when(!$authUser->hasRole('system-administrator'), fn($query) => $query->where('laboratory_id', '=', $authUser->laboratoryUser->id))
+            ->when(!$authUser->hasRole('system-administrator'), fn($query) => $query->where('laboratory_id', '=', $authUser->laboratoryUser?->id))
             ->latest()
             ->get();
 
@@ -72,18 +71,22 @@ class DiaryDispatchController extends Controller
     public function store(StoreDiaryDispatchRequest $request, DiaryDispatchEnum $enum)
     {
         $validatedData = $request->validated();
-        $path = 'diaryDispatches';
+        $path = null;
 
-        if (!Storage::disk('public')->path($path)) {
-            Storage::disk('public')->makeDirectory($path);
+        if ($request->hasFile('attachment')) {
+            $dir = 'diaryDispatches';
+            if (!Storage::disk('public')->exists($dir)) {
+                Storage::disk('public')->makeDirectory($dir);
+            }
+            $path = Storage::disk('public')->putFile($dir, $request->file('attachment'));
         }
-        $path = Storage::disk('public')->putFile($path, $request->file('attachment'));
 
         $diaryDispatch = DiaryDispatch::query()
             ->create(array_merge($validatedData, [
-                'laboratory_id' => auth()->user()->laboratoryUser->id,
-                'type' => $enum->value,
-                'attachment' => $path,
+                'laboratory_id' => auth()->user()->laboratoryUser?->id,
+                'type'          => $enum->value,
+                'attachment'    => $path,
+                'created_by'    => auth()->id(),
             ]));
 
         return response()->json([

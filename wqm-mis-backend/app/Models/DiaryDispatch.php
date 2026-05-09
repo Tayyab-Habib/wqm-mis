@@ -23,7 +23,7 @@ class DiaryDispatch extends Model
         'subject',
         'person_name',
         'date_on_letter',
-//        'receival_date',
+        'receival_date',
         'attachment_name',
         'attachment',
         'type',
@@ -32,6 +32,25 @@ class DiaryDispatch extends Model
         'laboratory_id',
         'created_by',
         'modified_by',
+        // SRS fields — shared
+        'reference_no',
+        'category',
+        'priority',
+        'remarks',
+        // SRS fields — Diary (Inward)
+        'from_sender',
+        'addressed_to',
+        'action_required',
+        'action_due_date',
+        'action_taken',
+        'action_status',
+        // SRS fields — Dispatch (Outward)
+        'to_recipient',
+        'reference_diary_no',
+        'mode_of_dispatch',
+        'dispatch_reference_no',
+        'prepared_by',
+        'dispatched_by',
     ];
 
     protected $hidden = [
