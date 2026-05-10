@@ -36,6 +36,11 @@ class SearchWaterSampleController extends Controller
             $query->where('test_type', '=', $validatedData['test_type']);
         }
 
+        // Slug search — supports partial match for user-friendly lookup
+        if ($request->has('slug') && $request->slug) {
+            $query->where('slug', 'like', '%' . $request->slug . '%');
+        }
+
         if (isset($validatedData['water_scheme_id'])) {
             $query->where('water_scheme_id', '=', $validatedData['water_scheme_id']);
         }
