@@ -23,6 +23,10 @@ class LaboratoryAsset extends Model
         'unit',
         'date_of_expiry',
         'status',
+        'make_model',
+        'calibration_cycle',
+        'next_calibration_date',
+        'purchased_at',
     ];
 
 
@@ -58,5 +62,15 @@ class LaboratoryAsset extends Model
     public function assetMaintenanceSchedules(): HasMany
     {
         return $this->hasMany(AssetMaintenanceSchedule::class);
+    }
+
+    public function calibrationLogs(): HasMany
+    {
+        return $this->hasMany(EquipmentCalibrationLog::class)->latest();
+    }
+
+    public function repairLogs(): HasMany
+    {
+        return $this->hasMany(EquipmentRepairLog::class)->latest();
     }
 }

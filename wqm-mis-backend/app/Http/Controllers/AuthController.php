@@ -20,7 +20,7 @@ class AuthController extends Controller
         ) {
             $user = Auth::user();
             $user->token = $user->createToken('MyApp')->plainTextToken;
-            $user->load(['roles:id,name']);
+            $user->load(['roles:id,name', 'laboratories']);
 
             $user->permissions = $user->getAllPermissions()->transform(function ($permission) {
                 return $permission->name;

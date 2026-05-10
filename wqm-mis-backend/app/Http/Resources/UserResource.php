@@ -23,7 +23,8 @@ class UserResource extends JsonResource
             'token' => $this->token,
             'role' => ucwords(str_replace('-', ' ', $this->roles[0]->name)),
             'district_id' => $this->district_id,
-            'division_id' => $this->district->division_id,
+            'division_id' => $this->district->division_id ?? null,
+            'laboratory' => $this->laboratories->first() ? ['id' => $this->laboratories->first()->id, 'name' => $this->laboratories->first()->name] : null,
             'permissions' => Crypt::encryptString(json_encode($this->permissions)),
         ];
     }

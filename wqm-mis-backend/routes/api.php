@@ -6,7 +6,10 @@ use App\Http\Controllers\Assets\AssetController;
 use App\Http\Controllers\Assets\AssetLogController;
 use App\Http\Controllers\Assets\AssetMaintenanceLogController;
 use App\Http\Controllers\Assets\AssetMaintenanceScheduleController;
+use App\Http\Controllers\Assets\EquipmentCalibrationLogController;
+use App\Http\Controllers\Assets\EquipmentRepairLogController;
 use App\Http\Controllers\Assets\LaboratoryAssetController;
+use App\Http\Controllers\Assets\LaboratoryAssetLogController;
 use App\Http\Controllers\Assets\ShowAssetMaintenanceScheduleController;
 use App\Http\Controllers\Assets\UpdateAssetMaintenanceScheduleStatusController;
 use App\Http\Controllers\Assets\UpdateAssetStatusController;
@@ -285,7 +288,13 @@ Route::middleware('auth:sanctum')->group(callback: function () {
     Route::apiResource('asset-maintenance-logs', AssetMaintenanceLogController::class)->only('store');
     Route::get('laboratory/assets/all', [LaboratoryAssetController::class, 'laboratoryAssets']);
     Route::apiResource('laboratory-assets', LaboratoryAssetController::class)->only(['index', 'show', 'update']);
-    //start asset management routes
+    // Equipment calibration logs (nested index + standalone store)
+    Route::get('laboratory-assets/{laboratoryAsset}/calibration-logs', [EquipmentCalibrationLogController::class, 'index']);
+    Route::post('equipment-calibration-logs', [EquipmentCalibrationLogController::class, 'store']);
+    // Equipment repair logs (nested index + standalone store)
+    Route::get('laboratory-assets/{laboratoryAsset}/repair-logs', [EquipmentRepairLogController::class, 'index']);
+    Route::post('equipment-repair-logs', [EquipmentRepairLogController::class, 'store']);
+    //end asset management routes
 
     Route::apiResource('settings', SettingController::class)->only(['index', 'store', 'update']);
 
