@@ -33,7 +33,7 @@ class FetchAssetService
         }
 
         $materials = $query->laboratoryAssets()
-            ->withWhereHas('asset:id,name')
+            ->withWhereHas('asset:id,name,specification')
             ->get();
 
         return LaboratoryAssetResource::collection($materials);
