@@ -22,17 +22,29 @@ class WaterQualityAnalysisReportController extends Controller
     public function __invoke(ShowWaterQualityAnalysisReportRequest $request, WaterSample $water_sample): JsonResponse
     {
         $waterSamples = WaterSample::query()
-            ->select(['water_scheme_id', 'slug', 'sample_name','collected_by', 'collectable_type', 'collectable_id', 'sampled_at','latitude','longitude', 'status', 'desired_test', 'result', 'district_id', 'laboratory_id'])
+            ->select(['water_scheme_id', 'slug', 'sample_name','collected_by', 'collectable_type', 'collectable_id', 'sampled_at','latitude','longitude', 'status', 'desired_test', 'result', 'district_id', 'division_id', 'phed_division_id', 'laboratory_id'])
             ->with([
                 'waterScheme:id,name',
                 'laboratory:id,name',
-                'district:id,name'
+                'district:id,name',
+                'division:id,name',
+                'phedDivision:id,name',
             ])
             ->when(isset($request->month), function ($query) use ($request) {
                 $query->whereBetween('sampled_at', [
                     Carbon::parse($request->month)->startOfMonth(),
                     Carbon::parse($request->month)->endOfMonth()
                 ]);
+            })
+            // Support from_date / to_date range (used by GAR/GSR/ASR)
+            ->when($request->filled('from_date') || $request->filled('to_date'), function ($query) use ($request) {
+                $from = $request->filled('from_date')
+                    ? Carbon::parse($request->from_date)->startOfDay()
+                    : Carbon::parse('2000-01-01');
+                $to = $request->filled('to_date')
+                    ? Carbon::parse($request->to_date)->endOfDay()
+                    : Carbon::now()->endOfDay();
+                $query->whereBetween('sampled_at', [$from, $to]);
             })
             ->when(isset($request->district_id), function ($query) use ($request) {
                 $query->where('district_id', '=', $request->district_id)
@@ -49,6 +61,15 @@ class WaterQualityAnalysisReportController extends Controller
             })
             ->when(isset($request->result), function ($query) use ($request) {
                 $query->where('result', '=', $request->result);
+            })
+            ->when(isset($request->region_id), function ($query) use ($request) {
+                $query->where('region_id', '=', $request->region_id);
+            })
+            ->when(isset($request->circle_id), function ($query) use ($request) {
+                $query->where('circle_id', '=', $request->circle_id);
+            })
+            ->when(isset($request->phed_division_id), function ($query) use ($request) {
+                $query->where('phed_division_id', '=', $request->phed_division_id);
             })
             ->get();
 
