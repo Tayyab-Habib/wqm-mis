@@ -174,6 +174,7 @@ function printReport() { window.print() }
 
 onMounted(async () => {
   await loadDropdowns()
+  await generateReport()
 })
 </script>
 
@@ -407,14 +408,6 @@ onMounted(async () => {
         <span class="rag r-red"    style="margin:0 4px">Action Required</span> &gt;20% &nbsp;·&nbsp;
         <span class="rag r-amber"  style="margin:0 4px">Monitor</span> 10–20% &nbsp;·&nbsp;
         <span class="rag r-green"  style="margin:0 4px">No Action</span> ≤10%
-      </div>
-    </template>
-
-    <!-- Empty state before first generate -->
-    <template v-if="!loading && !generated && !errorMsg">
-      <div style="text-align:center;padding:60px 20px;color:var(--muted);font-size:13px">
-        <div style="font-size:32px;margin-bottom:8px">📋</div>
-        Select your filters above and click <b>Generate</b> to load the Parameter-wise Report.
       </div>
     </template>
   </div>
