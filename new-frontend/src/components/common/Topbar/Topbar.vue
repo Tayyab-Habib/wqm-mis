@@ -1,7 +1,7 @@
 <script setup>
 import { useUserStore } from '../../../stores/useUserStore.js'
 import { useRoute, useRouter } from 'vue-router'
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 const userStore = useUserStore()
 const route = useRoute()
@@ -13,14 +13,51 @@ const displayName = computed(() => userStore.currentUser?.name || 'User')
 const displayRole = computed(() => userStore.currentUser?.role || '')
 const displayLab  = computed(() => userStore.currentUser?.laboratory?.name || 'Central Lab — Peshawar')
 
+// ── Toast ─────────────────────────────────────────────────────────────
+const toast = ref({ show: false, message: '', type: 'success' })
+let toastTimer = null
+
+function showToast(message, type = 'success') {
+  clearTimeout(toastTimer)
+  toast.value = { show: true, message, type }
+  toastTimer = setTimeout(() => { toast.value.show = false }, 4000)
+}
+
+watch(
+  () => route.query.loggedIn,
+  (loggedIn) => {
+    if (loggedIn === '1') {
+      showToast('✅ Successfully logged in', 'success')
+      router.replace('/dashboard')
+    }
+  },
+  { immediate: true }
+)
+
 async function handleLogout() {
   userStore.logout()
-  router.push('/login')
+  router.push({ path: '/login', query: { loggedOut: '1' } })
 }
 </script>
 
 <template>
   <div class="topbar">
+    <!-- ── Toast notification ── -->
+    <Teleport to="body">
+      <Transition name="toast-slide">
+        <div v-if="toast.show"
+             :style="`position:fixed;top:22px;right:24px;z-index:9999;min-width:300px;max-width:460px;
+                      background:${toast.type === 'success' ? '#065f46' : '#991b1b'};
+                      color:#fff;border-radius:8px;padding:14px 18px;
+                      box-shadow:0 6px 32px rgba(0,0,0,.28);font-size:13px;display:flex;align-items:flex-start;gap:10px`">
+          <span style="flex:1;line-height:1.5">{{ toast.message }}</span>
+          <button @click="toast.show = false"
+                  style="background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:4px;
+                         padding:2px 8px;cursor:pointer;font-size:13px;margin-left:4px">✕</button>
+        </div>
+      </Transition>
+    </Teleport>
+
     <div class="tbar-bc" id="bc">{{ breadcrumb }}</div>
     <div class="tbar-sp"></div>
     <div class="notif">
@@ -88,5 +125,15 @@ async function handleLogout() {
     border-color: #fca5a5;
     color: #b91c1c;
   }
+}
+
+.toast-slide-enter-active,
+.toast-slide-leave-active {
+  transition: all 0.3s ease;
+}
+.toast-slide-enter-from,
+.toast-slide-leave-to {
+  opacity: 0;
+  transform: translateX(60px);
 }
 </style>
