@@ -13,15 +13,21 @@ const BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8002'
 const form    = ref({ email: '', password: '' })
 const loading = ref(false)
 const error   = ref('')
-const successAlert = ref(false)
+const showPassword = ref(false)
 
-function closeSuccessAlert() {
-  successAlert.value = false
+// ── Toast ─────────────────────────────────────────────────────────────
+const toast = ref({ show: false, message: '', type: 'success' })
+let toastTimer = null
+
+function showToast(message, type = 'success') {
+  clearTimeout(toastTimer)
+  toast.value = { show: true, message, type }
+  toastTimer = setTimeout(() => { toast.value.show = false }, 4000)
 }
 
 onMounted(() => {
   if (route.query.loggedOut === '1') {
-    successAlert.value = true
+    showToast('✅ Successfully logged out', 'success')
     router.replace('/login')
   }
 })
@@ -98,16 +104,21 @@ async function handleLogin() {
 
 <template>
   <div class="login-page">
-    <Transition name="sweet-alert">
-      <div v-if="successAlert" class="sweet-alert-overlay">
-        <div class="sweet-alert-box">
-          <div class="sweet-alert-icon">✓</div>
-          <h2>Success</h2>
-          <p>Successfully logged out</p>
-          <button type="button" @click="closeSuccessAlert">OK</button>
+    <!-- ── Toast notification ── -->
+    <Teleport to="body">
+      <Transition name="toast-slide">
+        <div v-if="toast.show"
+             :style="`position:fixed;top:22px;right:24px;z-index:9999;min-width:300px;max-width:460px;
+                      background:${toast.type === 'success' ? '#065f46' : '#991b1b'};
+                      color:#fff;border-radius:8px;padding:14px 18px;
+                      box-shadow:0 6px 32px rgba(0,0,0,.28);font-size:13px;display:flex;align-items:flex-start;gap:10px`">
+          <span style="flex:1;line-height:1.5">{{ toast.message }}</span>
+          <button @click="toast.show = false"
+                  style="background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:4px;
+                         padding:2px 8px;cursor:pointer;font-size:13px;margin-left:4px">✕</button>
         </div>
-      </div>
-    </Transition>
+      </Transition>
+    </Teleport>
 
     <div class="login-box">
       <div class="login-header">
@@ -131,14 +142,26 @@ async function handleLogin() {
 
         <div class="form-group">
           <label for="password">Password</label>
-          <input
-            id="password"
-            v-model="form.password"
-            type="password"
-            placeholder="Enter your password"
-            required
-            :disabled="loading"
-          />
+          <div class="password-wrap">
+            <input
+              id="password"
+              v-model="form.password"
+              :type="showPassword ? 'text' : 'password'"
+              placeholder="Enter your password"
+              required
+              :disabled="loading"
+            />
+            <button
+              type="button"
+              class="password-toggle"
+              @click="showPassword = !showPassword"
+              :disabled="loading"
+              :aria-label="showPassword ? 'Hide password' : 'Show password'"
+              :title="showPassword ? 'Hide password' : 'Show password'"
+            >
+              {{ showPassword ? '🙈' : '👁️' }}
+            </button>
+          </div>
         </div>
 
         <div v-if="error" class="error-message">
@@ -238,6 +261,39 @@ async function handleLogin() {
   cursor: not-allowed;
 }
 
+.password-wrap {
+  position: relative;
+}
+
+.password-wrap input {
+  padding-right: 44px;
+}
+
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  background: transparent;
+  border: 0;
+  padding: 4px 6px;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--muted);
+  border-radius: 4px;
+  font-family: inherit;
+}
+
+.password-toggle:hover:not(:disabled) {
+  background: #f1f5f9;
+}
+
+.password-toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .error-message {
   background: #fef2f2;
   border: 1px solid #fca5a5;
@@ -284,73 +340,13 @@ async function handleLogin() {
   margin: 4px 0;
 }
 
-.sweet-alert-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.35);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  padding: 20px;
+.toast-slide-enter-active,
+.toast-slide-leave-active {
+  transition: all 0.3s ease;
 }
-
-.sweet-alert-box {
-  width: 100%;
-  max-width: 360px;
-  background: #fff;
-  border-radius: 8px;
-  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.24);
-  text-align: center;
-  padding: 28px 26px 24px;
-}
-
-.sweet-alert-icon {
-  width: 68px;
-  height: 68px;
-  border: 3px solid #22c55e;
-  border-radius: 50%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: #16a34a;
-  font-size: 38px;
-  line-height: 1;
-  margin-bottom: 14px;
-}
-
-.sweet-alert-box h2 {
-  margin: 0 0 8px;
-  color: #111827;
-  font-size: 24px;
-}
-
-.sweet-alert-box p {
-  margin: 0 0 22px;
-  color: #4b5563;
-  font-size: 14px;
-}
-
-.sweet-alert-box button {
-  min-width: 86px;
-  border: 0;
-  border-radius: 5px;
-  background: #2563eb;
-  color: #fff;
-  font-size: 14px;
-  font-weight: 600;
-  padding: 9px 18px;
-  cursor: pointer;
-  font-family: inherit;
-}
-
-.sweet-alert-enter-active,
-.sweet-alert-leave-active {
-  transition: opacity .18s ease;
-}
-
-.sweet-alert-enter-from,
-.sweet-alert-leave-to {
+.toast-slide-enter-from,
+.toast-slide-leave-to {
   opacity: 0;
+  transform: translateX(60px);
 }
 </style>
