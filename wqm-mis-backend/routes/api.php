@@ -344,6 +344,7 @@ Route::middleware('auth:sanctum')->group(callback: function () {
         Route::post('water-quality-analysis', WaterQualityAnalysisReportController::class);
         Route::post('central-laboratory-water-quality', CentralLaboratoryWaterQualityReportController::class);
         Route::post('laboratory-water-quality-analysis', LaboratoryWaterQualityAnalysisReportController::class);
+        Route::post('ce-wise', \App\Http\Controllers\Reports\CEWiseReportController::class);
         Route::controller(ContaminantWiseReportController::class)
             ->prefix('contaminant-wise')
             ->group(function () {
