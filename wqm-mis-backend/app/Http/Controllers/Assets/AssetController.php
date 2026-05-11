@@ -10,6 +10,7 @@ use App\Http\Requests\Asset\StoreAssetRequest;
 use App\Http\Requests\Asset\UpdateAssetRequest;
 use App\Http\Requests\Asset\ViewAssetRequest;
 use App\Models\Asset\Asset;
+use App\Models\Asset\LaboratoryAsset;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
@@ -53,21 +54,52 @@ class AssetController extends Controller
                 'date_of_entry' => now()->format('Y-m-d'),
             ]);
 
+            // Mirror MaterialController::store — write to all 4 tables in one
+            // transaction so the new asset shows up immediately on the lab's
+            // Inventory/Equipment tab (which reads laboratory_assets, not the
+            // master assets table).
+            $laboratoryId = auth()->user()->laboratoryDetails?->laboratory_id;
+
             DB::beginTransaction();
-            $asset = Asset::query()
-                ->create($validatedData);
 
-            $validatedData = array_merge($validatedData, [
+            // 1. Master assets row + 2. Global asset_logs (status=IN)
+            $asset = Asset::query()->create($validatedData);
+            $assetLog = $asset->assetLogs()->create(array_merge($validatedData, [
                 'status' => AssetLogStatusEnum::IN->value,
-            ]);
+            ]));
 
-            $asset->assetLogs()
-                ->create($validatedData);
+            // 3 & 4. Per-lab allocation + lab-level log so the asset is visible
+            // on this user's Stock & Inventory page right after save.
+            if ($laboratoryId) {
+                $labAsset = LaboratoryAsset::query()->create([
+                    'laboratory_id'   => $laboratoryId,
+                    'asset_id'        => $asset->id,
+                    'quantity'        => $asset->quantity,
+                    'unit'            => $asset->unit,
+                    'date_of_expiry'  => $asset->date_of_expiry ?? null,
+                    'status'          => $asset->status?->value ?? $asset->status,
+                    // SRS §2.7-3 equipment-specific fields. Harmless for inventory
+                    // items (request just won't supply them).
+                    'make_model'      => $request->make_model,
+                    'serial_number'   => $request->serial_number,
+                    'purchased_at'    => $request->purchased_at,
+                    'warranty_expiry' => $request->warranty_expiry,
+                    'purchase_value'  => $request->purchase_value,
+                    'calibration_cycle' => $request->calibration_cycle,
+                ]);
+
+                $labAsset->laboratoryAssetLogs()->create([
+                    'asset_log_id' => $assetLog->id,
+                    'quantity'     => $asset->quantity,
+                    'unit'         => $asset->unit,
+                    'status'       => AssetLogStatusEnum::IN->value,
+                ]);
+            }
 
             DB::commit();
             return response()->json([
                 'message' => 'Success creating inventory',
-                'data' => $asset
+                'data' => $asset->load('laboratoryAssets')
             ], SymfonyResponse::HTTP_CREATED);
 
         } catch (\Exception $exception) {
@@ -75,7 +107,8 @@ class AssetController extends Controller
             info($exception->getMessage());
             return response()->json([
                 'message' => 'Error creating inventory',
-                'data' => ''
+                'data' => null,
+                'error' => $exception->getMessage(),
             ], SymfonyResponse::HTTP_INTERNAL_SERVER_ERROR);
         }
     }

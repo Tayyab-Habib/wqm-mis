@@ -22,10 +22,12 @@ class Material extends Model
 
     protected $fillable = [
         'name',
+        'category',
         'quantity',
         'available_quantity',
         'unit',
         'threshold',
+        'supplier',
         'status',
         'is_active',
     ];

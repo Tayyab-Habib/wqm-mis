@@ -2,6 +2,7 @@
 
 namespace App\Models\Material;
 
+use App\Models\Laboratories\Laboratory;
 use App\Traits\TimeStampAccessorTrait;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -20,6 +21,14 @@ class LaboratoryMaterialLog extends Model
         'quantity',
         'unit',
         'status',
+        'type',
+        'recipient_name',
+        'recipient_role',
+        'sample_ref',
+        'remarks',
+        'recipient_lab_id',
+        'demand_id',
+        'dispatch_reference',
     ];
 
     public function getActivitylogOptions(): LogOptions
@@ -40,5 +49,10 @@ class LaboratoryMaterialLog extends Model
     public function materialLog(): BelongsTo
     {
         return $this->belongsTo(MaterialLog::class);
+    }
+
+    public function recipientLab(): BelongsTo
+    {
+        return $this->belongsTo(Laboratory::class, 'recipient_lab_id');
     }
 }

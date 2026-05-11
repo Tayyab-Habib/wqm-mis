@@ -25,6 +25,14 @@ class MaterialLog extends Model
         'unit',
         'date_of_entry',
         'status',
+        'type',
+        'recipient_name',
+        'recipient_role',
+        'sample_ref',
+        'remarks',
+        'recipient_lab_id',
+        'demand_id',
+        'dispatch_reference',
     ];
 
     protected $hidden = [

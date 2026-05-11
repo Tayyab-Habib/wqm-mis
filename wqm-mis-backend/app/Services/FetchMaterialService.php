@@ -46,6 +46,9 @@ class FetchMaterialService
             ->with([
                 'material:id,name',
                 'laboratory:id,name',
+                'laboratoryMaterialLogs' => function ($query) {
+                    $query->orderByDesc('id')->with('recipientLab:id,name');
+                },
             ])
             ->get();
     }

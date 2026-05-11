@@ -99,6 +99,8 @@ use App\Http\Controllers\MarkAsReadNotificationController;
 use App\Http\Controllers\Materials\LaboratoryMaterialController;
 use App\Http\Controllers\Materials\MaterialController;
 use App\Http\Controllers\Materials\MaterialLogController;
+use App\Http\Controllers\Materials\StockOutController;
+use App\Http\Controllers\Assets\InventoryOutController;
 use App\Http\Controllers\Materials\UpdateMaterialStatusController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PaymentController;
@@ -276,6 +278,7 @@ Route::middleware('auth:sanctum')->group(callback: function () {
     Route::apiResource('material-logs', MaterialLogController::class);
     Route::apiResource('laboratory-materials', LaboratoryMaterialController::class)->only(['index', 'show', 'update']);
     Route::get('laboratory/materials/all', [LaboratoryMaterialController::class, 'laboratoryMaterials']);
+    Route::post('stock-out', [StockOutController::class, 'store']);
     //end material management routes
 
     //start asset management routes
@@ -288,6 +291,7 @@ Route::middleware('auth:sanctum')->group(callback: function () {
     Route::apiResource('asset-maintenance-logs', AssetMaintenanceLogController::class)->only('store');
     Route::get('laboratory/assets/all', [LaboratoryAssetController::class, 'laboratoryAssets']);
     Route::apiResource('laboratory-assets', LaboratoryAssetController::class)->only(['index', 'show', 'update']);
+    Route::post('inventory-out', [InventoryOutController::class, 'store']);
     // Equipment calibration logs (nested index + standalone store)
     Route::get('laboratory-assets/{laboratoryAsset}/calibration-logs', [EquipmentCalibrationLogController::class, 'index']);
     Route::post('equipment-calibration-logs', [EquipmentCalibrationLogController::class, 'store']);

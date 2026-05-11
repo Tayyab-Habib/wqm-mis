@@ -24,6 +24,13 @@ class AssetLog extends Model
         'unit',
         'date_of_entry',
         'status',
+        'type',
+        'recipient_name',
+        'recipient_role',
+        'asset_ref',
+        'remarks',
+        'recipient_lab_id',
+        'dispatch_reference',
     ];
 
     protected $hidden = [

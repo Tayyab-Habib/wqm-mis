@@ -32,8 +32,9 @@ class FetchAssetService
             $query = $laboratory;
         }
 
+        // Eager-load the master asset so the resource can read kind/category/etc.
         $materials = $query->laboratoryAssets()
-            ->withWhereHas('asset:id,name,specification')
+            ->with(['asset:id,name,kind,category,item_code,condition,date_of_purchase,purchase_value,location,last_verified,remarks,specification,country,agency'])
             ->get();
 
         return LaboratoryAssetResource::collection($materials);
@@ -43,8 +44,12 @@ class FetchAssetService
     {
         return LaboratoryAsset::query()
             ->with([
-                'asset:id,name',
+                // Eager-load all SRS §2.7-2/§2.7-3 fields from the master asset.
+                'asset:id,name,kind,category,item_code,condition,date_of_purchase,purchase_value,location,last_verified,remarks,status,specification,country,agency',
                 'laboratory:id,name',
+                'laboratoryAssetLogs' => function ($query) {
+                    $query->orderByDesc('id')->with('recipientLab:id,name');
+                },
             ])
             ->get();
     }

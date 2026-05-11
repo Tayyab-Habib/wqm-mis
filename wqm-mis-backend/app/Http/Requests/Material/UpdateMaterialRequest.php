@@ -30,8 +30,13 @@ class UpdateMaterialRequest extends FormRequest
                 $query->whereNull('deleted_at')
                     ->whereNot('id', '=', $this->material->id);
             }), 'max:255'],
-            'status' => ['required', Rule::in(MaterialStatusEnum::values())],
-            'threshold' => ['required', 'numeric', 'gte:0', 'decimal:2'],
+            'category'           => ['nullable', 'string', 'max:255'],
+            'unit'               => ['nullable', 'string', 'max:255'],
+            'quantity'           => ['nullable', 'numeric', 'gte:0', 'decimal:0,2'],
+            'available_quantity' => ['nullable', 'numeric', 'gte:0', 'decimal:0,2'],
+            'supplier'           => ['nullable', 'string', 'max:255'],
+            'status'    => ['required', Rule::in(MaterialStatusEnum::values())],
+            'threshold' => ['required', 'numeric', 'gte:0', 'decimal:0,2'],
         ];
     }
 

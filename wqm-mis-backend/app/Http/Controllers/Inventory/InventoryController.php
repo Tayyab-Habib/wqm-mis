@@ -38,7 +38,7 @@ class InventoryController extends Controller
             })
             ->with([
                 'laboratory:id,name',
-                'inventoryDetails:id,inventory_id,inventoryable_id,inventoryable_type' => [
+                'inventoryDetails:id,inventory_id,inventoryable_id,inventoryable_type,quantity,approved_quantity,unit,status,is_received,received_at' => [
                     'inventoryable:id,name'
                 ]
             ])
@@ -80,6 +80,8 @@ class InventoryController extends Controller
 
             $inventory = Inventory::query()->create([
                 'laboratory_id' => $laboratoryId,
+                'urgency'       => $validatedData['urgency'] ?? 'routine',
+                'justification' => $validatedData['justification'] ?? null,
             ]);
 
             foreach ($validatedData['details'] as $index => $_) {

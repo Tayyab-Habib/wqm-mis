@@ -22,10 +22,19 @@ class Asset extends Model
 
     protected $fillable = [
         'name',
+        'kind',
+        'category',
+        'item_code',
         'quantity',
         'unit',
         'date_of_expiry',
         'status',
+        'condition',
+        'date_of_purchase',
+        'purchase_value',
+        'location',
+        'last_verified',
+        'remarks',
         'is_active',
         'specification',
         'country',
@@ -58,6 +67,11 @@ class Asset extends Model
     public function assetLogs(): HasMany
     {
         return $this->hasMany(AssetLog::class);
+    }
+
+    public function laboratoryAssets(): HasMany
+    {
+        return $this->hasMany(LaboratoryAsset::class);
     }
 
     public function inventory()

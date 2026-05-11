@@ -1,6 +1,16 @@
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { assetService } from '../../../services/assetService.js'
+
+// ── Toast (mirrors StockInventory.vue's pattern) ───────────────────────────
+const toast = ref({ show: false, type: 'success', message: '' })
+let toastTimer = null
+function showToast(type, message, duration = 4000) {
+  if (toastTimer) clearTimeout(toastTimer)
+  toast.value = { show: true, type, message }
+  toastTimer = setTimeout(() => { toast.value.show = false }, duration)
+}
+onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
 
 // ── Equipment table ────────────────────────────────────────────────────────
 const loading   = ref(false)
@@ -10,16 +20,24 @@ const equipment = ref([])
 function mapEquipment(a) {
   const nextCalib  = a.next_calibration_date || '—'
   const isOverdue  = nextCalib !== '—' && new Date(nextCalib) < new Date()
+  // Equipment-specific fields live on laboratory_assets directly; the master
+  // asset is eager-loaded under `asset` (so we can read kind/item_code/etc).
+  // We also fall back to top-level scalars exposed by LaboratoryAssetResource.
   return {
-    id:           a.id,
-    assetId:      a.asset_id || a.id,
-    name:         a.name || '—',
-    model:        a.make_model || '—',
-    purchased:    a.purchased_at ? a.purchased_at.split('T')[0] : '—',
-    calibCycle:   a.calibration_cycle || '12 months',
-    status:       a.status || 'Operational',
-    nextCalib:    nextCalib,
-    calibOverdue: isOverdue,
+    id:              a.id,
+    assetId:         a.asset_id || a.id,
+    kind:            a.asset?.kind || null,
+    name:            a.asset?.name || a.name || '—',
+    asset_code:      a.asset?.item_code || '—',
+    model:           a.make_model || '—',
+    serial_number:   a.serial_number || '—',
+    purchased:       a.purchased_at ? String(a.purchased_at).split('T')[0] : '—',
+    warranty_expiry: a.warranty_expiry ? String(a.warranty_expiry).split('T')[0] : null,
+    purchase_value:  a.purchase_value || a.asset?.purchase_value || null,
+    calibCycle:      a.calibration_cycle || '12 months',
+    status:          a.status || 'Operational',
+    nextCalib:       nextCalib,
+    calibOverdue:    isOverdue,
   }
 }
 
@@ -29,7 +47,15 @@ async function loadEquipment() {
   try {
     const res  = await assetService.getLaboratoryAssets()
     const data = res.data?.data || res.data || []
-    equipment.value = Array.isArray(data) ? data.map(mapEquipment) : []
+    // SRS §2.7-3: Equipment Register shows ONLY lab instruments (kind=equipment).
+    // Non-consumables (kind=inventory) belong on the Inventory tab instead.
+    // No fallback — if kind is missing we exclude the row rather than risk
+    // leaking inventory items onto the equipment register.
+    equipment.value = Array.isArray(data)
+      ? data
+          .filter(a => a.asset?.kind === 'equipment')
+          .map(mapEquipment)
+      : []
   } catch (e) {
     errorMsg.value = 'Failed to load equipment. Please try again.'
     console.error('Equipment load error:', e)
@@ -121,7 +147,7 @@ watch(calibTab, (tab) => { if (tab === 'hist') loadCalibHistory() })
 
 async function saveCalib() {
   if (!calibForm.value.date || !calibForm.value.by || !calibForm.value.result) {
-    alert('Please fill all required fields.')
+    showToast('error', 'Please fill all required fields.')
     return
   }
   calibSaving.value = true
@@ -147,8 +173,9 @@ async function saveCalib() {
       eq.status       = updated.status || eq.status
     }
     showCalibModal.value = false
+    showToast('success', `Calibration logged for "${calibTarget.value?.name || 'equipment'}"`)
   } catch (e) {
-    alert('Failed to save calibration log: ' + (e?.response?.data?.message || e?.message || 'Unknown error'))
+    showToast('error', 'Failed to save calibration log: ' + (e?.response?.data?.message || e?.message || 'Unknown error'))
     console.error('Calib save error:', e)
   } finally {
     calibSaving.value = false
@@ -204,7 +231,7 @@ const showResolvedFields = (status) => ['Resolved', 'Beyond Repair'].includes(st
 
 async function saveRepair() {
   if (!repairForm.value.fault || !repairForm.value.status) {
-    alert('Please fill all required fields.')
+    showToast('error', 'Please fill all required fields.')
     return
   }
   repairSaving.value = true
@@ -227,11 +254,184 @@ async function saveRepair() {
     if (eq && updated) eq.status = updated.status || eq.status
 
     showRepairModal.value = false
+    showToast('success', `Repair logged for "${repairTarget.value?.name || 'equipment'}"`)
   } catch (e) {
-    alert('Failed to save repair log: ' + (e?.response?.data?.message || e?.message || 'Unknown error'))
+    showToast('error', 'Failed to save repair log: ' + (e?.response?.data?.message || e?.message || 'Unknown error'))
     console.error('Repair save error:', e)
   } finally {
     repairSaving.value = false
+  }
+}
+
+// ── Add Equipment modal ────────────────────────────────────────────────────
+// Captures SRS §2.7-3 fields: shared identity goes onto the master `assets`
+// row (kind='equipment'); the instance-specific fields (make_model, serial,
+// purchase/warranty, calibration cycle) land on the per-lab `laboratory_assets`
+// row. Backend AssetController::store does the 4-table write in one txn.
+const showAddEquipmentModal = ref(false)
+const addEquipmentForm = ref({
+  name: '', item_code: '', category: '',
+  make_model: '', serial_number: '',
+  purchased_at: '', purchase_value: '', warranty_expiry: '',
+  calibration_cycle: '12 months',
+  status: 'Operational', location: '',
+})
+const addEquipmentErrors = ref({})
+const addEquipmentSaving = ref(false)
+
+function openAddEquipment() {
+  addEquipmentForm.value = {
+    name: '', item_code: '', category: '',
+    make_model: '', serial_number: '',
+    purchased_at: '', purchase_value: '', warranty_expiry: '',
+    calibration_cycle: '12 months',
+    status: 'Operational', location: '',
+  }
+  addEquipmentErrors.value = {}
+  showAddEquipmentModal.value = true
+}
+
+async function saveEquipment() {
+  addEquipmentErrors.value = {}
+  const f = addEquipmentForm.value
+  const errs = {}
+  if (!f.name?.trim()) errs.name = ['Equipment Name is required']
+  if (Object.keys(errs).length) { addEquipmentErrors.value = errs; return }
+
+  const payload = {
+    name:              f.name.trim(),
+    kind:              'equipment',
+    category:          f.category?.trim() || null,
+    item_code:         f.item_code?.trim() || null,
+    quantity:          '1.00',
+    unit:              'Pcs',
+    // AssetStatusEnum uses capitalised values — map UI text directly.
+    status:            f.status || 'Active',
+    condition:         'good',
+    location:          f.location?.trim() || null,
+    purchase_value:    f.purchase_value ? Number(f.purchase_value).toFixed(2) : null,
+    // Equipment-specific (land on laboratory_assets via AssetController::store)
+    make_model:        f.make_model?.trim() || null,
+    serial_number:     f.serial_number?.trim() || null,
+    purchased_at:      f.purchased_at || null,
+    warranty_expiry:   f.warranty_expiry || null,
+    calibration_cycle: f.calibration_cycle || null,
+  }
+
+  addEquipmentSaving.value = true
+  try {
+    await assetService.createAsset(payload)
+    showAddEquipmentModal.value = false
+    showToast('success', `Equipment "${payload.name}" added`)
+    await loadEquipment()
+  } catch (err) {
+    const status = err?.response?.status
+    if (status === 422) {
+      const errors = err.response?.data?.errors || {}
+      addEquipmentErrors.value = errors
+      const firstError = Object.values(errors)[0]?.[0]
+      showToast('error', firstError || err.response?.data?.message || 'Please fix the highlighted fields')
+    } else if (status === 403) {
+      showToast('error', '403 — You do not have permission to add equipment')
+    } else {
+      showToast('error', err?.response?.data?.message || `Failed to save equipment (HTTP ${status || 'unknown'})`)
+    }
+  } finally {
+    addEquipmentSaving.value = false
+  }
+}
+
+// ── Edit Equipment modal ────────────────────────────────────────────────────
+// Updates BOTH the master `assets` row (name, item_code, category, location,
+// condition, status) AND the per-lab `laboratory_assets` row (make_model,
+// serial_number, purchased_at, warranty_expiry, purchase_value, calibration_cycle).
+// Two PUTs run sequentially in saveEditEquipment().
+const showEditEquipmentModal = ref(false)
+const editEquipmentSaving = ref(false)
+const editEquipmentForm = ref({
+  // ids
+  laboratory_asset_id: null,
+  asset_id: null,
+  // master assets fields
+  name: '', item_code: '', category: '', condition: 'good', location: '',
+  // laboratory_assets fields
+  make_model: '', serial_number: '',
+  purchased_at: '', purchase_value: '', warranty_expiry: '',
+  calibration_cycle: '12 months',
+  status: 'Operational',
+})
+
+function openEditEquipment(eq) {
+  editEquipmentForm.value = {
+    laboratory_asset_id: eq.id,
+    asset_id:            eq.assetId,
+    name:                eq.name && eq.name !== '—' ? eq.name : '',
+    item_code:           eq.asset_code && eq.asset_code !== '—' ? eq.asset_code : '',
+    category:            '',
+    condition:           'good',
+    location:            '',
+    make_model:          eq.model && eq.model !== '—' ? eq.model : '',
+    serial_number:       eq.serial_number && eq.serial_number !== '—' ? eq.serial_number : '',
+    purchased_at:        eq.purchased && eq.purchased !== '—' ? eq.purchased : '',
+    purchase_value:      eq.purchase_value || '',
+    warranty_expiry:     eq.warranty_expiry || '',
+    calibration_cycle:   eq.calibCycle || '12 months',
+    status:              eq.status || 'Operational',
+  }
+  showEditEquipmentModal.value = true
+}
+
+async function saveEditEquipment() {
+  const f = editEquipmentForm.value
+  if (!f.name?.trim()) {
+    showToast('error', 'Equipment Name is required')
+    return
+  }
+
+  editEquipmentSaving.value = true
+  try {
+    // 1. Update master assets row (only fields that live there).
+    const masterPayload = {
+      name:      f.name.trim(),
+      kind:      'equipment',
+      category:  f.category?.trim() || null,
+      item_code: f.item_code?.trim() || null,
+      condition: f.condition || 'good',
+      location:  f.location?.trim() || null,
+      // status on the master is the AssetStatusEnum — keep it 'Active' so the
+      // lab-level status (Operational/Out of Order/etc.) governs equipment UX.
+      status:    'Active',
+    }
+    await assetService.updateAsset(f.asset_id, masterPayload)
+
+    // 2. Update per-lab equipment fields.
+    const labPayload = {
+      make_model:        f.make_model?.trim() || null,
+      serial_number:     f.serial_number?.trim() || null,
+      purchased_at:      f.purchased_at || null,
+      warranty_expiry:   f.warranty_expiry || null,
+      purchase_value:    f.purchase_value ? Number(f.purchase_value).toFixed(2) : null,
+      calibration_cycle: f.calibration_cycle || null,
+      status:            f.status || null,
+    }
+    await assetService.updateLaboratoryAsset(f.laboratory_asset_id, labPayload)
+
+    showEditEquipmentModal.value = false
+    showToast('success', `Equipment "${f.name}" updated`)
+    await loadEquipment()
+  } catch (err) {
+    const status = err?.response?.status
+    if (status === 422) {
+      const errors = err.response?.data?.errors || {}
+      const firstError = Object.values(errors)[0]?.[0]
+      showToast('error', firstError || err.response?.data?.message || 'Please fix the highlighted fields')
+    } else if (status === 403) {
+      showToast('error', '403 — You do not have permission to edit equipment')
+    } else {
+      showToast('error', err?.response?.data?.message || `Failed to update equipment (HTTP ${status || 'unknown'})`)
+    }
+  } finally {
+    editEquipmentSaving.value = false
   }
 }
 
@@ -257,6 +457,11 @@ onMounted(loadEquipment)
 
     <div style="height:8px"></div>
 
+    <!-- Toolbar: + Add Equipment -->
+    <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+      <button class="btn btn-pri" @click="openAddEquipment">+ Add Equipment</button>
+    </div>
+
     <!-- Equipment Table -->
     <div class="tbl-wrap">
       <!-- Loading state -->
@@ -281,9 +486,11 @@ onMounted(loadEquipment)
           <tr>
             <th>S#</th>
             <th>Equipment Name</th>
-            <th>Make / Model</th>
+            <th style="min-width:180px;max-width:220px">Make / Model</th>
+            <th>Serial No.</th>
             <th>Asset Code</th>
             <th>Purchase Date</th>
+            <th>Warranty Expiry</th>
             <th>Calib. Cycle</th>
             <th>Status</th>
             <th>Next Calib. Due</th>
@@ -294,17 +501,24 @@ onMounted(loadEquipment)
           <tr v-for="(eq, i) in equipment" :key="eq.id" :class="i % 2 === 1 ? 'alt' : ''">
             <td>{{ i + 1 }}</td>
             <td><b>{{ eq.name }}</b></td>
-            <td>{{ eq.model }}</td>
+            <td>
+              <div class="cell-scroll" :title="eq.model">{{ eq.model }}</div>
+            </td>
+            <td class="mono">{{ eq.serial_number || '—' }}</td>
             <td class="mono">{{ eq.id }}</td>
             <td>{{ fmtDate(eq.purchased) }}</td>
+            <td>{{ fmtDate(eq.warranty_expiry) || '—' }}</td>
             <td>{{ eq.calibCycle }}</td>
             <td><span class="rag" :class="statusClass(eq.status)">{{ eq.status }}</span></td>
             <td :style="eq.calibOverdue ? 'color:var(--red);font-weight:700' : ''">
               {{ fmtDate(eq.nextCalib) }}
             </td>
-            <td>
-              <button class="btn btn-sec btn-xs" @click="openCalib(eq)">📋 Calib.</button>
-              <button class="btn btn-sec btn-xs" style="margin-left:4px" @click="openRepair(eq)">🔧 Repair</button>
+            <td style="min-width:230px;white-space:nowrap">
+              <div style="display:inline-flex;flex-wrap:nowrap;gap:6px">
+                <button class="btn btn-sec btn-xs" @click="openCalib(eq)">📋 Calib.</button>
+                <button class="btn btn-sec btn-xs" @click="openRepair(eq)">🔧 Repair</button>
+                <button class="btn btn-sec btn-xs" @click="openEditEquipment(eq)">✎ Edit</button>
+              </div>
             </td>
           </tr>
         </tbody>
@@ -530,5 +744,262 @@ onMounted(loadEquipment)
         </div>
       </div>
     </Teleport>
+
+    <!-- ─── Add Equipment Modal ─── -->
+    <Teleport to="body">
+      <div v-if="showAddEquipmentModal" @click.self="showAddEquipmentModal = false"
+           style="display:flex;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:3300;align-items:center;justify-content:center;overflow-y:auto;padding:20px">
+        <div style="background:#fff;border-radius:8px;width:100%;max-width:720px;padding:24px 28px;position:relative;margin:auto">
+          <button @click="showAddEquipmentModal = false"
+                  style="position:absolute;top:14px;right:16px;background:rgba(0,0,0,.07);border:none;border-radius:5px;padding:4px 10px;cursor:pointer;font-size:13px">✕</button>
+          <h2 style="margin-bottom:2px">🧪 Add Equipment</h2>
+          <div style="font-size:11.5px;color:var(--muted);margin-bottom:14px;font-style:italic">
+            New lab instrument (kind=equipment). Identity goes to <code>assets</code>; instance details go to <code>laboratory_assets</code>.
+          </div>
+
+          <div class="form-grid c2">
+            <div class="fg2" style="grid-column:1/-1">
+              <label>Equipment Name *</label>
+              <input type="text" v-model="addEquipmentForm.name" placeholder="e.g. Atomic Absorption Spectrophotometer" />
+            </div>
+
+            <div class="fg2">
+              <label>Asset Code</label>
+              <input type="text" v-model="addEquipmentForm.item_code" placeholder="e.g. EQ-AAS-001" />
+            </div>
+            <div class="fg2">
+              <label>Category</label>
+              <select v-model="addEquipmentForm.category">
+                <option value="">— Select Category —</option>
+                <option value="Analytical Instruments">Analytical Instruments</option>
+                <option value="Microbiology Equipment">Microbiology Equipment</option>
+                <option value="Sample Prep">Sample Prep</option>
+                <option value="Safety / Lab Support">Safety / Lab Support</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+
+            <div class="fg2">
+              <label>Make / Model</label>
+              <input type="text" v-model="addEquipmentForm.make_model" placeholder="e.g. Shimadzu AA-7000" />
+            </div>
+            <div class="fg2">
+              <label>Serial No.</label>
+              <input type="text" v-model="addEquipmentForm.serial_number" placeholder="e.g. SN-AA-001" />
+            </div>
+
+            <div class="fg2">
+              <label>Purchase Date</label>
+              <input type="date" v-model="addEquipmentForm.purchased_at" />
+            </div>
+            <div class="fg2">
+              <label>Warranty Expiry</label>
+              <input type="date" v-model="addEquipmentForm.warranty_expiry" />
+            </div>
+
+            <div class="fg2">
+              <label>Purchase Value (Rs.)</label>
+              <input type="number" min="0" step="0.01" v-model="addEquipmentForm.purchase_value" placeholder="e.g. 4500000" />
+            </div>
+            <div class="fg2">
+              <label>Calibration Cycle</label>
+              <select v-model="addEquipmentForm.calibration_cycle">
+                <option value="6 months">6 months</option>
+                <option value="12 months">12 months</option>
+                <option value="24 months">24 months</option>
+              </select>
+            </div>
+
+            <div class="fg2">
+              <label>Status</label>
+              <select v-model="addEquipmentForm.status">
+                <option value="Active">Active</option>
+                <option value="Under_service">Under Service</option>
+                <option value="Broken">Broken</option>
+                <option value="InActive">Inactive</option>
+              </select>
+            </div>
+            <div class="fg2">
+              <label>Location</label>
+              <input type="text" v-model="addEquipmentForm.location" placeholder="e.g. Central Lab Peshawar — Main Lab" />
+            </div>
+          </div>
+
+          <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
+            <button class="btn btn-sec" @click="showAddEquipmentModal = false" :disabled="addEquipmentSaving">Cancel</button>
+            <button class="btn btn-pri" @click="saveEquipment" :disabled="addEquipmentSaving">
+              {{ addEquipmentSaving ? '⏳ Saving…' : '💾 Save Equipment' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- ─── Edit Equipment Modal ─── -->
+    <Teleport to="body">
+      <div v-if="showEditEquipmentModal" @click.self="showEditEquipmentModal = false"
+           style="display:flex;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:3300;align-items:center;justify-content:center;overflow-y:auto;padding:20px">
+        <div style="background:#fff;border-radius:8px;width:100%;max-width:720px;padding:24px 28px;position:relative;margin:auto">
+          <button @click="showEditEquipmentModal = false"
+                  style="position:absolute;top:14px;right:16px;background:rgba(0,0,0,.07);border:none;border-radius:5px;padding:4px 10px;cursor:pointer;font-size:13px">✕</button>
+          <h2 style="margin-bottom:2px">✎ Edit Equipment</h2>
+          <div style="font-size:11.5px;color:var(--muted);margin-bottom:14px;font-style:italic">
+            Master identity goes to <code>assets</code>; instance details go to <code>laboratory_assets</code>.
+          </div>
+
+          <div class="form-grid c2">
+            <div class="fg2" style="grid-column:1/-1">
+              <label>Equipment Name *</label>
+              <input type="text" v-model="editEquipmentForm.name" placeholder="e.g. Atomic Absorption Spectrophotometer" />
+            </div>
+
+            <div class="fg2">
+              <label>Asset Code</label>
+              <input type="text" v-model="editEquipmentForm.item_code" placeholder="e.g. EQ-AAS-001" />
+            </div>
+            <div class="fg2">
+              <label>Category</label>
+              <select v-model="editEquipmentForm.category">
+                <option value="">— Select Category —</option>
+                <option value="Analytical Instruments">Analytical Instruments</option>
+                <option value="Microbiology Equipment">Microbiology Equipment</option>
+                <option value="Sample Prep">Sample Prep</option>
+                <option value="Safety / Lab Support">Safety / Lab Support</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+
+            <div class="fg2">
+              <label>Make / Model</label>
+              <input type="text" v-model="editEquipmentForm.make_model" placeholder="e.g. Shimadzu AA-7000" />
+            </div>
+            <div class="fg2">
+              <label>Serial No.</label>
+              <input type="text" v-model="editEquipmentForm.serial_number" placeholder="e.g. SN-AA-001" />
+            </div>
+
+            <div class="fg2">
+              <label>Purchase Date</label>
+              <input type="date" v-model="editEquipmentForm.purchased_at" />
+            </div>
+            <div class="fg2">
+              <label>Warranty Expiry</label>
+              <input type="date" v-model="editEquipmentForm.warranty_expiry" />
+            </div>
+
+            <div class="fg2">
+              <label>Purchase Value (Rs.)</label>
+              <input type="number" min="0" step="0.01" v-model="editEquipmentForm.purchase_value" placeholder="e.g. 4500000" />
+            </div>
+            <div class="fg2">
+              <label>Calibration Cycle</label>
+              <select v-model="editEquipmentForm.calibration_cycle">
+                <option value="6 months">6 months</option>
+                <option value="12 months">12 months</option>
+                <option value="24 months">24 months</option>
+              </select>
+            </div>
+
+            <div class="fg2">
+              <label>Status</label>
+              <select v-model="editEquipmentForm.status">
+                <option value="Operational">Operational</option>
+                <option value="Out of Order">Out of Order</option>
+                <option value="Under Repair">Under Repair</option>
+                <option value="Beyond Repair">Beyond Repair</option>
+              </select>
+            </div>
+            <div class="fg2">
+              <label>Condition</label>
+              <select v-model="editEquipmentForm.condition">
+                <option value="good">Good</option>
+                <option value="fair">Fair</option>
+                <option value="poor">Poor</option>
+                <option value="condemned">Condemned</option>
+              </select>
+            </div>
+
+            <div class="fg2" style="grid-column:1/-1">
+              <label>Location</label>
+              <input type="text" v-model="editEquipmentForm.location" placeholder="e.g. Central Lab Peshawar — Main Lab" />
+            </div>
+          </div>
+
+          <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
+            <button class="btn btn-sec" @click="showEditEquipmentModal = false" :disabled="editEquipmentSaving">Cancel</button>
+            <button class="btn btn-pri" @click="saveEditEquipment" :disabled="editEquipmentSaving">
+              {{ editEquipmentSaving ? '⏳ Saving…' : '💾 Save Changes' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- ─── Toast (same pattern as StockInventory.vue) ─── -->
+    <Teleport to="body">
+      <transition name="toast-slide">
+        <div v-if="toast.show" class="eq-toast" :class="`eq-toast-${toast.type}`">
+          <span class="eq-toast-msg">{{ toast.message }}</span>
+          <button class="eq-toast-close" type="button" @click="toast.show = false">✕</button>
+        </div>
+      </transition>
+    </Teleport>
   </div>
 </template>
+
+<style scoped>
+/* Toast — fixed top-right, slides in/out, success/error variants */
+.eq-toast {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 5000;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 280px;
+  max-width: 420px;
+  padding: 12px 16px;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, .2);
+  font-size: 14px;
+  font-weight: 500;
+}
+.eq-toast-success { border-left: 4px solid #176b3a; color: #176b3a; }
+.eq-toast-error   { border-left: 4px solid #9d1b20; color: #9d1b20; }
+.eq-toast-msg     { flex: 1; }
+.eq-toast-close {
+  width: 22px; height: 22px;
+  padding: 0; border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font-size: 14px; line-height: 1;
+  cursor: pointer; opacity: .6;
+}
+.eq-toast-close:hover { opacity: 1; }
+
+.toast-slide-enter-active,
+.toast-slide-leave-active { transition: transform .25s ease, opacity .25s ease; }
+.toast-slide-enter-from,
+.toast-slide-leave-to     { transform: translateX(40px); opacity: 0; }
+
+/* Constrain long Make/Model strings so they don't bloat the row. The cell
+   shows the first ~3 lines and reveals the rest via a vertical scrollbar.
+   Full string is also surfaced as a tooltip via the `title` attribute. */
+.cell-scroll {
+  max-width: 220px;
+  max-height: 4.2em;       /* ~3 lines of content */
+  overflow-y: auto;
+  overflow-x: hidden;
+  word-break: break-word;
+  line-height: 1.4;
+  padding-right: 4px;
+  scrollbar-width: thin;
+}
+
+.cell-scroll::-webkit-scrollbar { width: 6px; }
+.cell-scroll::-webkit-scrollbar-thumb { background: #c8d5e2; border-radius: 3px; }
+.cell-scroll::-webkit-scrollbar-thumb:hover { background: #9fb3c8; }
+</style>

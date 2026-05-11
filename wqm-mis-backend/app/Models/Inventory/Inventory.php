@@ -22,6 +22,8 @@ class Inventory extends Model
     protected $fillable = [
         'slug',
         'status',
+        'urgency',
+        'justification',
         'created_by',
         'laboratory_id',
         'modified_by',
@@ -41,9 +43,15 @@ class Inventory extends Model
     protected static function booted()
     {
         static::created(function (Inventory $inventory) {
+            // SRS §2.7-4: Demand ID format DMD/YY/LAB-CODE/XXXX
+            // e.g. DMD/26/KHT/0012
+            $lab = $inventory->laboratory;
+            $labCode = $lab?->code
+                ?: ($lab ? strtoupper(substr(preg_replace('/[^a-zA-Z]/', '', $lab->name), 0, 3)) : 'GEN');
+            $year = now()->format('y');
+            $seq = str_pad($inventory->id, 4, '0', STR_PAD_LEFT);
 
-            $inventory->slug = 'INVR-' . str_pad($inventory->id, 4, '0', STR_PAD_LEFT);
-
+            $inventory->slug = "DMD/{$year}/{$labCode}/{$seq}";
             $inventory->save();
         });
         static::addGlobalScope(new LatestScope());

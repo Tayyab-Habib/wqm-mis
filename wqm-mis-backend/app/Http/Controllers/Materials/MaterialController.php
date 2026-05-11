@@ -69,36 +69,72 @@ class MaterialController extends Controller
      */
     public function store(StoreMaterialRequest $request): JsonResponse
     {
+        // Resolve current user's lab from the latest LaboratoryUser pivot row.
+        // Without a lab we cannot create the per-lab allocation rows.
+        $labId = $this->authUser->laboratoryDetails?->laboratory_id;
+        if (!$labId) {
+            return response()->json([
+                'message' => 'Your account is not associated with a laboratory. Cannot allocate stock.',
+                'data' => null,
+            ], SymfonyResponse::HTTP_UNPROCESSABLE_ENTITY);
+        }
+
         try {
             DB::beginTransaction();
-            $material = Material::query()
-                ->create(array_merge($request->validated(), ['available_quantity'=> $request->quantity]));
 
-            $material->materialLogs()
-                ->create([
-                    'user_id' => auth()->id(),
-                    'date_of_expiry' => $request->date_of_expiry,
-                    'quantity' => $request->quantity,
-                    'unit' => $request->unit,
-                    'date_of_entry' => now()->format('Y-m-d'),
-                    'status' => MaterialLogStatusEnum::IN->value,
-                ]);
+            // 1. Master catalog row
+            $material = Material::query()->create(array_merge(
+                $request->validated(),
+                ['available_quantity' => $request->quantity]
+            ));
+
+            // 2. Global ledger entry (status = IN)
+            $materialLog = $material->materialLogs()->create([
+                'user_id'        => auth()->id(),
+                'date_of_expiry' => $request->date_of_expiry,
+                'quantity'       => $request->quantity,
+                'unit'           => $request->unit,
+                'date_of_entry'  => now()->format('Y-m-d'),
+                'status'         => MaterialLogStatusEnum::IN->value,
+            ]);
+
+            // 3. Per-lab allocation. quantity & threshold are VARCHAR in DB,
+            // so we cast explicitly to avoid silent truncation.
+            $laboratoryMaterial = LaboratoryMaterial::query()->create([
+                'laboratory_id'      => $labId,
+                'material_id'        => $material->id,
+                'quantity'           => (string) $request->quantity,
+                'available_quantity' => $request->quantity,
+                'unit'               => $request->unit,
+                'threshold'          => (string) $request->threshold,
+                'status'             => $request->status,
+            ]);
+
+            // 4. Per-lab ledger entry, linked back to the global log
+            $laboratoryMaterial->laboratoryMaterialLogs()->create([
+                'material_log_id' => $materialLog->id,
+                'date_of_expiry'  => $request->date_of_expiry,
+                'quantity'        => (string) $request->quantity,
+                'unit'            => $request->unit,
+                'status'          => MaterialLogStatusEnum::IN->value,
+            ]);
 
             DB::commit();
+
             return response()->json([
                 'message' => 'Success creating stock',
-                'data' => $material
+                'data'    => $material->load('materialLogs', 'laboratoryMaterials.laboratoryMaterialLogs'),
             ], SymfonyResponse::HTTP_CREATED);
 
         } catch (\Exception $exception) {
             DB::rollBack();
             info($exception->getMessage());
             return response()->json([
-                'error' => 'Error creating stock',
-                'data' => null,
+                'error'   => 'Error creating stock',
+                'message' => $exception->getMessage(),
+                'data'    => null,
             ], SymfonyResponse::HTTP_INTERNAL_SERVER_ERROR);
         }
-
     }
 
     /**

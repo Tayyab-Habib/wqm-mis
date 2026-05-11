@@ -24,9 +24,12 @@ class LaboratoryAsset extends Model
         'date_of_expiry',
         'status',
         'make_model',
+        'serial_number',
         'calibration_cycle',
         'next_calibration_date',
         'purchased_at',
+        'warranty_expiry',
+        'purchase_value',
     ];
 
 
@@ -64,13 +67,21 @@ class LaboratoryAsset extends Model
         return $this->hasMany(AssetMaintenanceSchedule::class);
     }
 
+    // Calibration/repair history was consolidated into asset_maintenance_logs
+    // (see 2026_05_11_190000 migration). These relations now point at that
+    // unified table, scoped by `type`. The two old EquipmentCalibrationLog /
+    // EquipmentRepairLog models were deleted with the source tables.
     public function calibrationLogs(): HasMany
     {
-        return $this->hasMany(EquipmentCalibrationLog::class)->latest();
+        return $this->hasMany(AssetMaintenanceLog::class)
+            ->where('type', 'calibration')
+            ->latest();
     }
 
     public function repairLogs(): HasMany
     {
-        return $this->hasMany(EquipmentRepairLog::class)->latest();
+        return $this->hasMany(AssetMaintenanceLog::class)
+            ->where('type', 'repair')
+            ->latest();
     }
 }

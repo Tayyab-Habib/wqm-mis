@@ -2,6 +2,7 @@
 
 namespace App\Models\Asset;
 
+use App\Models\Laboratories\Laboratory;
 use App\Models\Scopes\LatestScope;
 use App\Traits\TimeStampAccessorTrait;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -20,6 +21,13 @@ class LaboratoryAssetLog extends Model
         'quantity',
         'unit',
         'status',
+        'type',
+        'recipient_name',
+        'recipient_role',
+        'asset_ref',
+        'remarks',
+        'recipient_lab_id',
+        'dispatch_reference',
     ];
 
     public function getActivitylogOptions(): LogOptions
@@ -39,5 +47,10 @@ class LaboratoryAssetLog extends Model
     public function assetLog(): BelongsTo
     {
         return $this->belongsTo(AssetLog::class);
+    }
+
+    public function recipientLab(): BelongsTo
+    {
+        return $this->belongsTo(Laboratory::class, 'recipient_lab_id');
     }
 }

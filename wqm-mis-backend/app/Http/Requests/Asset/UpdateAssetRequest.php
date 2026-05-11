@@ -30,9 +30,21 @@ class UpdateAssetRequest extends FormRequest
                 $query->whereNull('deleted_at')
                     ->whereNot('id', '=', $this->asset->id);
             }), 'max:255'],
-            'date_of_expiry' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:' . now()->format('Y-m-d')],
-            'status' => ['required', Rule::in(AssetStatusEnum::values())],
-            'specification' => ['required', 'string', 'max:65535'],
+            'kind'             => ['nullable', Rule::in(['inventory', 'equipment'])],
+            'category'         => ['nullable', 'string', 'max:64'],
+            'item_code'        => ['nullable', 'string', 'max:64', Rule::unique('assets', 'item_code')
+                ->ignore($this->asset?->id)->whereNull('deleted_at')],
+            'date_of_expiry'   => ['nullable', 'date_format:Y-m-d'],
+            'status'           => ['required', Rule::in(AssetStatusEnum::values())],
+            'condition'        => ['nullable', Rule::in(['good', 'fair', 'poor', 'condemned'])],
+            'date_of_purchase' => ['nullable', 'date_format:Y-m-d'],
+            'purchase_value'   => ['nullable', 'numeric', 'gte:0'],
+            'location'         => ['nullable', 'string', 'max:255'],
+            'last_verified'    => ['nullable', 'date_format:Y-m-d'],
+            'remarks'          => ['nullable', 'string'],
+            'specification'    => ['nullable', 'string', 'max:65535'],
+            'country'          => ['nullable', 'string', 'max:255'],
+            'agency'           => ['nullable', 'string', 'max:255'],
         ];
     }
 

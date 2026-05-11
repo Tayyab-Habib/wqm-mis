@@ -29,9 +29,11 @@ class StoreMaterialRequest extends FormRequest
             'name' => ['required', Rule::unique('materials')->where(function ($query) {
                 $query->whereNull('deleted_at');
             }), 'max:255'],
+            'category' => ['nullable', Rule::in(['chem', 'micro', 'glass', 'safety', 'other'])],
             'quantity' => ['required', 'decimal:2', 'gte:0'],
             'unit' => ['required', 'string', 'max:255', 'regex:/[a-zA-Z\.\/\s]+/'],
             'threshold' => ['required', 'decimal:2', 'gte:0'],
+            'supplier' => ['nullable', 'string', 'max:255'],
             'date_of_expiry' => ['required', 'date_format:Y-m-d', 'after_or_equal:' . now()->format('Y-m-d')],
             'status' => ['required', Rule::in(MaterialStatusEnum::values())],
         ];

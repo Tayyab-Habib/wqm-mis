@@ -27,6 +27,8 @@ class StoreInventoryRequest extends FormRequest
     public function rules()
     {
         return [
+            'urgency'       => ['nullable', Rule::in(['routine', 'urgent'])],
+            'justification' => ['nullable', 'string', 'max:5000'],
             'details.*.inventoryable_type' => ['required', Rule::in([IssueTypeEnum::STOCK->value, IssueTypeEnum::INVENTORY->value])],
             'details.*.inventoryable_id' => [
                 'required',

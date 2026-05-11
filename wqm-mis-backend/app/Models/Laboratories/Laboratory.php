@@ -40,6 +40,7 @@ class Laboratory extends Model
 
     protected $fillable = [
         'name',
+        'code',
         'latitude',
         'longitude',
         'phone',

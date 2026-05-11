@@ -22,6 +22,18 @@ class AssetMaintenanceLog extends Model
     protected $fillable = [
         'user_id',
         'asset_maintenance_schedule_id',
+        'laboratory_asset_id',
+        'type',                 // 'calibration' | 'repair'
+        'event_date',           // calibration_date OR fault_date
+        'result',               // Pass/Fail/Conditional Pass OR Resolved/Beyond Repair/etc.
+        'next_due_date',        // calibration only
+        'description',          // fault_description (repair)
+        'reported_by',          // repair only
+        'resolved_date',        // repair only
+        'cost',                 // repair_cost
+        'performer',            // calibrated_by OR technician
+        'ref_number',           // certificate_ref (calibration)
+        'standard_used',        // calibration standard
         'status',
         'comment',
         'file',
@@ -31,9 +43,10 @@ class AssetMaintenanceLog extends Model
         'deleted_at'
     ];
 
-    protected $casts = [
-        'status' => AssetMaintenanceStatusEnum::class,
-    ];
+    // `status` previously used AssetMaintenanceStatusEnum, but now also holds
+    // generic strings like 'completed' from the calibration/repair migration.
+    // Casting to the enum here would break those rows, so leave it as a string.
+    protected $casts = [];
 
     protected static function booted()
     {
@@ -59,6 +72,11 @@ class AssetMaintenanceLog extends Model
     public function assetMaintenanceSchedule(): BelongsTo
     {
         return $this->belongsTo(AssetMaintenanceSchedule::class);
+    }
+
+    public function laboratoryAsset(): BelongsTo
+    {
+        return $this->belongsTo(LaboratoryAsset::class);
     }
 
     public function user(): BelongsTo

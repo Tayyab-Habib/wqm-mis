@@ -14,6 +14,8 @@ use App\Models\Asset\Asset;
 use App\Models\Asset\AssetLog;
 use App\Models\Inventory\InventoryDetail;
 use App\Models\Inventory\InventoryLog;
+use App\Models\Material\LaboratoryMaterial;
+use App\Models\Material\LaboratoryMaterialLog;
 use App\Models\Material\Material;
 use App\Models\Material\MaterialLog;
 use App\Models\User;
@@ -45,18 +47,58 @@ class UpdateInventoryIssueStatusController extends Controller
 
         $inventoryable = $inventoryDetail->inventoryable;
 
-        $availableQuantity = ($inventoryDetail->inventoryable_type === Asset::class)
-            ? $inventoryable->quantity
-            : $inventoryable->available_quantity;
-
-        if ($request->quantity > $availableQuantity) {
+        if (!$inventoryable) {
             return response()->json([
-                'message' => "The selected quantity of [{$inventoryable->name}] is not available in inventory",
+                'message' => 'The item referenced by this demand no longer exists. It may have been deleted.',
+                'data' => null,
+            ], SymfonyResponse::HTTP_UNPROCESSABLE_ENTITY);
+        }
+
+        $authUser = auth()->user();
+        $sourceLabId = $authUser->laboratoryDetails?->laboratory_id;
+
+        if (!$sourceLabId) {
+            return response()->json([
+                'message' => 'Your account is not associated with a laboratory. Cannot issue stock.',
+                'data' => null,
+            ], SymfonyResponse::HTTP_UNPROCESSABLE_ENTITY);
+        }
+
+        // SRS §2.7-4 constraint: block if source lab's closing balance is insufficient.
+        $sourceLabAvailable = 0;
+        if ($inventoryDetail->inventoryable_type === Material::class) {
+            $sourceLabMaterial = LaboratoryMaterial::query()
+                ->where('laboratory_id', $sourceLabId)
+                ->where('material_id', $inventoryable->id)
+                ->first();
+
+            if (!$sourceLabMaterial) {
+                return response()->json([
+                    'message' => "Your lab has no allocation of [{$inventoryable->name}]. Cannot issue.",
+                    'data' => null,
+                ], SymfonyResponse::HTTP_UNPROCESSABLE_ENTITY);
+            }
+
+            $sourceLabAvailable = (float) $sourceLabMaterial->available_quantity;
+        } else {
+            // For Asset, fall back to master quantity for now.
+            $sourceLabAvailable = (float) $inventoryable->quantity;
+        }
+
+        if ($request->quantity > $sourceLabAvailable) {
+            return response()->json([
+                'message' => "Insufficient stock for [{$inventoryable->name}] in your lab. Available: {$sourceLabAvailable}",
                 'data' => null,
             ], SymfonyResponse::HTTP_BAD_REQUEST);
         }
 
-        $authUser = auth()->user();
+        // Edge case: prevent issuing to your own lab (should be no-op).
+        if ((int) $inventoryDetail->inventory->laboratory_id === (int) $sourceLabId) {
+            return response()->json([
+                'message' => 'Cannot issue stock to the same laboratory that owns it.',
+                'data' => null,
+            ], SymfonyResponse::HTTP_UNPROCESSABLE_ENTITY);
+        }
 
         try {
             DB::beginTransaction();
@@ -144,6 +186,15 @@ class UpdateInventoryIssueStatusController extends Controller
                             'status' => $status
                         ]);
 
+                    // Deduct from the SOURCE lab's allocation (Central Lab usually).
+                    $this->deductMaterialFromSourceLab(
+                        $sourceLabId,
+                        $inventoryDetail['inventoryable_id'],
+                        $request->quantity,
+                        $materialLog
+                    );
+
+                    // Credit the RECEIVING lab (the lab that raised the demand).
                     $this->addMaterialToLaboratory($request, $inventoryDetail, $materialLog);
                     break;
             }
@@ -235,43 +286,99 @@ class UpdateInventoryIssueStatusController extends Controller
 
     }
 
+    /**
+     * Deduct issued quantity from the source lab's (e.g. Central Lab) own
+     * laboratory_materials allocation and write an OUT entry to its log.
+     * This is required by SRS §2.7-4 — the issuing lab's closing balance
+     * must reflect the outflow.
+     */
+    private function deductMaterialFromSourceLab(int $sourceLabId, int $materialId, float $quantity, MaterialLog $materialLog): void
+    {
+        $sourceLabMaterial = LaboratoryMaterial::query()
+            ->where('laboratory_id', $sourceLabId)
+            ->where('material_id', $materialId)
+            ->first();
+
+        if (!$sourceLabMaterial) {
+            // Pre-flight check should have caught this — fail loudly if it didn't.
+            throw new \RuntimeException("Source lab {$sourceLabId} has no allocation of material {$materialId}.");
+        }
+
+        // Write the OUT log first so the recomputed sum is consistent.
+        $sourceLabMaterial->laboratoryMaterialLogs()->create([
+            'material_log_id' => $materialLog->id,
+            'quantity'        => -$quantity,
+            'date_of_expiry'  => $materialLog->date_of_expiry,
+            'unit'            => $materialLog->unit,
+            'status'          => MaterialLogStatusEnum::OUT->value,
+            'type'            => 'inter_lab_issuance',
+        ]);
+
+        // Decrement available_quantity directly. We don't recompute from log
+        // sums here because the existing allocation may pre-date the log
+        // system (e.g. manually allocated rows have no IN log).
+        $newAvail = max(0, (float) $sourceLabMaterial->available_quantity - $quantity);
+        $sourceLabMaterial->update([
+            'available_quantity' => $newAvail,
+            'status' => $newAvail <= 0
+                ? MaterialStatusEnum::DEPLETED->value
+                : ($newAvail < (float) $sourceLabMaterial->threshold
+                    ? MaterialStatusEnum::BELOW_THRESHOLD->value
+                    : MaterialStatusEnum::ACTIVE->value),
+        ]);
+    }
+
     private function addMaterialToLaboratory(UpdateInventoryIssueStatusRequest $request, InventoryDetail $inventoryDetail, MaterialLog $materialLog)
     {
         $inventory = $inventoryDetail->inventory;
         $laboratory = $inventory->laboratory;
+
+        $isNew = false;
         $laboratoryMaterial = $laboratory->laboratoryMaterials()
-            ->firstOrCreate([
+            ->where('material_id', $materialLog->material_id)
+            ->first();
+
+        if (!$laboratoryMaterial) {
+            $laboratoryMaterial = $laboratory->laboratoryMaterials()->create([
                 'material_id' => $materialLog->material_id,
-            ], [
                 'quantity' => $request->quantity,
                 'available_quantity' => $request->quantity,
                 'unit' => $materialLog->unit,
                 'threshold' => 0,
-                'status' => MaterialStatusEnum::ACTIVE,
+                'status' => MaterialStatusEnum::ACTIVE->value,
             ]);
+            $isNew = true;
+        }
 
-        $laboratoryMaterial->laboratoryMaterialLogs()
-            ->create([
-                'material_log_id' => $materialLog->id,
-                'quantity' => $request->quantity,
-                'date_of_expiry' => $materialLog->date_of_expiry,
-                'unit' => $materialLog->unit,
-                'status' => MaterialLogStatusEnum::IN,
-            ]);
-
-        $sumLaboratoryMaterialLogs = $laboratoryMaterial->laboratoryMaterialLogs()
-            ->sum('quantity');
-
-        $availableInventoryPercentage = $sumLaboratoryMaterialLogs / $inventoryDetail->inventoryable->quantity * 100;
-        $status = $availableInventoryPercentage < $inventoryDetail->inventoryable->threshold
-            ? MaterialStatusEnum::BELOW_THRESHOLD->value
-            : MaterialStatusEnum::ACTIVE->value;
-
-        $laboratoryMaterial->update([
-            'quantity' => $sumLaboratoryMaterialLogs,
-            'available_quantity' => $sumLaboratoryMaterialLogs,
-            'status' => $status,
+        // Always write an IN log so future audits trace the receipt.
+        $laboratoryMaterial->laboratoryMaterialLogs()->create([
+            'material_log_id' => $materialLog->id,
+            'quantity'        => $request->quantity,
+            'date_of_expiry'  => $materialLog->date_of_expiry,
+            'unit'            => $materialLog->unit,
+            'status'          => MaterialLogStatusEnum::IN->value,
+            'type'            => 'inter_lab_issuance',
         ]);
 
+        // For an existing row, ADD to the current balance (the previous code
+        // recomputed from log sums, which silently lost any pre-existing
+        // allocation that had no IN log).
+        if (!$isNew) {
+            $newAvail = (float) $laboratoryMaterial->available_quantity + (float) $request->quantity;
+            $newQty   = (float) $laboratoryMaterial->quantity + (float) $request->quantity;
+
+            $threshold = (float) $laboratoryMaterial->threshold;
+            $status = $newAvail <= 0
+                ? MaterialStatusEnum::DEPLETED->value
+                : ($threshold > 0 && $newAvail < $threshold
+                    ? MaterialStatusEnum::BELOW_THRESHOLD->value
+                    : MaterialStatusEnum::ACTIVE->value);
+
+            $laboratoryMaterial->update([
+                'quantity' => $newQty,
+                'available_quantity' => $newAvail,
+                'status' => $status,
+            ]);
+        }
     }
 }

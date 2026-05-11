@@ -6,6 +6,9 @@ export const assetService = {
   searchMaterials:        (params = {}) => api.post('/search-material', params),
   getLaboratoryMaterials: ()           => api.get('/laboratory-materials'),
   updateLaboratoryMaterial: (id, data) => api.put(`/laboratory-materials/${id}`, data),
+  createMaterial:         (data)       => api.post('/materials', data),
+  updateMaterial:         (id, data)   => api.put(`/materials/${id}`, data),
+  logStockOut:            (data)       => api.post('/stock-out', data),
 
   // ── Equipment / Lab Assets (non-consumables) ──────────────────────────────
   getAssets:            ()           => api.get('/laboratory/assets/all'),
@@ -13,6 +16,9 @@ export const assetService = {
   getLaboratoryAssets:  ()           => api.get('/laboratory-assets'),
   getLaboratoryAsset:   (id)         => api.get(`/laboratory-assets/${id}`),
   updateLaboratoryAsset: (id, data)  => api.put(`/laboratory-assets/${id}`, data),
+  createAsset:          (data)       => api.post('/assets', data),
+  updateAsset:          (id, data)   => api.put(`/assets/${id}`, data),
+  logInventoryOut:      (data)       => api.post('/inventory-out', data),
 
   // ── Calibration Logs ──────────────────────────────────────────────────────
   /** GET all calibration logs for one piece of equipment */
@@ -43,10 +49,12 @@ export const assetService = {
   getInventoryLog:   (id)     => api.get(`/inventory-logs/${id}`),
 
   // ── Inventory detail actions ──────────────────────────────────────────────
-  approveInventory: (detailId) =>
-    api.put(`/inventory-details/${detailId}/statuses/approve`),
-  issueInventory:   (detailId) =>
-    api.put(`/inventory-details/${detailId}/statuses/issue`),
+  approveInventory: (detailId, comment = null) =>
+    api.put(`/inventory-details/${detailId}/statuses/approve`, { status: 'approved', comment }),
+  rejectInventory:  (detailId, comment) =>
+    api.put(`/inventory-details/${detailId}/statuses/approve`, { status: 'rejected', comment }),
+  issueInventory:   (detailId, quantity, comment = null) =>
+    api.put(`/inventory-details/${detailId}/statuses/issue`, { status: 'issued', quantity: Number(quantity).toFixed(2), comment }),
   receiveInventory: (detailId, isReceived) =>
     api.get(`/inventory-details/${detailId}/received/${isReceived}`),
 

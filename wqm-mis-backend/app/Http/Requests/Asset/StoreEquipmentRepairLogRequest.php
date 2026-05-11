@@ -18,10 +18,12 @@ class StoreEquipmentRepairLogRequest extends FormRequest
             'laboratory_asset_id' => ['required', 'integer', 'exists:laboratory_assets,id'],
             'fault_date'          => ['required', 'date'],
             'fault_description'   => ['required', 'string', 'max:1000'],
-            'repair_status'       => ['required', 'string', Rule::in(['Reported', 'Under Repair', 'Resolved', 'Beyond Repair'])],
+            'reported_by'         => ['nullable', 'string', 'max:255'],
+            'repair_status'       => ['required', 'string', Rule::in(['Reported', 'Under Repair', 'Resolved', 'Beyond Repair', 'Open'])],
             'technician'          => ['nullable', 'string', 'max:255'],
             'resolved_date'       => ['nullable', 'date'],
             'repair_cost'         => ['nullable', 'numeric', 'min:0'],
+            'attachment'          => ['nullable', 'string', 'max:500'],
             'remarks'             => ['nullable', 'string', 'max:1000'],
         ];
     }
