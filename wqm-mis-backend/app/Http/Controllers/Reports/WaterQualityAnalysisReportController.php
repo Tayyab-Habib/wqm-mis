@@ -32,6 +32,9 @@ class WaterQualityAnalysisReportController extends Controller
                 'region:id,name',
                 'circle:id,name',
                 'phedDivision:id,name',
+                // For GSR: derive Cause + Specific Ion/Component from failing parameter limits
+                'waterSampleDetails:id,water_sample_id,test_id,analysis_result',
+                'waterSampleDetails.test:id,water_quality_parameter,unit,type,who_guideline_start,who_guideline_end,laboratory_guideline_start,laboratory_guideline_end',
             ])
             ->where('is_draft', false)
             // Date range filter
