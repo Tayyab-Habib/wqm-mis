@@ -79,7 +79,15 @@ class UpdateInventoryIssueStatusController extends Controller
                 ], SymfonyResponse::HTTP_UNPROCESSABLE_ENTITY);
             }
 
-            $sourceLabAvailable = (float) $sourceLabMaterial->available_quantity;
+            // Subtract expired-batch qty so we never issue from expired stock.
+            // Frontend listing uses the same formula — keeps the validation honest.
+            $expired = LaboratoryMaterialLog::query()
+                ->where('laboratory_material_id', $sourceLabMaterial->id)
+                ->where('status', 'in')
+                ->whereNotNull('date_of_expiry')
+                ->where('date_of_expiry', '<', now()->toDateString())
+                ->sum('quantity');
+            $sourceLabAvailable = max(0, (float) $sourceLabMaterial->available_quantity - (float) $expired);
         } else {
             // For Asset, fall back to master quantity for now.
             $sourceLabAvailable = (float) $inventoryable->quantity;
@@ -87,7 +95,7 @@ class UpdateInventoryIssueStatusController extends Controller
 
         if ($request->quantity > $sourceLabAvailable) {
             return response()->json([
-                'message' => "Insufficient stock for [{$inventoryable->name}] in your lab. Available: {$sourceLabAvailable}",
+                'message' => "Insufficient (non-expired) stock for [{$inventoryable->name}] in your lab. Available: {$sourceLabAvailable}",
                 'data' => null,
             ], SymfonyResponse::HTTP_BAD_REQUEST);
         }
@@ -191,7 +199,8 @@ class UpdateInventoryIssueStatusController extends Controller
                         $sourceLabId,
                         $inventoryDetail['inventoryable_id'],
                         $request->quantity,
-                        $materialLog
+                        $materialLog,
+                        $inventoryDetail
                     );
 
                     // Credit the RECEIVING lab (the lab that raised the demand).
@@ -205,6 +214,21 @@ class UpdateInventoryIssueStatusController extends Controller
                 'comment' => $validatedData['comment'],
             ]);
             $inventoryDetail->update(['status' => $validatedData['status']]);
+
+            // Auto-spawn the un-fulfilled remainder as a new pending detail so the
+            // requesting lab doesn't have to raise a fresh demand. The link to the
+            // original is implicit via the same parent inventory.
+            $remainder = (float) $inventoryDetail->quantity - (float) $request->quantity;
+            if ($remainder > 0 && $validatedData['status'] === InventoryDetailStatusEnum::ISSUED->value) {
+                InventoryDetail::query()->create([
+                    'inventory_id'        => $inventoryDetail->inventory_id,
+                    'inventoryable_id'    => $inventoryDetail->inventoryable_id,
+                    'inventoryable_type'  => $inventoryDetail->inventoryable_type,
+                    'quantity'            => $remainder,
+                    'unit'                => $inventoryDetail->unit,
+                    'status'              => InventoryDetailStatusEnum::PENDING->value,
+                ]);
+            }
 
             $inventory = $inventoryDetail->inventory;
 
@@ -292,7 +316,7 @@ class UpdateInventoryIssueStatusController extends Controller
      * This is required by SRS §2.7-4 — the issuing lab's closing balance
      * must reflect the outflow.
      */
-    private function deductMaterialFromSourceLab(int $sourceLabId, int $materialId, float $quantity, MaterialLog $materialLog): void
+    private function deductMaterialFromSourceLab(int $sourceLabId, int $materialId, float $quantity, MaterialLog $materialLog, InventoryDetail $inventoryDetail): void
     {
         $sourceLabMaterial = LaboratoryMaterial::query()
             ->where('laboratory_id', $sourceLabId)
@@ -304,14 +328,26 @@ class UpdateInventoryIssueStatusController extends Controller
             throw new \RuntimeException("Source lab {$sourceLabId} has no allocation of material {$materialId}.");
         }
 
+        // Resolve recipient info from the parent inventory so the OUT log shows
+        // *who* received the stock — without this the Stock Out table renders
+        // Recipient Lab/Name/Role as dashes for Inter-lab Issuance rows.
+        $inventory       = $inventoryDetail->inventory;
+        $recipientLabId  = $inventory?->laboratory_id;
+        $recipientUser   = $inventory?->createdByUser ?? \App\Models\User::find($inventory?->created_by);
+        $recipientName   = $recipientUser?->name;
+        $recipientRole   = $recipientUser?->roles?->first()?->name;
+
         // Write the OUT log first so the recomputed sum is consistent.
         $sourceLabMaterial->laboratoryMaterialLogs()->create([
-            'material_log_id' => $materialLog->id,
-            'quantity'        => -$quantity,
-            'date_of_expiry'  => $materialLog->date_of_expiry,
-            'unit'            => $materialLog->unit,
-            'status'          => MaterialLogStatusEnum::OUT->value,
-            'type'            => 'inter_lab_issuance',
+            'material_log_id'  => $materialLog->id,
+            'quantity'         => -$quantity,
+            'date_of_expiry'   => $materialLog->date_of_expiry,
+            'unit'             => $materialLog->unit,
+            'status'           => MaterialLogStatusEnum::OUT->value,
+            'type'             => 'inter_lab_issuance',
+            'recipient_lab_id' => $recipientLabId,
+            'recipient_name'   => $recipientName,
+            'recipient_role'   => $recipientRole,
         ]);
 
         // Decrement available_quantity directly. We don't recompute from log

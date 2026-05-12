@@ -328,9 +328,9 @@
     letter-spacing: .08em;
   }
 
-  .cat-marker::before {
-    content: "\1F9EA";
-    font-size: 11px;
+  .cat-icon {
+    font-size: 13px;
+    line-height: 1;
   }
 }
 
@@ -339,6 +339,30 @@
   background: #fff;
 
   &:hover { background: #f6faff; }
+}
+
+/* Skeleton loading rows — shimmer placeholder for initial table load */
+.skeleton-row {
+  &:hover { background: #fff; }
+  td { padding: 10px 11px; }
+}
+.sk-bar {
+  display: inline-block;
+  height: 11px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #eef2f7 0%, #f7fafc 50%, #eef2f7 100%);
+  background-size: 200% 100%;
+  animation: skShimmer 1.2s ease-in-out infinite;
+  vertical-align: middle;
+
+  &.sk-bar-xs { width: 18px; }
+  &.sk-bar-sm { width: 42px; }
+  &.sk-bar-md { width: 70px; }
+  &.sk-bar-lg { width: 140px; }
+}
+@keyframes skShimmer {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
 }
 
 .btn-expand {

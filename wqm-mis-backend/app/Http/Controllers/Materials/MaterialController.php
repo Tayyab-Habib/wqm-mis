@@ -186,22 +186,39 @@ class MaterialController extends Controller
     public function update(UpdateMaterialRequest $request, Material $material): JsonResponse
     {
         $validatedData = $request->validated();
+        // Pull the per-lab sync hints out — they aren't columns on `materials`.
+        $laboratoryMaterialId = $validatedData['laboratory_material_id'] ?? null;
+        $dateOfExpiry         = $validatedData['date_of_expiry'] ?? null;
+        unset($validatedData['laboratory_material_id'], $validatedData['date_of_expiry']);
 
         try {
             DB::beginTransaction();
 
-//            $material->materialLogs()
-//                ->where('status', '=', MaterialLogStatusEnum::IN)
-//                ->orderBy('id', 'desc')
-//                ->first()
-//                ->update($validatedData);
-//
-//            $materialLogsSum = $material->materialLogs()
-//                ->sum('quantity');
-//
-//            $validatedData = array_merge($validatedData, ['quantity' => $materialLogsSum]);
-
             $material->update($validatedData);
+
+            // Sync the per-lab allocation so the listing (which reads from
+            // `laboratory_materials`) reflects the edited qty + threshold.
+            if ($laboratoryMaterialId) {
+                \App\Models\Material\LaboratoryMaterial::query()
+                    ->where('id', $laboratoryMaterialId)
+                    ->update([
+                        'quantity'           => (string) ($validatedData['quantity']           ?? $material->quantity),
+                        'available_quantity' => (string) ($validatedData['available_quantity'] ?? $material->available_quantity),
+                        'threshold'          => (string) $validatedData['threshold'],
+                        'unit'               => $validatedData['unit'] ?? $material->unit,
+                        'status'             => $validatedData['status'],
+                    ]);
+
+                // Update the latest log row's expiry so the listing's
+                // "earliest expiry" reflects the new date. Frontend reduces
+                // over all logs to pick the earliest, so updating the most
+                // recent IN log is the right scope.
+                \App\Models\Material\LaboratoryMaterialLog::query()
+                    ->where('laboratory_material_id', $laboratoryMaterialId)
+                    ->orderByDesc('id')
+                    ->limit(1)
+                    ->update(['date_of_expiry' => $dateOfExpiry]);
+            }
 
             DB::commit();
 

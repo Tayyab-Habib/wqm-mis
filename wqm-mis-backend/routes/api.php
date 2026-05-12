@@ -206,6 +206,7 @@ Route::middleware('auth:sanctum')->group(callback: function () {
     Route::get('collected-by-status', CollectedByController::class);
     Route::get('focal-persons', FocalPersonController::class);
     Route::get('all-laboratories', \App\Http\Controllers\Dropdowns\LaboratoryController::class);
+    Route::get('all-materials',    \App\Http\Controllers\Dropdowns\MaterialDropdownController::class);
     Route::get('all-diary-dispatches', \App\Http\Controllers\Dropdowns\DiaryDispatchController::class);
     Route::get('all-water-schemes', \App\Http\Controllers\Dropdowns\WaterSchemeController::class);
     Route::get('all-designations', \App\Http\Controllers\Dropdowns\DesignationController::class);
