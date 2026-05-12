@@ -3,10 +3,10 @@
 namespace App\Http\Controllers\Reports;
 
 use App\Http\Controllers\Controller;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 class PWRController extends Controller
@@ -22,9 +22,13 @@ class PWRController extends Controller
             'district_id'     => ['nullable', 'exists:districts,id'],
             'phed_division_id'=> ['nullable', 'exists:phed_divisions,id'],
             'laboratory_id'   => ['nullable', 'exists:laboratories,id'],
-            'test_type'       => ['nullable', 'string'],   // PHE / Private / PT
+            'sample_type'     => ['nullable', 'in:PHE,Private,PT'],   // collectable_type
+            'test_type'       => ['nullable', 'string'],              // accepted for back-compat
             'test_id'         => ['nullable', 'exists:tests,id'],
         ]);
+
+        // sample_type → collectable_type (PHE = User class; Private = anything else; PT future)
+        $sampleType = $request->input('sample_type') ?? $request->input('test_type');
 
         // ── Base sample filter ────────────────────────────────────────
         $sampleQuery = DB::table('water_samples')
@@ -38,16 +42,23 @@ class PWRController extends Controller
             ->when($request->filled('district_id'),      fn($q) => $q->where('water_samples.district_id',      $request->district_id))
             ->when($request->filled('phed_division_id'), fn($q) => $q->where('water_samples.phed_division_id', $request->phed_division_id))
             ->when($request->filled('laboratory_id'),    fn($q) => $q->where('water_samples.laboratory_id',    $request->laboratory_id))
-            ->when($request->filled('test_type'),        fn($q) => $q->where('water_samples.test_type',        $request->test_type));
+            // sample_type maps to collectable_type (User class = PHE)
+            ->when($sampleType === 'PHE',     fn($q) => $q->where('water_samples.collectable_type', User::class))
+            ->when($sampleType === 'Private', fn($q) => $q->where('water_samples.collectable_type', '!=', User::class));
 
         $sampleIds = (clone $sampleQuery)->pluck('water_samples.id');
 
-        Log::info('PWR sample count', ['count' => $sampleIds->count(), 'filters' => $request->all()]);
-
-        // ── Fetch all tests (parameters) ──────────────────────────────
+        // ── Fetch all ACTIVE tests (parameters) per SRS §2.2 R-07 ─────
+        // SRS: "covers every active parameter regardless of whether samples exceed limits"
         $testsQuery = DB::table('tests')
             ->whereNull('deleted_at')
-            ->select('id', 'water_quality_parameter', 'type', 'unit', 'permissible_limits', 'criteria', 'who_guideline_end');
+            ->where('is_active', true)
+            ->select('id', 'water_quality_parameter', 'type', 'unit', 'permissible_limits', 'criteria',
+                     'who_guideline_start', 'who_guideline_end',
+                     'laboratory_guideline_start', 'laboratory_guideline_end',
+                     'display_order')
+            ->orderBy('display_order')
+            ->orderBy('water_quality_parameter');
 
         if ($request->filled('test_id')) {
             $testsQuery->where('id', $request->test_id);
@@ -73,44 +84,51 @@ class PWRController extends Controller
             ->get()
             ->keyBy('test_id');
 
-        // For criteria=1 tests, count exceeding separately using the who_guideline_end
+        // For criteria=1 tests, count exceeding using both bounds of the WHO range
+        // (e.g. pH 6.5-8.5 → value < 6.5 OR value > 8.5). Falls back to laboratory guidelines if WHO is missing.
         $exceedingByTest = [];
         foreach ($allTests as $testId => $test) {
-            if (!$test->criteria || $test->who_guideline_end == 0) {
-                $exceedingByTest[$testId] = 0;
-                continue;
-            }
-            $exceedingByTest[$testId] = DB::table('water_sample_details')
+            if (!$test->criteria) { $exceedingByTest[$testId] = 0; continue; }
+
+            $minRaw = $test->who_guideline_start ?? $test->laboratory_guideline_start;
+            $maxRaw = $test->who_guideline_end   ?? $test->laboratory_guideline_end;
+            $hasMin = $minRaw !== null && $minRaw !== '' && is_numeric($minRaw);
+            $hasMax = $maxRaw !== null && $maxRaw !== '' && is_numeric($maxRaw);
+            if (!$hasMin && !$hasMax) { $exceedingByTest[$testId] = 0; continue; }
+
+            $q = DB::table('water_sample_details')
                 ->whereIn('water_sample_id', $sampleIds)
                 ->whereNull('water_sample_details.deleted_at')
                 ->where('test_id', $testId)
                 ->whereNotNull('analysis_result')
                 ->where('analysis_result', '!=', '')
                 ->whereRaw('analysis_result REGEXP \'^-?[0-9]+\\.?[0-9]*$\'')
-                ->whereRaw('CAST(analysis_result AS DECIMAL(15,4)) > ?', [$test->who_guideline_end])
-                ->count();
+                ->where(function ($w) use ($hasMin, $hasMax, $minRaw, $maxRaw) {
+                    if ($hasMin) $w->orWhereRaw('CAST(analysis_result AS DECIMAL(15,4)) < ?', [(float)$minRaw]);
+                    if ($hasMax) $w->orWhereRaw('CAST(analysis_result AS DECIMAL(15,4)) > ?', [(float)$maxRaw]);
+                });
+
+            $exceedingByTest[$testId] = $q->count();
         }
 
         // ── Build parameter overview ──────────────────────────────────
-        $paramOverview = [];
-        $totalTested   = 0;
+        // Per SRS: include every active parameter, even with 0 tests.
+        $paramOverview  = [];
+        $totalTested    = 0;
         $totalExceeding = 0;
 
         foreach ($allTests as $testId => $test) {
-            $agg     = $detailAgg->get($testId);
-            $tested  = $agg ? (int)$agg->total_tested : 0;
+            $agg       = $detailAgg->get($testId);
+            $tested    = $agg ? (int)$agg->total_tested : 0;
             $exceeding = $exceedingByTest[$testId] ?? 0;
-
-            if ($tested === 0) continue; // skip params with no data
 
             $pct   = $tested > 0 ? round(($exceeding / $tested) * 100, 1) : 0;
             $ratio = $tested > 0 ? $exceeding / $tested : 0;
 
             $riskLevel = 'Grey';
-            if ($test->criteria) {
+            if ($test->criteria && $tested > 0) {
                 if ($ratio > 0.2)      $riskLevel = 'Red';
                 elseif ($ratio > 0.1)  $riskLevel = 'Amber';
-                elseif ($ratio > 0)    $riskLevel = 'Green';
                 else                   $riskLevel = 'Green';
             }
 
@@ -152,9 +170,21 @@ class PWRController extends Controller
             ->groupBy('ws.district_id')
             ->get();
 
-        // If a specific parameter is selected, use parameter-level exceeding per district
+        // If a specific parameter is selected, compute per-district exceeding using BOTH bounds
         if ($request->filled('test_id')) {
-            $test = $allTests->get($request->test_id);
+            $test  = $allTests->get($request->test_id);
+            $minRaw = $test->who_guideline_start ?? $test->laboratory_guideline_start ?? null;
+            $maxRaw = $test->who_guideline_end   ?? $test->laboratory_guideline_end   ?? null;
+            $minVal = is_numeric($minRaw) ? (float)$minRaw : null;
+            $maxVal = is_numeric($maxRaw) ? (float)$maxRaw : null;
+
+            // Build the "fit" / "unfit" SQL fragments dynamically per which bounds exist
+            $unfitConds = [];
+            $params     = [];
+            if ($minVal !== null) { $unfitConds[] = 'CAST(wsd.analysis_result AS DECIMAL(15,4)) < ?'; $params[] = $minVal; }
+            if ($maxVal !== null) { $unfitConds[] = 'CAST(wsd.analysis_result AS DECIMAL(15,4)) > ?'; $params[] = $maxVal; }
+            $unfitExpr = empty($unfitConds) ? '0' : '(' . implode(' OR ', $unfitConds) . ')';
+
             $districtAgg = DB::table('water_sample_details as wsd')
                 ->join('water_samples as ws', 'ws.id', '=', 'wsd.water_sample_id')
                 ->whereIn('wsd.water_sample_id', $sampleIds)
@@ -163,12 +193,13 @@ class PWRController extends Controller
                 ->whereNotNull('wsd.analysis_result')
                 ->where('wsd.analysis_result', '!=', '')
                 ->whereRaw('wsd.analysis_result REGEXP \'^-?[0-9]+\\.?[0-9]*$\'')
-                ->selectRaw('
-                    ws.district_id,
-                    COUNT(*) as total,
-                    SUM(CASE WHEN CAST(wsd.analysis_result AS DECIMAL(15,4)) <= ? THEN 1 ELSE 0 END) as fit,
-                    SUM(CASE WHEN CAST(wsd.analysis_result AS DECIMAL(15,4)) > ? THEN 1 ELSE 0 END) as unfit
-                ', [$test?->who_guideline_end ?? 0, $test?->who_guideline_end ?? 0])
+                ->selectRaw(
+                    "ws.district_id,
+                     COUNT(*) as total,
+                     SUM(CASE WHEN {$unfitExpr} THEN 0 ELSE 1 END) as fit,
+                     SUM(CASE WHEN {$unfitExpr} THEN 1 ELSE 0 END) as unfit",
+                    array_merge($params, $params)
+                )
                 ->groupBy('ws.district_id')
                 ->get();
         }

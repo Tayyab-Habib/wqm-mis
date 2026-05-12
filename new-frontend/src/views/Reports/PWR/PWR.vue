@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { reportService }   from '../../../services/reportService.js'
 import { dropdownService } from '../../../services/dropdownService.js'
 import { exportToXLSX }    from '../../../utils/exportHelpers.js'
@@ -20,31 +20,106 @@ const phedDivisions = ref([])
 const laboratories = ref([])
 const parameters   = ref([])
 
+// SRS-required date defaults: From = start of current financial year (Jul 1), To = today
+function financialYearStart() {
+  const now = new Date()
+  const year = now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1
+  return `${year}-07-01`
+}
+function todayIso() {
+  return new Date().toISOString().split('T')[0]
+}
+
 // ── Filters ────────────────────────────────────────────────────────────
 const filters = ref({
-  from_date:        '',
-  to_date:          '',
+  from_date:        financialYearStart(),
+  to_date:          todayIso(),
   region_id:        '',
   division_id:      '',
   circle_id:        '',
   district_id:      '',
   phed_division_id: '',
   laboratory_id:    '',
-  test_type:        '',   // sample type (PHE / Private / PT)
+  sample_type:      '',   // PHE / Private / PT — maps to collectable_type
   test_id:          '',   // specific parameter
 })
 
-// Cascaded district filter
-const filteredDistricts = computed(() =>
-  filters.value.division_id
-    ? districts.value.filter(d => String(d.division_id) === String(filters.value.division_id))
-    : districts.value
+// Cascaded dropdowns. NOTE: divisions.region_id is NULL in this DB, so we derive
+// region→division indirectly via Region → Circles → Districts → Divisions.
+const filteredDivisions = computed(() => {
+  if (!filters.value.region_id) return divisions.value
+  const regId     = String(filters.value.region_id)
+  const circleIds = new Set(
+    circles.value.filter(c => String(c.region_id) === regId).map(c => String(c.id))
+  )
+  const divisionIds = new Set(
+    districts.value
+      .filter(d => circleIds.has(String(d.circle_id)))
+      .map(d => String(d.division_id))
+  )
+  return divisions.value.filter(d => divisionIds.has(String(d.id)))
+})
+const filteredCircles = computed(() =>
+  filters.value.region_id
+    ? circles.value.filter(c => String(c.region_id) === String(filters.value.region_id))
+    : circles.value
 )
+const filteredDistricts = computed(() => {
+  let list = districts.value
+  if (filters.value.division_id) list = list.filter(d => String(d.division_id) === String(filters.value.division_id))
+  if (filters.value.circle_id)   list = list.filter(d => String(d.circle_id)   === String(filters.value.circle_id))
+  return list
+})
+const filteredPhedDivs = computed(() => {
+  let list = phedDivisions.value
+  if (filters.value.district_id) list = list.filter(p => String(p.district_id) === String(filters.value.district_id))
+  if (filters.value.circle_id)   list = list.filter(p => String(p.circle_id)   === String(filters.value.circle_id))
+  return list
+})
+const filteredLaboratories = computed(() => {
+  let list = laboratories.value
+  if (filters.value.district_id) list = list.filter(l => String(l.district_id) === String(filters.value.district_id))
+  if (filters.value.division_id) list = list.filter(l => String(l.division_id) === String(filters.value.division_id))
+  return list
+})
 
 // ── Report data ────────────────────────────────────────────────────────
 const paramOverview     = ref([])
 const districtBreakdown = ref([])
 const kpTotals          = ref({ total_tested: 0, total_exceeding: 0, pct: 0 })
+
+// ── View mode (per SRS §2.2 R-07) ──────────────────────────────────────
+// 'all' — every active parameter (even with 0 exceeding)
+// 'contamination' — only parameters where at least 1 sample exceeded its limit
+const viewMode = ref('all')
+const displayedParamOverview = computed(() =>
+  viewMode.value === 'contamination'
+    ? paramOverview.value.filter(p => p.exceeding > 0)
+    : paramOverview.value
+)
+
+// ── Pagination (parameter overview table) ──────────────────────────────
+const currentPage = ref(1)
+const pageSize    = ref(10)
+const totalPages  = computed(() =>
+  Math.max(1, Math.ceil(displayedParamOverview.value.length / pageSize.value))
+)
+const pagedParamOverview = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return displayedParamOverview.value.slice(start, start + pageSize.value)
+})
+const pageStart = computed(() =>
+  displayedParamOverview.value.length === 0 ? 0 : (currentPage.value - 1) * pageSize.value + 1
+)
+const pageEnd = computed(() =>
+  Math.min(currentPage.value * pageSize.value, displayedParamOverview.value.length)
+)
+function goToPage(p) {
+  if (p < 1 || p > totalPages.value) return
+  currentPage.value = p
+}
+// Reset to page 1 when the underlying list shrinks/grows past the current page
+watch([viewMode, paramOverview, pageSize], () => { currentPage.value = 1 })
 
 // ── Load dropdowns ─────────────────────────────────────────────────────
 async function loadDropdowns() {
@@ -86,7 +161,7 @@ async function generateReport() {
     if (filters.value.district_id)      payload.district_id      = filters.value.district_id
     if (filters.value.phed_division_id) payload.phed_division_id = filters.value.phed_division_id
     if (filters.value.laboratory_id)    payload.laboratory_id    = filters.value.laboratory_id
-    if (filters.value.test_type)        payload.test_type        = filters.value.test_type
+    if (filters.value.sample_type)      payload.sample_type      = filters.value.sample_type
     if (filters.value.test_id)          payload.test_id          = filters.value.test_id
 
     const res  = await reportService.getPWRReport(payload)
@@ -172,6 +247,24 @@ function exportReport() {
 
 function printReport() { window.print() }
 
+function clearFilters() {
+  filters.value = {
+    from_date:        financialYearStart(),
+    to_date:          todayIso(),
+    region_id:        '',
+    division_id:      '',
+    circle_id:        '',
+    district_id:      '',
+    phed_division_id: '',
+    laboratory_id:    '',
+    sample_type:      '',
+    test_id:          '',
+  }
+}
+
+// NOTE: PWR keeps the manual Generate button per SRS §2.2 R-07
+// ("A 'Generate' button triggers the query.") — no auto-refresh watcher.
+
 onMounted(async () => {
   await loadDropdowns()
   await generateReport()
@@ -179,7 +272,13 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div>
+  <div class="pwr-page">
+    <!-- ── View-mode tabs (SRS §2.2 R-07) ── -->
+    <div class="pwr-tabs">
+      <button class="pwr-tab" :class="{ active: viewMode === 'all' }" @click="viewMode = 'all'">All Parameters</button>
+      <button class="pwr-tab" :class="{ active: viewMode === 'contamination' }" @click="viewMode = 'contamination'">Contamination Only</button>
+    </div>
+
     <!-- ── Filters ── -->
     <div class="filters" style="flex-wrap:wrap;gap:6px;margin-bottom:10px">
       <div class="fg"><label>From</label><input type="date" v-model="filters.from_date"></div>
@@ -187,7 +286,8 @@ onMounted(async () => {
 
       <div class="fg">
         <label>CE Region</label>
-        <select v-model="filters.region_id" @change="filters.division_id='';filters.district_id=''">
+        <select v-model="filters.region_id"
+                @change="filters.circle_id='';filters.division_id='';filters.district_id='';filters.phed_division_id='';filters.laboratory_id=''">
           <option value="">All CE Regions</option>
           <option v-for="r in regions" :key="r.id" :value="r.id">{{ r.name }}</option>
         </select>
@@ -195,23 +295,23 @@ onMounted(async () => {
 
       <div class="fg">
         <label>Division</label>
-        <select v-model="filters.division_id" @change="filters.district_id=''">
+        <select v-model="filters.division_id" @change="filters.district_id='';filters.phed_division_id='';filters.laboratory_id=''">
           <option value="">All Divisions</option>
-          <option v-for="d in divisions" :key="d.id" :value="d.id">{{ d.name }}</option>
+          <option v-for="d in filteredDivisions" :key="d.id" :value="d.id">{{ d.name }}</option>
         </select>
       </div>
 
       <div class="fg">
         <label>PHE Circle</label>
-        <select v-model="filters.circle_id">
+        <select v-model="filters.circle_id" @change="filters.district_id='';filters.phed_division_id='';filters.laboratory_id=''">
           <option value="">All Circles</option>
-          <option v-for="c in circles" :key="c.id" :value="c.id">{{ c.name }}</option>
+          <option v-for="c in filteredCircles" :key="c.id" :value="c.id">{{ c.name }}</option>
         </select>
       </div>
 
       <div class="fg">
         <label>District</label>
-        <select v-model="filters.district_id">
+        <select v-model="filters.district_id" @change="filters.phed_division_id='';filters.laboratory_id=''">
           <option value="">All Districts</option>
           <option v-for="d in filteredDistricts" :key="d.id" :value="d.id">{{ d.name }}</option>
         </select>
@@ -221,7 +321,7 @@ onMounted(async () => {
         <label>PHE Division</label>
         <select v-model="filters.phed_division_id">
           <option value="">All PHE Divisions</option>
-          <option v-for="p in phedDivisions" :key="p.id" :value="p.id">{{ p.name }}</option>
+          <option v-for="p in filteredPhedDivs" :key="p.id" :value="p.id">{{ p.name }}</option>
         </select>
       </div>
 
@@ -229,13 +329,13 @@ onMounted(async () => {
         <label>Lab</label>
         <select v-model="filters.laboratory_id">
           <option value="">All Labs</option>
-          <option v-for="l in laboratories" :key="l.id" :value="l.id">{{ l.name }}</option>
+          <option v-for="l in filteredLaboratories" :key="l.id" :value="l.id">{{ l.name }}</option>
         </select>
       </div>
 
       <div class="fg">
         <label>Sample Type</label>
-        <select v-model="filters.test_type">
+        <select v-model="filters.sample_type">
           <option value="">All Sample Types</option>
           <option value="PHE">PHE</option>
           <option value="Private">Private</option>
@@ -251,12 +351,13 @@ onMounted(async () => {
         </select>
       </div>
 
+      <button class="btn btn-sec btn-sm" style="align-self:flex-end" @click="clearFilters">✕ Clear Filters</button>
       <div class="tsp"></div>
-      <button class="btn btn-pri btn-sm" @click="generateReport" :disabled="loading">
-        {{ loading ? 'Generating...' : 'Generate' }}
+      <button class="btn btn-pri btn-sm" style="align-self:flex-end" @click="generateReport" :disabled="loading">
+        {{ loading ? 'Generating…' : 'Generate' }}
       </button>
-      <button v-if="generated" class="btn btn-sec btn-sm" @click="exportReport">↓ Export</button>
-      <button v-if="generated" class="btn btn-sec btn-sm" @click="printReport">Print PDF</button>
+      <button v-if="generated" class="btn btn-sec btn-sm" style="align-self:flex-end" @click="exportReport">↓ Export</button>
+      <button v-if="generated" class="btn btn-sec btn-sm" style="align-self:flex-end" @click="printReport">Print PDF</button>
     </div>
 
     <!-- Error -->
@@ -316,10 +417,12 @@ onMounted(async () => {
             </tr>
           </thead>
           <tbody>
-            <tr v-if="!paramOverview.length">
-              <td colspan="6" style="text-align:center;padding:24px;color:var(--muted)">No data found for the selected filters.</td>
+            <tr v-if="!displayedParamOverview.length">
+              <td colspan="6" style="text-align:center;padding:24px;color:var(--muted)">
+                {{ viewMode === 'contamination' ? 'No parameter has any exceeding samples for the selected filters.' : 'No data found for the selected filters.' }}
+              </td>
             </tr>
-            <tr v-for="(r, i) in paramOverview" :key="r.test_id" :class="i%2===1?'alt':''">
+            <tr v-for="(r, i) in pagedParamOverview" :key="r.test_id" :class="i%2===1?'alt':''">
               <td style="font-weight:600">{{ r.parameter }}</td>
               <td class="mono" style="font-size:11px;color:var(--muted)">{{ r.limit || '—' }}</td>
               <td class="mono" style="text-align:center">{{ r.tested.toLocaleString() }}</td>
@@ -334,7 +437,7 @@ onMounted(async () => {
             </tr>
           </tbody>
           <!-- KP Total row -->
-          <tfoot v-if="paramOverview.length">
+          <tfoot v-if="displayedParamOverview.length">
             <tr style="background:var(--navy2);font-weight:700">
               <td style="color:#fff">KP Total</td>
               <td></td>
@@ -356,6 +459,30 @@ onMounted(async () => {
             </tr>
           </tfoot>
         </table>
+      </div>
+
+      <!-- Pagination -->
+      <div v-if="displayedParamOverview.length" class="pwr-pager">
+        <div class="pwr-pager-info">
+          Showing <b>{{ pageStart }}</b>–<b>{{ pageEnd }}</b> of
+          <b>{{ displayedParamOverview.length }}</b> parameter{{ displayedParamOverview.length === 1 ? '' : 's' }}
+        </div>
+        <div class="pwr-pager-controls">
+          <label class="pwr-pager-size">
+            Rows per page
+            <select v-model.number="pageSize">
+              <option :value="10">10</option>
+              <option :value="20">20</option>
+              <option :value="50">50</option>
+              <option :value="100">100</option>
+            </select>
+          </label>
+          <button class="pwr-pager-btn" :disabled="currentPage === 1" @click="goToPage(1)">«</button>
+          <button class="pwr-pager-btn" :disabled="currentPage === 1" @click="goToPage(currentPage - 1)">‹</button>
+          <span class="pwr-pager-page">Page <b>{{ currentPage }}</b> of <b>{{ totalPages }}</b></span>
+          <button class="pwr-pager-btn" :disabled="currentPage === totalPages" @click="goToPage(currentPage + 1)">›</button>
+          <button class="pwr-pager-btn" :disabled="currentPage === totalPages" @click="goToPage(totalPages)">»</button>
+        </div>
       </div>
 
       <!-- ── View 2: District-wise Breakdown ── -->
@@ -414,8 +541,99 @@ onMounted(async () => {
 </template>
 
 <style>
+/* View-mode tab bar (SRS §2.2 R-07: All Parameters / Contamination Only) */
+.pwr-page .pwr-tabs {
+  display: flex;
+  align-items: stretch;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 4px;
+  margin-bottom: 12px;
+  gap: 2px;
+  width: fit-content;
+}
+.pwr-page .pwr-tab {
+  border: 0;
+  background: transparent;
+  color: #4b5563;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 18px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background .15s, color .15s;
+}
+.pwr-page .pwr-tab:hover:not(.active) { background: #e5e7eb; }
+.pwr-page .pwr-tab.active {
+  background: #2563eb;
+  color: #fff;
+}
+
+/* Crisp-text override scoped to PWR view: defeats global td.mono rule (DM Mono 11.5px). */
+.pwr-page td.mono {
+  font-family: 'DM Sans', sans-serif;
+  font-variant-numeric: tabular-nums;
+  font-size: 12.5px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Pagination */
+.pwr-page .pwr-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: -10px 0 18px;
+  padding: 8px 12px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #4b5563;
+  flex-wrap: wrap;
+}
+.pwr-page .pwr-pager-info b { color: #111827; }
+.pwr-page .pwr-pager-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.pwr-page .pwr-pager-size {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 8px;
+}
+.pwr-page .pwr-pager-size select {
+  font-size: 12px;
+  padding: 3px 6px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+.pwr-page .pwr-pager-btn {
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  border-radius: 4px;
+  color: #374151;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pwr-page .pwr-pager-btn:hover:not(:disabled) { background: #f3f4f6; }
+.pwr-page .pwr-pager-btn:disabled { opacity: .4; cursor: not-allowed; }
+.pwr-page .pwr-pager-page { padding: 0 6px; }
+.pwr-page .pwr-pager-page b { color: #111827; }
+
 @media print {
-  .filters, .btn, nav, aside { display: none !important; }
+  .filters, .btn, .pwr-tabs, .pwr-pager, nav, aside { display: none !important; }
   .tbl-wrap, .tbl-wrap *, .cards, .cards *, .sh, .sh * { visibility: visible; }
   body { font-size: 10px; }
 }

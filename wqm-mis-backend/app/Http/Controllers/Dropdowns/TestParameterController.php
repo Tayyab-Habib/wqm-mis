@@ -18,8 +18,12 @@ class TestParameterController extends Controller
      */
     public function __invoke(Request $request): JsonResponse
     {
+        // Per SRS §2.2 R-07: only active parameters, ordered by display_order.
         $tests = Test::query()
-            ->select(['id', 'water_quality_parameter', 'type'])
+            ->select(['id', 'water_quality_parameter', 'type', 'unit', 'display_order'])
+            ->where('is_active', true)
+            ->orderBy('display_order')
+            ->orderBy('water_quality_parameter')
             ->get();
 
         return response()->json([
