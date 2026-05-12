@@ -1,8 +1,27 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { reportService } from '../../../services/reportService.js'
 import { dropdownService } from '../../../services/dropdownService.js'
 import { exportToXLSX } from '../../../utils/exportHelpers.js'
+
+const router = useRouter()
+
+// Drill-down: open the GSR pre-filtered for a specific district (and optionally lab)
+function openGSR(districtId, labId = null) {
+  if (!districtId) return
+  const query = {
+    district_id: districtId,
+    from_date:   filters.value.from_date,
+    to_date:     filters.value.to_date,
+  }
+  if (labId)                       query.laboratory_id    = labId
+  if (filters.value.region_id)     query.region_id        = filters.value.region_id
+  if (filters.value.circle_id)     query.circle_id        = filters.value.circle_id
+  if (filters.value.division_id)   query.division_id      = filters.value.division_id
+  if (filters.value.phed_division_id) query.phed_division_id = filters.value.phed_division_id
+  router.push({ name: 'GSR', query })
+}
 
 const loading    = ref(false)
 const errorMsg   = ref('')
@@ -130,12 +149,13 @@ const labRows = computed(() => {
     const row = labMap[labId]
     row.tested++
     const distName = s.district?.name || 'Unknown'
+    const distId   = s.district_id || s.district?.id || null
     const divName  = s.division?.name || null
     const regName  = s.region?.name   || null
     if (regName)  row.regionSet.add(regName)
     if (divName)  row.divisionSet.add(divName)
     row.districtSet.add(distName)
-    if (!row.districtRows[distName]) row.districtRows[distName] = { district: distName, tested: 0, fit: 0, unfit: 0 }
+    if (!row.districtRows[distName]) row.districtRows[distName] = { district: distName, districtId: distId, tested: 0, fit: 0, unfit: 0 }
     const dr = row.districtRows[distName]
     dr.tested++
     if (s.result === 'Fit' || s.result === '1') { row.fit++; dr.fit++ }
@@ -174,8 +194,9 @@ const districtByDivision = computed(() => {
   rawSamples.value.forEach(s => {
     const divName  = s.division?.name || 'Unknown Division'
     const distName = s.district?.name || 'Unknown'
+    const distId   = s.district_id || s.district?.id || null
     if (!divMap[divName]) divMap[divName] = {}
-    if (!divMap[divName][distName]) divMap[divName][distName] = { district: distName, phedDiv: s.phed_division?.name || s.phedDivision?.name || '—', tested: 0, fit: 0, unfit: 0 }
+    if (!divMap[divName][distName]) divMap[divName][distName] = { district: distName, districtId: distId, phedDiv: s.phed_division?.name || s.phedDivision?.name || '—', tested: 0, fit: 0, unfit: 0 }
     const dr = divMap[divName][distName]
     dr.tested++
     if (s.result === 'Fit' || s.result === '1') dr.fit++
@@ -317,7 +338,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div>
+  <div class="gar-page">
     <!-- Filters -->
     <div class="filters" style="margin-bottom:10px;flex-wrap:wrap;gap:6px">
       <div class="fg"><label>From</label><input type="date" v-model="filters.from_date"></div>
@@ -495,7 +516,12 @@ onMounted(async () => {
                   <tbody>
                     <tr v-for="(d, di) in row.districtList" :key="d.district"
                         :class="di%2===1?'alt':''">
-                      <td style="padding:4px 24px">{{ d.district }}</td>
+                      <td style="padding:4px 24px">
+                        <a v-if="d.districtId" href="#" @click.prevent="openGSR(d.districtId, row.labId)"
+                           style="color:#1d4ed8;text-decoration:none;font-weight:500"
+                           :title="`Open GSR filtered to ${d.district} for ${row.lab}`">{{ d.district }}</a>
+                        <span v-else>{{ d.district }}</span>
+                      </td>
                       <td style="padding:4px 10px;text-align:center;font-family:monospace">{{ d.tested }}</td>
                       <td style="padding:4px 10px;text-align:center;font-family:monospace;color:var(--green)">{{ d.fit }}</td>
                       <td style="padding:4px 10px;text-align:center;font-family:monospace" :style="d.unfit > 0 ? 'color:var(--red)' : ''">{{ d.unfit }}</td>
@@ -570,7 +596,12 @@ onMounted(async () => {
             <tr v-for="(d, di) in divGroup.rows" :key="d.district"
                 :class="di%2===1?'alt':''">
               <td class="mono" style="color:var(--muted);font-size:11px">{{ di + 1 }}</td>
-              <td>{{ d.district }}</td>
+              <td>
+                <a v-if="d.districtId" href="#" @click.prevent="openGSR(d.districtId)"
+                   style="color:#1d4ed8;text-decoration:none;font-weight:500"
+                   :title="`Open GSR filtered to ${d.district}`">{{ d.district }}</a>
+                <span v-else>{{ d.district }}</span>
+              </td>
               <td style="color:var(--muted);font-size:11px">{{ d.phedDiv }}</td>
               <td class="mono" style="text-align:center">{{ d.tested }}</td>
               <td class="mono" style="text-align:center;color:var(--green)">{{ d.fit }}</td>
@@ -697,6 +728,16 @@ onMounted(async () => {
 </template>
 
 <style>
+/* Crisp-text override scoped to GAR view: defeats the global td.mono rule
+   (DM Mono 11.5px → fuzzy on Windows) without touching every cell inline. */
+.gar-page td.mono {
+  font-family: 'DM Sans', sans-serif;
+  font-variant-numeric: tabular-nums;
+  font-size: 12.5px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
 @media print {
   body * { visibility: hidden; }
   .tbl-wrap, .tbl-wrap *, .cards, .cards *, .sh, .sh *, .abar, .abar * { visibility: visible; }

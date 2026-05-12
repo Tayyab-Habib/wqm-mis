@@ -22,7 +22,15 @@ class WaterQualityAnalysisReportController extends Controller
     public function __invoke(ShowWaterQualityAnalysisReportRequest $request, WaterSample $water_sample): JsonResponse
     {
         $waterSamples = WaterSample::query()
-            ->select(['water_scheme_id', 'slug', 'sample_name','collected_by', 'collectable_type', 'collectable_id', 'sampled_at','latitude','longitude', 'status', 'desired_test', 'result', 'district_id', 'division_id', 'phed_division_id', 'laboratory_id', 'region_id', 'circle_id'])
+            ->select([
+                'id',  // ← required for eager-loading hasMany relations (waterSampleDetails)
+                'water_scheme_id', 'slug', 'sample_name', 'water_sample_address',
+                'collected_by', 'collectable_type', 'collectable_id',
+                'sampled_at', 'latitude', 'longitude',
+                'status', 'desired_test', 'result', 'remarks',
+                'district_id', 'division_id', 'phed_division_id',
+                'laboratory_id', 'region_id', 'circle_id',
+            ])
             ->with([
                 'waterScheme:id,name',
                 'laboratory:id,name',
@@ -31,7 +39,11 @@ class WaterQualityAnalysisReportController extends Controller
                 'phedDivision:id,name',
                 'region:id,name',
                 'circle:id,name',
+                // For GSR: derive Cause + Specific Ion/Component from failing parameter limits
+                'waterSampleDetails:id,water_sample_id,test_id,analysis_result',
+                'waterSampleDetails.test:id,water_quality_parameter,unit,type,who_guideline_start,who_guideline_end,laboratory_guideline_start,laboratory_guideline_end',
             ])
+            ->where('is_draft', false)
             ->when(isset($request->month), function ($query) use ($request) {
                 $query->whereBetween('sampled_at', [
                     Carbon::parse($request->month)->startOfMonth(),
