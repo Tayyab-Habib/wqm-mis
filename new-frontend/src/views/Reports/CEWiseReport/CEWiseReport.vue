@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { reportService }   from '../../../services/reportService.js'
 import { dropdownService } from '../../../services/dropdownService.js'
 import { exportToXLSX }    from '../../../utils/exportHelpers.js'
@@ -14,6 +14,7 @@ const generated = ref(false)
 const regions   = ref([])
 const divisions = ref([])
 const districts = ref([])
+const circles   = ref([])  // needed to bridge region→division (divisions.region_id is NULL in DB)
 
 // ── Filters ────────────────────────────────────────────────────────────
 const filters = ref({
@@ -22,6 +23,23 @@ const filters = ref({
   region_id:   '',
   division_id: '',
   district_id: '',
+})
+
+// Cascaded dropdowns per DB-truth:
+//   divisions.region_id is NULL in this DB → can't filter Division directly by Region.
+//   Use the indirect path: Region → Circles → Districts → Divisions.
+const filteredDivisions = computed(() => {
+  if (!filters.value.region_id) return divisions.value
+  const regId       = String(filters.value.region_id)
+  const circleIds   = new Set(
+    circles.value.filter(c => String(c.region_id) === regId).map(c => String(c.id))
+  )
+  const divisionIds = new Set(
+    districts.value
+      .filter(d => circleIds.has(String(d.circle_id)))
+      .map(d => String(d.division_id))
+  )
+  return divisions.value.filter(d => divisionIds.has(String(d.id)))
 })
 
 const filteredDistricts = computed(() =>
@@ -39,14 +57,16 @@ const generatedAt    = ref('')
 // ── Load dropdowns ─────────────────────────────────────────────────────
 async function loadDropdowns() {
   try {
-    const [regRes, divRes, distRes] = await Promise.all([
+    const [regRes, divRes, distRes, cirRes] = await Promise.all([
       dropdownService.getRegions(),
       dropdownService.getDivisions(),
       dropdownService.getDistricts(),
+      dropdownService.getCircles(),
     ])
     regions.value   = regRes.data?.data  || regRes.data  || []
     divisions.value = divRes.data?.data  || divRes.data  || []
     districts.value = distRes.data?.data || distRes.data || []
+    circles.value   = cirRes.data?.data  || cirRes.data  || []
   } catch (e) { console.error('Dropdown error:', e) }
 }
 
@@ -184,6 +204,24 @@ function exportReport() {
 
 function printReport() { window.print() }
 
+function clearFilters() {
+  filters.value = {
+    from_date:   '',
+    to_date:     '',
+    region_id:   '',
+    division_id: '',
+    district_id: '',
+  }
+}
+
+// Auto-refresh on filter change (debounced)
+let filterTimer = null
+watch(filters, () => {
+  if (!generated.value) return
+  clearTimeout(filterTimer)
+  filterTimer = setTimeout(generateReport, 350)
+}, { deep: true })
+
 onMounted(async () => {
   await loadDropdowns()
   await generateReport()
@@ -191,7 +229,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div>
+  <div class="cewise-page">
     <!-- ── Filters ── -->
     <div class="filters" style="flex-wrap:wrap;gap:6px;margin-bottom:10px">
       <div class="fg"><label>From</label><input type="date" v-model="filters.from_date"></div>
@@ -209,7 +247,7 @@ onMounted(async () => {
         <label>Division</label>
         <select v-model="filters.division_id" @change="filters.district_id=''">
           <option value="">All Divisions</option>
-          <option v-for="d in divisions" :key="d.id" :value="d.id">{{ d.name }}</option>
+          <option v-for="d in filteredDivisions" :key="d.id" :value="d.id">{{ d.name }}</option>
         </select>
       </div>
 
@@ -221,12 +259,11 @@ onMounted(async () => {
         </select>
       </div>
 
+      <button class="btn btn-sec btn-sm" style="align-self:flex-end" @click="clearFilters">✕ Clear Filters</button>
       <div class="tsp"></div>
-      <button class="btn btn-pri btn-sm" @click="generateReport" :disabled="loading">
-        {{ loading ? 'Generating...' : 'Generate' }}
-      </button>
-      <button class="btn btn-sec btn-sm" @click="exportReport">↓ Export Annexure-7</button>
-      <button class="btn btn-sec btn-sm" @click="printReport">Print PDF</button>
+      <span v-if="loading" style="font-size:11px;color:var(--muted);align-self:flex-end;padding-bottom:6px">Updating…</span>
+      <button class="btn btn-sec btn-sm" style="align-self:flex-end" @click="exportReport">↓ Export .xlsx</button>
+      <button class="btn btn-sec btn-sm" style="align-self:flex-end" @click="printReport">Print PDF</button>
     </div>
 
     <!-- Error -->
@@ -235,12 +272,12 @@ onMounted(async () => {
       {{ errorMsg }}
     </div>
 
-    <!-- Loading -->
-    <div v-if="loading" style="text-align:center;padding:48px;color:var(--muted);font-size:13px">
+    <!-- Loading splash only on first load -->
+    <div v-if="loading && !generated" style="text-align:center;padding:48px;color:var(--muted);font-size:13px">
       Loading report data...
     </div>
 
-    <template v-if="!loading && generated">
+    <template v-if="generated">
       <!-- ── Report banner ── -->
       <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:10px 16px;margin-bottom:12px;font-size:12px;display:flex;align-items:center;gap:8px">
         <span style="font-size:14px">📊</span>
@@ -402,6 +439,16 @@ onMounted(async () => {
 </template>
 
 <style>
+/* Crisp-text override scoped to CE-wise view: defeats global td.mono rule
+   (DM Mono 11.5px → fuzzy on Windows). */
+.cewise-page td.mono {
+  font-family: 'DM Sans', sans-serif;
+  font-variant-numeric: tabular-nums;
+  font-size: 12.5px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
 @media print {
   .filters, .btn, nav, aside { display: none !important; }
   .tbl-wrap, .tbl-wrap *, .cards, .cards *, .sh, .sh * { visibility: visible; }
