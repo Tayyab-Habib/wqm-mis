@@ -350,6 +350,13 @@ Route::middleware('auth:sanctum')->group(callback: function () {
         Route::get('ledger',   [FinanceInvoiceController::class, 'ledger']);
         Route::get('dues',     [FinanceInvoiceController::class, 'dues']);
         Route::post('record-payment/{waterSampleInvoice}', [FinanceInvoiceController::class, 'recordPayment']);
+        Route::post('clubbed-invoice', [FinanceInvoiceController::class, 'storeClubbedInvoice']);
+        
+        // SBP Submission Routes
+        Route::get('sbp-submissions', [\App\Http\Controllers\Finance\SbpSubmissionController::class, 'index']);
+        Route::get('sbp-submissions/pending', [\App\Http\Controllers\Finance\SbpSubmissionController::class, 'pending']);
+        Route::post('sbp-submissions', [\App\Http\Controllers\Finance\SbpSubmissionController::class, 'store']);
+        Route::post('sbp-submissions/{id}/verify', [\App\Http\Controllers\Finance\SbpSubmissionController::class, 'verify']);
     });
     //start payment management routes
     Route::apiResource('payments', PaymentController::class)->middleware('update_modified_user');
@@ -434,4 +441,4 @@ Route::middleware('auth:sanctum')->group(callback: function () {
 
 });
 
-include('newapis.php');
+// include('newapis.php');

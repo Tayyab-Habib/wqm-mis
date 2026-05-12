@@ -1,5 +1,6 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
+import axios from 'axios'
 import { financeService } from '../../../services/financeService.js'
 
 // State
@@ -11,8 +12,7 @@ const errorMsg = ref('')
 const summary = ref({
   total_invoiced: 0,
   total_collected: 0,
-  total_outstanding: 0,
-  pending_sbp: 0
+  total_outstanding: 0
 })
 const invoices = ref([])
 const ledger = ref([])
@@ -47,24 +47,64 @@ const selectAllSamples = computed({
 const selectedCount = computed(() => unbilledSamples.value.filter(s => s.selected).length)
 const selectedTotal = computed(() => unbilledSamples.value.filter(s => s.selected).reduce((acc, s) => acc + s.fee, 0))
 
-function nextClubbedStep() { if (clubbedStep.value < 3) clubbedStep.value++ }
+const clubbedInvoicePreviewData = computed(() => {
+  const selected = unbilledSamples.value.filter(s => s.selected)
+  const items = {}
+  
+  selected.forEach(s => {
+    const cat = s.category || 'General'
+    if (!items[cat]) {
+      items[cat] = { count: 0, rate: s.fee, samples: [] }
+    }
+    items[cat].count++
+    items[cat].samples.push(s.slug.split('/').pop()) // e.g. 0081
+  })
+  
+  let formulaParts = []
+  let total = 0
+  Object.keys(items).forEach(cat => {
+    formulaParts.push(`${items[cat].count} × ${formatNum(items[cat].rate)}`)
+    total += items[cat].count * items[cat].rate
+  })
+  
+  return {
+    items,
+    formula: formulaParts.join(' + ') + ` = PKR ${formatNum(total)}`,
+    total
+  }
+})
+
+function nextClubbedStep() { 
+  if (clubbedStep.value === 2 && selectedCount.value < 2) {
+    alert("Please select at least 2 samples to generate a clubbed invoice.");
+    return;
+  }
+  if (clubbedStep.value < 3) clubbedStep.value++;
+}
 function prevClubbedStep() { if (clubbedStep.value > 1) clubbedStep.value-- }
 function printClubbedInvoice() {
-  const printContents = document.getElementById('printable-invoice').innerHTML;
-  const originalContents = document.body.innerHTML;
-  document.body.innerHTML = printContents;
   window.print();
-  document.body.innerHTML = originalContents;
-  location.reload();
 }
 async function saveClubbedInvoice() {
   loading.value = true;
-  setTimeout(() => {
-    loading.value = false;
+  try {
+    const res = await financeService.createClubbedInvoice({
+      invoice_ids: unbilledSamples.value.filter(s => s.selected).map(s => s.id),
+      client_id: 1, // Mock client ID for now, should come from clubbedForm.clientId
+      client_type: 'App\\Models\\Client', 
+      period_from: clubbedForm.value.periodFrom,
+      period_to: clubbedForm.value.periodTo,
+      description: "Clubbed Invoice generated from system"
+    });
     showClubbedModal.value = false;
-    alert("Clubbed Invoice generated successfully!");
+    alert("Clubbed Invoice generated successfully: " + res.data.clubbed_slug);
     fetchData();
-  }, 1000);
+  } catch (err) {
+    console.error(err);
+    alert("Failed to generate clubbed invoice: " + (err.response?.data?.message || err.message));
+  } finally {
+    loading.value = false;
+  }
 }
 // Payment Form
 const paymentForm = ref({
@@ -87,10 +127,19 @@ const remainingBalance = computed(() => {
 // Filtering & Search
 const searchQuery = ref('')
 const selectedStatus = ref('all')
+const selectedDistrict = ref('All Districts')
+const districts = ['All Districts', 'Peshawar', 'Mardan', 'Nowshera', 'Charsadda', 'Swabi', 'Khyber', 'Mohmand']
 
 // Ledger Filters
-const ledgerFilterFrom = ref('2026-01-01')
-const ledgerFilterTo = ref('2026-03-31')
+const ledgerFilterFrom = ref(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0])
+const ledgerFilterTo = ref(new Date().toISOString().split('T')[0])
+
+const formatDate = (dateStr) => {
+  if (!dateStr || dateStr === '—') return '—'
+  const date = new Date(dateStr)
+  if (isNaN(date.getTime())) return dateStr
+  return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }).replace(/ /g, '-')
+}
 const ledgerFilterLab = ref('All Labs')
 const ledgerFilterType = ref('All Types')
 
@@ -130,6 +179,10 @@ const filteredInvoices = computed(() => {
     result = result.filter(inv => inv.status.toLowerCase() === selectedStatus.value)
   }
 
+  if (selectedDistrict.value !== 'All Districts') {
+    result = result.filter(inv => inv.client.includes(selectedDistrict.value))
+  }
+
   if (searchQuery.value) {
     const query = searchQuery.value.toLowerCase()
     result = result.filter(inv => 
@@ -140,6 +193,8 @@ const filteredInvoices = computed(() => {
 
   return result
 })
+
+// ...
 
 const filteredLedger = computed(() => {
   let result = [...ledger.value]
@@ -152,11 +207,11 @@ const filteredLedger = computed(() => {
   // Apply Type Filter
   if (ledgerFilterType.value !== 'All Types') {
     if (ledgerFilterType.value === 'Invoice Raised') {
-      result = result.filter(tx => tx.type === 'Invoice' || tx.type === 'Clubbed')
+      result = result.filter(tx => tx.type.includes('Invoice'))
     } else if (ledgerFilterType.value === 'Payment Received') {
-      result = result.filter(tx => tx.type === 'Payment')
+      result = result.filter(tx => tx.type.includes('Payment'))
     } else if (ledgerFilterType.value === 'SBP Deposit') {
-      result = result.filter(tx => tx.type === 'SBP')
+      result = result.filter(tx => tx.type.includes('SBP'))
     }
   }
 
@@ -170,25 +225,15 @@ const filteredLedger = computed(() => {
     result = result.filter(tx => new Date(tx.date) <= toDate)
   }
 
-  // Sort ascending by date to properly calculate running balance
-  result.sort((a, b) => new Date(a.date) - new Date(b.date))
-  
   if (searchQuery.value) {
     const query = searchQuery.value.toLowerCase()
     result = result.filter(tx => 
       tx.txId.toLowerCase().includes(query) || 
-      tx.client.toLowerCase().includes(query)
+      tx.client.toLowerCase().includes(query) ||
+      tx.lab.toLowerCase().includes(query) ||
+      (tx.note && tx.note.toLowerCase().includes(query))
     )
   }
-
-  let runningBalance = 0;
-  result.forEach(tx => {
-    const debit = tx.debit || 0;
-    const credit = tx.credit || 0;
-    runningBalance = runningBalance + debit - credit;
-    tx.runningBalance = runningBalance;
-    tx.isDr = runningBalance > 0;
-  });
 
   return result
 })
@@ -196,25 +241,22 @@ const filteredLedger = computed(() => {
 const ledgerTotals = computed(() => {
   let debitSum = 0;
   let creditSum = 0;
-  let running = 0;
   let invoiceCount = 0;
   let paymentCount = 0;
 
   filteredLedger.value.forEach(tx => {
-    debitSum += tx.debit || 0;
-    creditSum += tx.credit || 0;
-    if (tx.type === 'Invoice' || tx.type === 'Clubbed') invoiceCount++;
-    if (tx.type === 'Payment' || tx.type === 'SBP') paymentCount++;
+    debitSum += tx.amountInvoiced || 0;
+    creditSum += tx.amountReceived || 0;
+    if (tx.type.includes('Invoice')) invoiceCount++;
+    if (tx.type.includes('Payment') || tx.type.includes('SBP')) paymentCount++;
   })
-  running = debitSum - creditSum;
   
   return {
     debitSum,
     creditSum,
-    running,
+    running: debitSum - creditSum,
     invoiceCount,
-    paymentCount,
-    isDr: running > 0
+    paymentCount
   }
 })
 
@@ -308,6 +350,7 @@ const formatNum = (val) => {
   return new Intl.NumberFormat('en-PK').format(val)
 }
 
+
 // API Calls
 async function fetchData() {
   loading.value = true
@@ -317,6 +360,20 @@ async function fetchData() {
       const res = await financeService.getFinanceInvoices()
       invoices.value = res.data?.invoices || []
       summary.value = res.data?.summary || summary.value
+      
+      // Also update unbilledSamples for the wizard
+      if (res.data?.invoices) {
+        unbilledSamples.value = res.data.invoices
+          .filter(inv => !inv.is_clubbed && inv.status === 'Unpaid')
+          .map(inv => ({
+            id: inv.id,
+            slug: inv.slug,
+            date: inv.date,
+            fee: inv.total,
+            selected: false,
+            category: inv.billing_summary?.items ? Object.keys(inv.billing_summary.items)[0] : 'General'
+          }))
+      }
     } else if (activeTab.value === 'ledger') {
       const res = await financeService.getFinanceLedger()
       ledger.value = res.data || []
@@ -326,14 +383,13 @@ async function fetchData() {
     }
   } catch (err) {
     console.error('Failed to fetch data:', err)
-    errorMsg.value = 'Failed to load data. Please try again.'
+    errorMsg.value = 'Could not load finance data.'
   } finally {
     loading.value = false
   }
 }
 
 // Watchers
-import { watch } from 'vue'
 watch(activeTab, () => {
   searchQuery.value = ''
   selectedStatus.value = 'all'
@@ -476,10 +532,6 @@ onMounted(() => {
         <div class="kpi-label">OUTSTANDING DUES</div>
         <div class="kpi-value text-red"><span>₨</span> {{ formatCompact(summary.total_outstanding) }}</div>
       </div>
-      <div class="kpi-card top-grey">
-        <div class="kpi-label">PENDING SBP</div>
-        <div class="kpi-value text-brown"><span>₨</span> {{ formatCompact(summary.pending_sbp) }}</div>
-      </div>
     </div>
 
     <!-- Tabs Navigation -->
@@ -511,6 +563,10 @@ onMounted(() => {
           <option value="paid">Paid</option>
           <option value="partial">Partial</option>
           <option value="unpaid">Unpaid</option>
+        </select>
+
+        <select v-if="activeTab === 'individual' || activeTab === 'clubbed'" v-model="selectedDistrict" class="status-select">
+          <option v-for="d in districts" :key="d" :value="d">{{ d }}</option>
         </select>
 
         <select v-if="activeTab === 'dues'" v-model="duesFilterAgeing" class="status-select">
@@ -572,7 +628,7 @@ onMounted(() => {
           <span>To</span> <input type="date" v-model="ledgerFilterTo" class="form-input" style="width:130px; padding:6px 10px;" />
           <select v-model="ledgerFilterLab" class="form-input" style="width:140px; padding:6px 10px;">
             <option>All Labs</option>
-            <option>Central Lab</option>
+            <option>Central Lab - Peshawar</option>
             <option>Mardan</option>
             <option>Abbottabad</option>
             <option>Malakand</option>
@@ -584,11 +640,10 @@ onMounted(() => {
             <option>All Types</option>
             <option>Invoice Raised</option>
             <option>Payment Received</option>
-            <option>SBP Deposit</option>
           </select>
         </div>
         <div class="d-flex gap-2">
-          <button class="btn btn-blue" style="padding: 6px 16px;">Apply</button>
+          <button class="btn btn-blue" style="padding: 6px 16px;" @click="fetchData">Apply</button>
           <button class="btn btn-outline" style="padding: 6px 16px;" @click="exportData">⬇ Export .xlsx</button>
           <button class="btn btn-outline" style="padding: 6px 16px;" @click="printInvoice()">🖨 Print</button>
         </div>
@@ -598,7 +653,7 @@ onMounted(() => {
         <div class="ledger-box box-blue" style="flex:1;">
           <div class="box-title">Opening Balance</div>
           <div class="box-val text-blue">Rs 0</div>
-          <div class="box-sub">01-Jan-2026</div>
+          <div class="box-sub">{{ formatDate(ledgerFilterFrom) }}</div>
         </div>
         <div class="ledger-box box-gray" style="flex:2;">
           <div class="box-title">Total Invoiced</div>
@@ -613,7 +668,7 @@ onMounted(() => {
         <div class="ledger-box box-orange" style="flex:1;">
           <div class="box-title">Closing Balance (Dues)</div>
           <div class="box-val" :class="ledgerTotals.running > 0 ? 'text-red' : 'text-green'">Rs {{ formatNum(Math.abs(ledgerTotals.running)) }}</div>
-          <div class="box-sub">13-Mar-2026</div>
+          <div class="box-sub">{{ formatDate(ledgerFilterTo) }}</div>
         </div>
       </div>
     </div>
@@ -644,13 +699,15 @@ onMounted(() => {
         <thead v-else-if="activeTab === 'ledger'">
           <tr class="ledger-header-row">
             <th>Date</th>
-            <th>Transaction ID</th>
+            <th>Receipt #</th>
             <th>Type</th>
-            <th>Client / Reference</th>
-            <th>Lab</th>
-            <th class="text-right">Debit (Rs)</th>
-            <th class="text-right">Credit (Rs)</th>
-            <th class="text-right">Running Balance (Rs)</th>
+            <th>Client Name</th>
+            <th>Laboratory</th>
+            <th class="text-right">Invoiced</th>
+            <th class="text-right">Received</th>
+            <th class="text-right">Balance Due</th>
+            <th>Mode</th>
+            <th>Recorded By</th>
             <th>Notes</th>
           </tr>
         </thead>
@@ -682,7 +739,7 @@ onMounted(() => {
                 <span v-if="inv.type === 'clubbed'" style="color: #3b82f6; font-style: italic; font-size: 11px; margin-left: 4px;">[Clubbed]</span>
               </td>
               <td>{{ inv.lab }}</td>
-              <td>{{ inv.date }}</td>
+              <td>{{ formatDate(inv.date) }}</td>
               <td>{{ inv.samples || 1 }}</td>
               <td class="fw-500">{{ formatNum(inv.total) }}</td>
               <td class="fw-500">{{ formatNum(inv.received) }}</td>
@@ -697,31 +754,32 @@ onMounted(() => {
             </tr>
           </template>
 
-          <!-- Ledger -->
           <template v-else-if="activeTab === 'ledger'">
             <tr v-if="filteredLedger.length === 0">
-              <td colspan="9" class="text-center text-muted empty-state">No transactions found.</td>
+              <td colspan="11" class="text-center text-muted empty-state">No transactions found.</td>
             </tr>
-            <tr v-for="(tx, i) in filteredLedger" :key="tx.txId" :class="[i % 2 === 1 ? 'alt-row' : '', tx.type === 'SBP' ? 'bg-yellow-light' : '']">
-              <td>{{ tx.date }}</td>
+            <tr v-for="(tx, i) in filteredLedger" :key="tx.txId + i" :class="[i % 2 === 1 ? 'alt-row' : '']">
+              <td>{{ formatDate(tx.date) }}</td>
               <td class="mono fw-600 text-dark">{{ tx.txId }}</td>
-              <td><span class="status-badge" :class="tx.type.toLowerCase()">{{ tx.type }}</span></td>
+              <td><span class="status-badge" :class="tx.type.toLowerCase().replace(' ', '-')">{{ tx.type }}</span></td>
               <td>{{ tx.client }}</td>
               <td>{{ tx.lab }}</td>
-              <td class="fw-600 text-red text-right">{{ tx.debit ? formatNum(tx.debit) : '—' }}</td>
-              <td class="fw-600 text-green text-right">{{ tx.credit ? formatNum(tx.credit) : '—' }}</td>
-              <td class="fw-600 text-right" :class="tx.isDr ? 'text-red' : 'text-green'">{{ formatNum(Math.abs(tx.runningBalance)) }} <span style="font-size: 11px; margin-left: 2px;">{{ tx.isDr ? 'Dr' : 'Cr' }}</span></td>
-              <td style="font-size: 12px; color: #64748b; max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ tx.note }}</td>
+              <td class="fw-600 text-dark text-right">{{ tx.amountInvoiced ? formatNum(tx.amountInvoiced) : '—' }}</td>
+              <td class="fw-600 text-green text-right">{{ tx.amountReceived ? formatNum(tx.amountReceived) : '—' }}</td>
+              <td class="fw-600 text-right" :class="tx.balanceDue > 0 ? 'text-red' : 'text-green'">{{ formatNum(tx.balanceDue) }}</td>
+              <td><span style="font-size: 11px;">{{ tx.paymentMode }}</span></td>
+              <td><span style="font-size: 11px;">{{ tx.recordedBy }}</span></td>
+              <td style="font-size: 11px; color: #64748b; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ tx.note }}</td>
             </tr>
             <tr v-if="filteredLedger.length > 0" class="ledger-totals-row">
-              <td colspan="5">TOTALS</td>
+              <td colspan="5">TOTALS (Filtered View)</td>
               <td class="text-right">₨ {{ formatNum(ledgerTotals.debitSum) }}</td>
               <td class="text-right">₨ {{ formatNum(ledgerTotals.creditSum) }}</td>
-              <td class="text-right">₨ {{ formatNum(Math.abs(ledgerTotals.running)) }} <span style="font-size: 11px; margin-left: 2px;">{{ ledgerTotals.isDr ? 'Dr' : 'Cr' }}</span></td>
-              <td></td>
+              <td class="text-right">₨ {{ formatNum(ledgerTotals.running) }}</td>
+              <td colspan="3"></td>
             </tr>
           </template>
-
+          
           <!-- Dues Register -->
           <template v-else-if="activeTab === 'dues'">
             <tr v-if="filteredDues.length === 0">
@@ -732,13 +790,13 @@ onMounted(() => {
               <td class="mono fw-600 text-dark">{{ due.slug }}</td>
               <td>{{ due.client }}</td>
               <td>{{ due.lab }}</td>
-              <td>{{ due.date }}</td>
+               <td>{{ formatDate(due.date) }}</td>
               <td class="fw-500 text-right">{{ formatNum(due.total) }}</td>
               <td class="fw-600 text-dark text-right">{{ formatNum(due.balance) }}</td>
               <td class="text-center">
                 <span class="ageing-badge" :class="due.ageingDays > 60 ? (due.ageingDays > 90 ? 'danger' : 'warning') : 'success'">{{ due.ageingDays }} days</span>
               </td>
-              <td style="font-size:12px; color:#64748b;">{{ due.lastReminder }}</td>
+               <td style="font-size:12px; color:#64748b;">{{ formatDate(due.lastReminder) }}</td>
               <td class="print-hide action-cell text-center" style="white-space: nowrap;">
                  <button class="btn btn-blue d-inline-flex align-items-center" style="padding:4px 8px; font-size:12px; border-radius:4px; margin-right:4px;" @click="openPaymentModal(due)">💳 Pay</button>
                  <button class="btn btn-outline d-inline-flex align-items-center justify-content-center" style="padding:4px 8px; border-radius:4px;" @click="sendReminder()"><span style="font-size:14px;">✉</span></button>
@@ -836,7 +894,8 @@ onMounted(() => {
       </div>
     </Teleport>
 
-    <!-- Clubbed Invoice Modal -->
+
+    <!-- Clubbed Invoice Wizard Modal -->
     <Teleport to="body">
        <div v-if="showClubbedModal" class="modal-overlay open" @click.self="showClubbedModal = false">
         <div class="modal clubbed-modal" :class="{'step3-modal': clubbedStep === 3}">
@@ -983,59 +1042,45 @@ onMounted(() => {
 
                  <div class="text-blue mt-3 mb-2" style="font-weight: 600; font-size: 13px; color: #1e3a8a;">Billing Summary (grouped by test category & rate):</div>
                  
-                 <table class="inv-summary-table">
-                   <thead>
-                     <tr>
-                       <th>S#</th>
-                       <th>Test Category / Description</th>
-                       <th>Receipt IDs Range</th>
-                       <th>No. of Samples</th>
-                       <th>Rate / Sample</th>
-                       <th>Amount (PKR)</th>
-                     </tr>
-                   </thead>
-                   <tbody>
-                     <tr>
-                       <td>1</td>
-                       <td><strong>PCM – Physical + Chemical + Microbial</strong></td>
-                       <td class="mono">26/CLB/P0081, 0082, 0083, 0088, 0091</td>
-                       <td><strong>5</strong></td>
-                       <td>1,800</td>
-                       <td>9,000</td>
-                     </tr>
-                     <tr>
-                       <td>2</td>
-                       <td><strong>M – Microbial Only</strong></td>
-                       <td class="mono">26/CLB/P0085</td>
-                       <td><strong>1</strong></td>
-                       <td>900</td>
-                       <td>900</td>
-                     </tr>
-                     <tr>
-                       <td>3</td>
-                       <td><strong>PC – Physical + Chemical</strong></td>
-                       <td class="mono">26/CLB/P0094</td>
-                       <td><strong>1</strong></td>
-                       <td>1,200</td>
-                       <td>1,200</td>
-                     </tr>
-                     <tr class="calc-row">
-                       <td colspan="6"><em style="color: #64748b;">Calculation: 5 × 1,800 + 1 × 900 + 1 × 1,200 = PKR 11,100</em></td>
-                     </tr>
-                     <tr>
-                       <td colspan="5">Service Charges</td>
-                       <td class="mono">0</td>
-                     </tr>
-                     <tr>
-                       <td colspan="5">Analysis Charges</td>
-                       <td class="mono">1,500</td>
-                     </tr>
-                     <tr class="total-row bg-dark text-white">
-                       <td colspan="5" style="text-align: right; font-weight: bold;">TOTAL CHARGES</td>
-                       <td class="mono fw-bold">12,600</td>
-                     </tr>
-                   </tbody>
-                 </table>
+                 <table class="billing-summary-table">
+                    <thead>
+                      <tr>
+                        <th>S#</th>
+                        <th>Test Category / Description</th>
+                        <th>Receipt IDs Range</th>
+                        <th>No. of Samples</th>
+                        <th>Rate / Sample</th>
+                        <th>Amount (PKR)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="(cat, name, idx) in clubbedInvoicePreviewData.items" :key="name">
+                        <td>{{ idx + 1 }}</td>
+                        <td><strong>{{ name }}</strong></td>
+                        <td class="mono">{{ cat.samples.join(', ') }}</td>
+                        <td><strong>{{ cat.count }}</strong></td>
+                        <td>{{ formatNum(cat.rate) }}</td>
+                        <td>{{ formatNum(cat.count * cat.rate) }}</td>
+                      </tr>
+                      
+                      <tr class="calc-row">
+                        <td colspan="6">
+                          <em style="color: #64748b; font-size: 13px;">
+                            Formula: {{ clubbedInvoicePreviewData.formula }}
+                          </em>
+                        </td>
+                      </tr>
+                      
+                      <tr>
+                        <td colspan="5" class="text-right">Service Charges</td>
+                        <td class="mono">0</td>
+                      </tr>
+                      <tr class="total-row bg-dark text-white">
+                        <td colspan="5" style="text-align: right; font-weight: bold; padding: 12px;">TOTAL CHARGES</td>
+                        <td class="mono fw-bold" style="padding: 12px; font-size: 16px;">{{ formatNum(clubbedInvoicePreviewData.total) }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
 
                  <div class="footer-note-section mt-4 pt-4">
                    <div class="note">
@@ -1203,7 +1248,11 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
+  margin-bottom: 24px;
+  padding: 16px;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
 }
 
 .left-filters {
@@ -1681,7 +1730,15 @@ onMounted(() => {
 
 /* Ledger Specific Styles */
 .ledger-filters {
-  background: transparent;
+  background: #f8fafc;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  margin-bottom: 20px;
+}
+.ledger-specific-controls {
+  margin-top: 10px;
+  margin-bottom: 20px;
 }
 .ledger-box {
   background: #fff;

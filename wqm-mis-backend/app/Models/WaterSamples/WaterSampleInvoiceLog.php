@@ -23,7 +23,13 @@ class WaterSampleInvoiceLog extends Model
         'balance',
         'payment_mode',
         'note',
+        'sbp_submission_id',
     ];
+
+    public function sbpSubmission(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\SbpSubmission::class);
+    }
 
     public function getActivitylogOptions(): LogOptions
     {

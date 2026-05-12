@@ -14,6 +14,9 @@ export const financeService = {
   /** POST /api/finance/record-payment/{id} — record payment against invoice */
   recordPayment: (invoiceId, data) => api.post(`/finance/record-payment/${invoiceId}`, data),
 
+  /** POST /api/finance/clubbed-invoice — generate clubbed invoice */
+  createClubbedInvoice: (data) => api.post('/finance/clubbed-invoice', data),
+
   // ── Legacy / Water Sample Invoice endpoints (kept for other views) ────
   getInvoices: (params = {}) => api.post('/search-water-sample-invoices', params),
   getInvoice: (id) => api.get(`/water-sample-invoices/${id}`),
