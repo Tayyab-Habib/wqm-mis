@@ -22,13 +22,15 @@ class WaterQualityAnalysisReportController extends Controller
     public function __invoke(ShowWaterQualityAnalysisReportRequest $request, WaterSample $water_sample): JsonResponse
     {
         $waterSamples = WaterSample::query()
-            ->select(['water_scheme_id', 'slug', 'sample_name','collected_by', 'collectable_type', 'collectable_id', 'sampled_at','latitude','longitude', 'status', 'desired_test', 'result', 'district_id', 'division_id', 'phed_division_id', 'laboratory_id'])
+            ->select(['water_scheme_id', 'slug', 'sample_name','collected_by', 'collectable_type', 'collectable_id', 'sampled_at','latitude','longitude', 'status', 'desired_test', 'result', 'district_id', 'division_id', 'phed_division_id', 'laboratory_id', 'region_id', 'circle_id'])
             ->with([
                 'waterScheme:id,name',
                 'laboratory:id,name',
                 'district:id,name',
                 'division:id,name',
                 'phedDivision:id,name',
+                'region:id,name',
+                'circle:id,name',
             ])
             ->when(isset($request->month), function ($query) use ($request) {
                 $query->whereBetween('sampled_at', [
@@ -46,12 +48,18 @@ class WaterQualityAnalysisReportController extends Controller
                     : Carbon::now()->endOfDay();
                 $query->whereBetween('sampled_at', [$from, $to]);
             })
-            ->when(isset($request->district_id), function ($query) use ($request) {
-                $query->where('district_id', '=', $request->district_id)
-                    ->where('division_id', '=', $request->division_id);
+            ->when($request->filled('district_id'), function ($query) use ($request) {
+                $query->where('district_id', '=', $request->district_id);
             })
-            ->when(isset($request->division_id), function ($query) use ($request) {
+            ->when($request->filled('division_id'), function ($query) use ($request) {
                 $query->where('division_id', '=', $request->division_id);
+            })
+            ->when($request->filled('sample_type'), function ($query) use ($request) {
+                if ($request->sample_type === 'PHE') {
+                    $query->where('collectable_type', \App\Models\User::class);
+                } elseif ($request->sample_type === 'Private') {
+                    $query->where('collectable_type', '!=', \App\Models\User::class);
+                }
             })
             ->when(isset($request->water_scheme_id), function ($query) use ($request) {
                 $query->where('water_scheme_id', '=', $request->water_scheme_id);

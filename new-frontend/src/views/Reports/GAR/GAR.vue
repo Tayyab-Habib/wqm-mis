@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { reportService } from '../../../services/reportService.js'
 import { dropdownService } from '../../../services/dropdownService.js'
 import { exportToXLSX } from '../../../utils/exportHelpers.js'
@@ -27,22 +27,35 @@ const filters = ref({
   sample_type:     '',
 })
 
-// Cascaded district options
-const filteredDistricts = computed(() =>
-  filters.value.division_id
-    ? districts.value.filter(d => d.division_id == filters.value.division_id)
-    : districts.value
+// Cascaded dropdowns per SRS hierarchy: Region → Division → PHE Circle → District → PHE Division
+const filteredDivisions = computed(() =>
+  filters.value.region_id
+    ? divisions.value.filter(d => d.region_id == filters.value.region_id)
+    : divisions.value
 )
 const filteredCircles = computed(() =>
   filters.value.region_id
     ? circles.value.filter(c => c.region_id == filters.value.region_id)
     : circles.value
 )
-const filteredPhedDivs = computed(() =>
-  filters.value.district_id
-    ? phedDivs.value.filter(p => p.district_id == filters.value.district_id)
-    : phedDivs.value
-)
+const filteredDistricts = computed(() => {
+  let list = districts.value
+  if (filters.value.division_id) list = list.filter(d => d.division_id == filters.value.division_id)
+  if (filters.value.circle_id)   list = list.filter(d => d.circle_id == filters.value.circle_id)
+  return list
+})
+const filteredPhedDivs = computed(() => {
+  let list = phedDivs.value
+  if (filters.value.district_id) list = list.filter(p => p.district_id == filters.value.district_id)
+  if (filters.value.circle_id)   list = list.filter(p => p.circle_id == filters.value.circle_id)
+  return list
+})
+const filteredLaboratories = computed(() => {
+  let list = laboratories.value
+  if (filters.value.district_id) list = list.filter(l => l.district_id == filters.value.district_id)
+  if (filters.value.division_id) list = list.filter(l => l.division_id == filters.value.division_id)
+  return list
+})
 
 // ── Load dropdowns ────────────────────────────────────────────────────
 async function loadDropdowns() {
@@ -80,6 +93,7 @@ async function generateReport() {
     if (filters.value.region_id)        payload.region_id        = filters.value.region_id
     if (filters.value.circle_id)        payload.circle_id        = filters.value.circle_id
     if (filters.value.phed_division_id) payload.phed_division_id = filters.value.phed_division_id
+    if (filters.value.sample_type)      payload.sample_type      = filters.value.sample_type
 
     const res  = await reportService.getWaterQualityAnalysis(payload)
     const data = res.data?.data || res.data || []
@@ -106,17 +120,21 @@ const labRows = computed(() => {
         id:       `lab-${labId}`,
         labId,
         lab:      labName,
-        div:      s.division?.name || '—',
-        districts: new Set(),
+        regionSet:   new Set(),
+        divisionSet: new Set(),
+        districtSet: new Set(),
         tested:   0, fit: 0, unfit: 0,
-        expanded: false,
         districtRows: {},
       }
     }
     const row = labMap[labId]
     row.tested++
     const distName = s.district?.name || 'Unknown'
-    row.districts.add(distName)
+    const divName  = s.division?.name || null
+    const regName  = s.region?.name   || null
+    if (regName)  row.regionSet.add(regName)
+    if (divName)  row.divisionSet.add(divName)
+    row.districtSet.add(distName)
     if (!row.districtRows[distName]) row.districtRows[distName] = { district: distName, tested: 0, fit: 0, unfit: 0 }
     const dr = row.districtRows[distName]
     dr.tested++
@@ -126,22 +144,29 @@ const labRows = computed(() => {
 
   return Object.values(labMap).map(r => ({
     ...r,
-    districts:    r.districts.size,
-    districtList: Object.values(r.districtRows),
-    pct:          r.tested > 0 ? ((r.unfit / r.tested) * 100).toFixed(1) : '0.0',
-    rag:          r.unfit / (r.tested || 1) > 0.2 ? 'r-red' : r.unfit / (r.tested || 1) > 0.1 ? 'r-amber' : 'r-green',
-    ragLabel:     r.unfit / (r.tested || 1) > 0.2 ? 'High' : r.unfit / (r.tested || 1) > 0.1 ? 'Moderate' : 'Good',
+    regions:       [...r.regionSet].sort().join(', ')   || '—',
+    divisions:     [...r.divisionSet].sort().join(', ') || '—',
+    districtNames: [...r.districtSet].sort().join(', '),
+    districtCount: r.districtSet.size,
+    districtList:  Object.values(r.districtRows),
+    pct:           r.tested > 0 ? ((r.unfit / r.tested) * 100).toFixed(1) : '0.0',
+    rag:           r.unfit / (r.tested || 1) > 0.2 ? 'r-red' : r.unfit / (r.tested || 1) > 0.1 ? 'r-amber' : 'r-green',
+    ragLabel:      r.unfit / (r.tested || 1) > 0.2 ? 'High' : r.unfit / (r.tested || 1) > 0.1 ? 'Moderate' : 'Good',
   }))
 })
 
 // ── KP-level totals ───────────────────────────────────────────────────
-const totals = computed(() => ({
-  tested:    labRows.value.reduce((s, r) => s + r.tested, 0),
-  fit:       labRows.value.reduce((s, r) => s + r.fit, 0),
-  unfit:     labRows.value.reduce((s, r) => s + r.unfit, 0),
-  labs:      labRows.value.length,
-  divisions: [...new Set(labRows.value.map(r => r.div))].filter(d => d !== '—').length,
-}))
+const totals = computed(() => {
+  const distSet = new Set()
+  rawSamples.value.forEach(s => { if (s.district?.name) distSet.add(s.district.name) })
+  return {
+    tested:           labRows.value.reduce((s, r) => s + r.tested, 0),
+    fit:              labRows.value.reduce((s, r) => s + r.fit, 0),
+    unfit:            labRows.value.reduce((s, r) => s + r.unfit, 0),
+    labs:             labRows.value.length,
+    districtsCovered: distSet.size,
+  }
+})
 
 // ── District-wise grouped by division ────────────────────────────────
 const districtByDivision = computed(() => {
@@ -241,21 +266,49 @@ function collapseAll() { expandedLabs.value = {} }
 
 // ── Export ────────────────────────────────────────────────────────────
 function exportReport() {
-  if (!labRows.value.length) { alert('Generate the report first.'); return }
+  if (!labRows.value.length) { alert('No data to export.'); return }
   const data = labRows.value.map(r => ({
-    'Laboratory': r.lab, 'Division': r.div, 'Districts Covered': r.districts,
-    'Total Tested': r.tested, 'Fit': r.fit, 'Unfit': r.unfit,
-    '% Unfit': r.pct + '%', 'RAG Status': r.ragLabel,
+    'Laboratory': r.lab,
+    'CE Region': r.regions,
+    'Division': r.divisions,
+    'Districts Covered': r.districtNames,
+    'Total Tested': r.tested,
+    'Fit': r.fit,
+    'Unfit': r.unfit,
+    '% Unfit': r.pct + '%',
+    'RAG Status': r.ragLabel,
   }))
   exportToXLSX(data, 'GAR_General_Abstract_Report')
 }
 
 function printReport() { window.print() }
 
+function clearFilters() {
+  filters.value = {
+    from_date:       new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
+    to_date:         new Date().toISOString().split('T')[0],
+    region_id:       '',
+    division_id:     '',
+    circle_id:       '',
+    district_id:     '',
+    phed_division_id:'',
+    laboratory_id:   '',
+    sample_type:     '',
+  }
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────
 function pctBar(fit, total) {
   return total > 0 ? ((fit / total) * 100).toFixed(1) : 0
 }
+
+// ── Auto-refresh on filter change (debounced) ─────────────────────────
+let filterTimer = null
+watch(filters, () => {
+  if (!generated.value) return  // skip until first load completes
+  clearTimeout(filterTimer)
+  filterTimer = setTimeout(generateReport, 350)
+}, { deep: true })
 
 onMounted(async () => {
   await loadDropdowns()
@@ -271,28 +324,28 @@ onMounted(async () => {
       <div class="fg"><label>To</label><input type="date" v-model="filters.to_date"></div>
       <div class="fg">
         <label>CE Region</label>
-        <select v-model="filters.region_id" @change="filters.circle_id='';filters.division_id='';filters.district_id='';filters.phed_division_id=''">
+        <select v-model="filters.region_id" @change="filters.circle_id='';filters.division_id='';filters.district_id='';filters.phed_division_id='';filters.laboratory_id=''">
           <option value="">All CE Regions</option>
           <option v-for="r in regions" :key="r.id" :value="r.id">{{ r.name }}</option>
         </select>
       </div>
       <div class="fg">
         <label>Division</label>
-        <select v-model="filters.division_id" @change="filters.district_id='';filters.phed_division_id=''">
+        <select v-model="filters.division_id" @change="filters.district_id='';filters.phed_division_id='';filters.laboratory_id=''">
           <option value="">All Divisions</option>
-          <option v-for="d in divisions" :key="d.id" :value="d.id">{{ d.name }}</option>
+          <option v-for="d in filteredDivisions" :key="d.id" :value="d.id">{{ d.name }}</option>
         </select>
       </div>
       <div class="fg">
         <label>PHE Circle</label>
-        <select v-model="filters.circle_id">
+        <select v-model="filters.circle_id" @change="filters.district_id='';filters.phed_division_id='';filters.laboratory_id=''">
           <option value="">All Circles</option>
           <option v-for="c in filteredCircles" :key="c.id" :value="c.id">{{ c.name }}</option>
         </select>
       </div>
       <div class="fg">
         <label>District</label>
-        <select v-model="filters.district_id" @change="filters.phed_division_id=''">
+        <select v-model="filters.district_id" @change="filters.phed_division_id='';filters.laboratory_id=''">
           <option value="">All Districts</option>
           <option v-for="d in filteredDistricts" :key="d.id" :value="d.id">{{ d.name }}</option>
         </select>
@@ -308,7 +361,7 @@ onMounted(async () => {
         <label>Lab</label>
         <select v-model="filters.laboratory_id">
           <option value="">All Labs</option>
-          <option v-for="l in laboratories" :key="l.id" :value="l.id">{{ l.name }}</option>
+          <option v-for="l in filteredLaboratories" :key="l.id" :value="l.id">{{ l.name }}</option>
         </select>
       </div>
       <div class="fg">
@@ -320,12 +373,11 @@ onMounted(async () => {
           <option value="PT">PT Sample</option>
         </select>
       </div>
+      <button class="btn btn-sec btn-sm" style="align-self:flex-end" @click="clearFilters">✕ Clear Filters</button>
       <div class="tsp"></div>
-      <button class="btn btn-pri btn-sm" @click="generateReport" :disabled="loading">
-        {{ loading ? 'Generating...' : 'Generate' }}
-      </button>
-      <button class="btn btn-sec btn-sm" @click="exportReport">Export .xlsx</button>
-      <button class="btn btn-sec btn-sm" @click="printReport">Print PDF</button>
+      <span v-if="loading" style="font-size:11px;color:var(--muted);align-self:flex-end;padding-bottom:6px">Updating…</span>
+      <button class="btn btn-sec btn-sm" style="align-self:flex-end" @click="exportReport">Export .xlsx</button>
+      <button class="btn btn-sec btn-sm" style="align-self:flex-end" @click="printReport">Print PDF</button>
     </div>
 
     <div v-if="errorMsg" style="background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;padding:10px 14px;margin-bottom:10px;color:#b91c1c;font-size:12px">
@@ -359,8 +411,8 @@ onMounted(async () => {
         <div class="c-val">{{ totals.labs }}</div>
       </div>
       <div class="card">
-        <div class="c-lbl">Divisions</div>
-        <div class="c-val">{{ totals.divisions }}</div>
+        <div class="c-lbl">Districts Covered</div>
+        <div class="c-val">{{ totals.districtsCovered }}</div>
       </div>
     </div>
 
@@ -380,8 +432,9 @@ onMounted(async () => {
           <tr style="background:var(--navy);color:#fff">
             <th style="width:24px;color:#fff"></th>
             <th style="color:#fff">Laboratory</th>
-            <th style="color:#fff">CE Region / Division</th>
-            <th style="color:#fff">Districts Covered</th>
+            <th style="color:#fff">CE Region</th>
+            <th style="color:#fff">Division</th>
+            <th style="color:#fff;max-width:220px">Districts Covered</th>
             <th style="color:#fff;text-align:center">Tested</th>
             <th style="color:#fff;text-align:center">Fit</th>
             <th style="color:#fff;text-align:center">Unfit</th>
@@ -392,10 +445,10 @@ onMounted(async () => {
         </thead>
         <tbody>
           <tr v-if="!labRows.length && generated">
-            <td colspan="10" style="text-align:center;padding:24px;color:var(--muted)">No data found for the selected filters.</td>
+            <td colspan="11" style="text-align:center;padding:24px;color:var(--muted)">No data found for the selected filters.</td>
           </tr>
           <tr v-if="!generated && !loading">
-            <td colspan="10" style="text-align:center;padding:24px;color:var(--muted)">Click Generate to load the report.</td>
+            <td colspan="11" style="text-align:center;padding:24px;color:var(--muted)">Loading…</td>
           </tr>
 
           <template v-for="row in labRows" :key="row.id">
@@ -405,8 +458,9 @@ onMounted(async () => {
                 {{ expandedLabs[row.id] ? '▼' : '▶' }}
               </td>
               <td style="font-weight:700">{{ row.lab }}</td>
-              <td>{{ row.div }}</td>
-              <td style="text-align:center">{{ row.districts }}</td>
+              <td>{{ row.regions }}</td>
+              <td>{{ row.divisions }}</td>
+              <td :title="row.districtNames" style="max-width:220px;white-space:normal;font-size:11px;line-height:1.4">{{ row.districtNames }}</td>
               <td class="mono" style="text-align:center;font-weight:700">{{ row.tested }}</td>
               <td class="mono" style="text-align:center;color:var(--green)">{{ row.fit }}</td>
               <td class="mono" style="text-align:center" :style="row.rag === 'r-red' ? 'color:var(--red);font-weight:700' : ''">{{ row.unfit }}</td>
@@ -427,7 +481,7 @@ onMounted(async () => {
 
             <!-- Expanded district breakdown -->
             <tr v-if="expandedLabs[row.id]">
-              <td colspan="10" style="padding:0;background:#fafcff">
+              <td colspan="11" style="padding:0;background:#fafcff">
                 <table style="width:100%;font-size:11.5px;border-top:1px solid var(--sky)">
                   <thead>
                     <tr style="background:#e8f0fe">
@@ -462,7 +516,8 @@ onMounted(async () => {
             <td></td>
             <td style="color:#fff;padding:8px 10px">KP TOTAL — All Labs</td>
             <td style="color:#fff"></td>
-            <td style="color:#fff;text-align:center">—</td>
+            <td style="color:#fff"></td>
+            <td style="color:#fff;text-align:center">{{ totals.districtsCovered }}</td>
             <td class="mono" style="color:#fff;text-align:center">{{ totals.tested.toLocaleString() }}</td>
             <td class="mono" style="color:#4ade80;text-align:center">{{ totals.fit.toLocaleString() }}</td>
             <td class="mono" style="color:#f87171;text-align:center">{{ totals.unfit.toLocaleString() }}</td>
