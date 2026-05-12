@@ -3,12 +3,9 @@
 namespace App\Http\Controllers\Reports;
 
 use App\Http\Controllers\Controller;
-use App\Models\Scopes\LatestScope;
-use App\Models\WaterSamples\WaterSample;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 class CEWiseReportController extends Controller
@@ -23,10 +20,12 @@ class CEWiseReportController extends Controller
             'district_id' => ['nullable', 'exists:districts,id'],
         ]);
 
-        // Use DB facade directly — avoids LatestScope ORDER BY conflict with GROUP BY
+        // Use DB facade directly — avoids LatestScope ORDER BY conflict with GROUP BY.
+        // whereNotNull('result') keeps Total = Fit + Unfit (excludes pending analyses).
         $query = DB::table('water_samples')
             ->whereNull('deleted_at')
             ->where('is_draft', 0)
+            ->whereNotNull('result')
             ->when($request->filled('from_date'), fn($q) =>
                 $q->whereDate('sampled_at', '>=', $request->from_date))
             ->when($request->filled('to_date'), fn($q) =>
@@ -37,9 +36,6 @@ class CEWiseReportController extends Controller
                 $q->where('division_id', $request->division_id))
             ->when($request->filled('district_id'), fn($q) =>
                 $q->where('district_id', $request->district_id));
-
-        // Debug log
-        Log::info('CE-wise total rows', ['count' => (clone $query)->count(), 'filters' => $request->all()]);
 
         // ── CE-wise aggregation ───────────────────────────────────────
         $ceRaw = (clone $query)
@@ -67,8 +63,6 @@ class CEWiseReportController extends Controller
             ->groupBy('district_id', 'division_id', 'region_id')
             ->get();
 
-        Log::info('CE-wise results', ['ce_rows' => $ceRaw->count(), 'district_rows' => $districtRaw->count()]);
-
         // ── Fetch names separately ────────────────────────────────────
         $regionIds   = $ceRaw->pluck('region_id')->filter()->unique()->values();
         $districtIds = $districtRaw->pluck('district_id')->filter()->unique()->values();
@@ -90,6 +84,7 @@ class CEWiseReportController extends Controller
         ])->sortBy('region_name')->values();
 
         // ── Map district detail ───────────────────────────────────────
+        // Sort by region first then district name → predictable alphabetical order within each CE group
         $districtDetail = $districtRaw->map(fn($row) => [
             'district_id'   => $row->district_id,
             'district_name' => $districtNames[$row->district_id] ?? 'Unknown District',
@@ -100,7 +95,10 @@ class CEWiseReportController extends Controller
             'total'         => (int) $row->total,
             'fit'           => (int) $row->fit,
             'unfit'         => (int) $row->unfit,
-        ])->sortBy('region_name')->values();
+        ])->sortBy([
+            ['region_name',   'asc'],
+            ['district_name', 'asc'],
+        ])->values();
 
         // ── Province totals ───────────────────────────────────────────
         $provinceTotals = [
