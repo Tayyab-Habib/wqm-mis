@@ -22,24 +22,56 @@ class WaterQualityAnalysisReportController extends Controller
     public function __invoke(ShowWaterQualityAnalysisReportRequest $request, WaterSample $water_sample): JsonResponse
     {
         $waterSamples = WaterSample::query()
-            ->select(['water_scheme_id', 'slug', 'sample_name','collected_by', 'collectable_type', 'collectable_id', 'sampled_at','latitude','longitude', 'status', 'desired_test', 'result', 'district_id', 'laboratory_id'])
+            ->select([
+                'id',  // ← required for eager-loading hasMany relations (waterSampleDetails)
+                'water_scheme_id', 'slug', 'sample_name', 'water_sample_address',
+                'collected_by', 'collectable_type', 'collectable_id',
+                'sampled_at', 'latitude', 'longitude',
+                'status', 'desired_test', 'result', 'remarks',
+                'district_id', 'division_id', 'phed_division_id',
+                'laboratory_id', 'region_id', 'circle_id',
+            ])
             ->with([
                 'waterScheme:id,name',
                 'laboratory:id,name',
-                'district:id,name'
+                'district:id,name',
+                'division:id,name',
+                'phedDivision:id,name',
+                'region:id,name',
+                'circle:id,name',
+                // For GSR: derive Cause + Specific Ion/Component from failing parameter limits
+                'waterSampleDetails:id,water_sample_id,test_id,analysis_result',
+                'waterSampleDetails.test:id,water_quality_parameter,unit,type,who_guideline_start,who_guideline_end,laboratory_guideline_start,laboratory_guideline_end',
             ])
+            ->where('is_draft', false)
             ->when(isset($request->month), function ($query) use ($request) {
                 $query->whereBetween('sampled_at', [
                     Carbon::parse($request->month)->startOfMonth(),
                     Carbon::parse($request->month)->endOfMonth()
                 ]);
             })
-            ->when(isset($request->district_id), function ($query) use ($request) {
-                $query->where('district_id', '=', $request->district_id)
-                    ->where('division_id', '=', $request->division_id);
+            // Support from_date / to_date range (used by GAR/GSR/ASR)
+            ->when($request->filled('from_date') || $request->filled('to_date'), function ($query) use ($request) {
+                $from = $request->filled('from_date')
+                    ? Carbon::parse($request->from_date)->startOfDay()
+                    : Carbon::parse('2000-01-01');
+                $to = $request->filled('to_date')
+                    ? Carbon::parse($request->to_date)->endOfDay()
+                    : Carbon::now()->endOfDay();
+                $query->whereBetween('sampled_at', [$from, $to]);
             })
-            ->when(isset($request->division_id), function ($query) use ($request) {
+            ->when($request->filled('district_id'), function ($query) use ($request) {
+                $query->where('district_id', '=', $request->district_id);
+            })
+            ->when($request->filled('division_id'), function ($query) use ($request) {
                 $query->where('division_id', '=', $request->division_id);
+            })
+            ->when($request->filled('sample_type'), function ($query) use ($request) {
+                if ($request->sample_type === 'PHE') {
+                    $query->where('collectable_type', \App\Models\User::class);
+                } elseif ($request->sample_type === 'Private') {
+                    $query->where('collectable_type', '!=', \App\Models\User::class);
+                }
             })
             ->when(isset($request->water_scheme_id), function ($query) use ($request) {
                 $query->where('water_scheme_id', '=', $request->water_scheme_id);
@@ -49,6 +81,15 @@ class WaterQualityAnalysisReportController extends Controller
             })
             ->when(isset($request->result), function ($query) use ($request) {
                 $query->where('result', '=', $request->result);
+            })
+            ->when(isset($request->region_id), function ($query) use ($request) {
+                $query->where('region_id', '=', $request->region_id);
+            })
+            ->when(isset($request->circle_id), function ($query) use ($request) {
+                $query->where('circle_id', '=', $request->circle_id);
+            })
+            ->when(isset($request->phed_division_id), function ($query) use ($request) {
+                $query->where('phed_division_id', '=', $request->phed_division_id);
             })
             ->get();
 

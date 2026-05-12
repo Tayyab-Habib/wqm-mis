@@ -28,11 +28,17 @@ class ShowWaterQualityAnalysisReportRequest extends FormRequest
     {
         return [
             'month' => ['nullable', 'date', 'date_format:Y-m'],
-            'division_id' => ['nullable', 'required_with:district_id', Rule::exists('divisions', 'id')],
-            'district_id' => ['nullable', Rule::exists('districts', 'id'), new DistrictRule()],
+            'from_date' => ['nullable', 'date'],
+            'to_date'   => ['nullable', 'date', 'after_or_equal:from_date'],
+            'division_id' => ['nullable', Rule::exists('divisions', 'id')],
+            'district_id' => ['nullable', Rule::exists('districts', 'id')],
+            'sample_type' => ['nullable', 'in:PHE,Private,PT'],
             'result' => ['nullable', Rule::in(WaterSampleResultEnum::values())],
             'laboratory_id' => ['nullable', Rule::exists('laboratories', 'id')],
             'water_scheme_id' => ['nullable', Rule::exists('water_schemes', 'id')],
+            'region_id' => ['nullable', Rule::exists('regions', 'id')],
+            'circle_id' => ['nullable', Rule::exists('circles', 'id')],
+            'phed_division_id' => ['nullable', Rule::exists('phed_divisions', 'id')],
         ];
     }
 }
