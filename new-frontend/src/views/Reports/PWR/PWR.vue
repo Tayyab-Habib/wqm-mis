@@ -5,7 +5,7 @@ import { dropdownService } from '../../../services/dropdownService.js'
 import { exportToXLSX }    from '../../../utils/exportHelpers.js'
 import { useUserStore }    from '../../../stores/useUserStore.js'
 
-const userStore  = ref(useUserStore())
+const userStore  = useUserStore()
 const loading    = ref(false)
 const errorMsg   = ref('')
 const generated  = ref(false)
@@ -143,8 +143,23 @@ async function loadDropdowns() {
   } catch (e) { console.error('Dropdown error:', e) }
 }
 
+// ── Client-side date validation ────────────────────────────────────────
+const dateError = computed(() => {
+  const f = filters.value.from_date
+  const t = filters.value.to_date
+  if (f && t && f > t) return 'From date must be on or before To date.'
+  return ''
+})
+
 // ── Generate ───────────────────────────────────────────────────────────
 async function generateReport() {
+  if (dateError.value) {
+    errorMsg.value  = dateError.value
+    generated.value = false
+    loading.value   = false
+    return
+  }
+
   loading.value   = true
   errorMsg.value  = ''
   generated.value = false
@@ -216,7 +231,7 @@ const selectedParamName = computed(() => {
   return parameters.value.find(p => String(p.id) === String(filters.value.test_id))?.water_quality_parameter || 'All Parameters'
 })
 
-const generatedBy = computed(() => userStore.value.currentUser?.name || 'System')
+const generatedBy = computed(() => userStore.currentUser?.name || 'System')
 
 // ── Export ─────────────────────────────────────────────────────────────
 function exportReport() {
@@ -352,15 +367,21 @@ onMounted(async () => {
 
       <button class="btn btn-sec btn-sm" style="align-self:flex-end" @click="clearFilters">✕ Clear Filters</button>
       <div class="tsp"></div>
-      <button class="btn btn-pri btn-sm" style="align-self:flex-end" @click="generateReport" :disabled="loading">
+      <button class="btn btn-pri btn-sm" style="align-self:flex-end" @click="generateReport" :disabled="loading || !!dateError">
         {{ loading ? 'Generating…' : 'Generate' }}
       </button>
       <button v-if="generated" class="btn btn-sec btn-sm" style="align-self:flex-end" @click="exportReport">↓ Export</button>
       <button v-if="generated" class="btn btn-sec btn-sm" style="align-self:flex-end" @click="printReport">Print PDF</button>
     </div>
 
+    <!-- Inline date range warning -->
+    <div v-if="dateError"
+         style="background:#fef9c3;border:1px solid #fde047;border-radius:6px;padding:8px 12px;margin-bottom:10px;color:#854d0e;font-size:12px">
+      ⚠ {{ dateError }}
+    </div>
+
     <!-- Error -->
-    <div v-if="errorMsg"
+    <div v-if="errorMsg && !dateError"
          style="background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;padding:10px 14px;margin-bottom:10px;color:#b91c1c;font-size:12px">
       ⚠️ {{ errorMsg }}
     </div>
