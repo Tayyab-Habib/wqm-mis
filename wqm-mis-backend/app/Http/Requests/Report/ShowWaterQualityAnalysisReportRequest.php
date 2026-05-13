@@ -32,7 +32,7 @@ class ShowWaterQualityAnalysisReportRequest extends FormRequest
             'to_date'   => ['nullable', 'date', 'after_or_equal:from_date'],
             'division_id' => ['nullable', Rule::exists('divisions', 'id')],
             'district_id' => ['nullable', Rule::exists('districts', 'id')],
-            'sample_type' => ['nullable', 'in:PHE,Private,PT'],
+            'sample_type' => ['nullable', 'in:PHE,Private'],
             'result' => ['nullable', Rule::in(WaterSampleResultEnum::values())],
             'laboratory_id' => ['nullable', Rule::exists('laboratories', 'id')],
             'water_scheme_id' => ['nullable', Rule::exists('water_schemes', 'id')],
