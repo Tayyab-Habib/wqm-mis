@@ -79,6 +79,8 @@ async function handleLogin() {
         permissions: userData.permissions || [],
         laboratory:  userData.laboratory  || null,
         district:    userData.district    || null,
+        district_id: userData.district_id ?? null,
+        division_id: userData.division_id ?? null,
       }
       localStorage.setItem('user', JSON.stringify(user))
       userStore.setUser(user)

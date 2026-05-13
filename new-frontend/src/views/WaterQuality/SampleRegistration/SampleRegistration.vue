@@ -52,9 +52,20 @@ onMounted(async () => {
     clients.value         = clientRes.data?.data || clientRes.data || []
 
     // Pre-fill location from logged-in user's district
-    const user = userStore.currentUser
-    if (user?.district_id) {
-      const loc = resolveLocation(user.district_id)
+    let user = userStore.currentUser
+    let districtId = user?.district_id
+    if (!districtId && user?.token) {
+      try {
+        const fresh = await api.get('/user')
+        districtId = fresh?.district_id ?? fresh?.data?.district_id ?? null
+        if (districtId) {
+          const patched = { ...user, district_id: districtId, division_id: user.division_id ?? fresh?.district?.division_id ?? null }
+          userStore.setUser(patched)
+        }
+      } catch (_) { /* fall through */ }
+    }
+    if (districtId) {
+      const loc = resolveLocation(districtId)
       Object.assign(pheForm.value, loc)
     }
   } catch (e) {
@@ -443,12 +454,32 @@ async function savePT() {
 
   saveLoading.value = true
   try {
-    const user = userStore.currentUser
-    const loc  = user?.district_id ? resolveLocation(user.district_id) : {}
+    let user = userStore.currentUser
+    let districtId = user?.district_id
+    // Fallback: users who logged in before district_id was being persisted to
+    // localStorage won't have it cached — fetch from /api/user and patch the store
+    if (!districtId && user?.token) {
+      try {
+        const fresh = await api.get('/user')
+        districtId = fresh?.district_id ?? fresh?.data?.district_id ?? null
+        if (districtId) {
+          const patched = {
+            ...user,
+            district_id: districtId,
+            division_id: user.division_id ?? fresh?.district?.division_id ?? null,
+          }
+          userStore.setUser(patched)
+          user = patched
+        }
+      } catch (_) { /* fall through */ }
+    }
+    const loc = districtId ? resolveLocation(districtId) : {}
     if (!loc.province_id) { errorMsg.value = 'User location not set — cannot save PT sample'; saveLoading.value = false; return }
 
+    // PT samples come from an external proficiency-test provider, not a PHE scheme.
+    // Submitted as a Private/organization client (the provider) — no WSS required.
     const payload = {
-      collectable_type:      'PHE',
+      collectable_type:      'Private',
       test_type:             'Fresh',
       desired_test:          ['Physical', 'Physical & Chemical', 'Microbiological(MF)'],
       sampling_point:        'Source',
@@ -464,6 +495,12 @@ async function savePT() {
       longitude:             '0',
       sampled_at:            toDateTime(ptForm.value.receiptDate, '09:00:00'),
       reported_at:           toDateTime(ptForm.value.deadline || addDays(ptForm.value.receiptDate, 5), '09:00:00'),
+      // Private-client fields required when collectable_type=Private
+      name:                  ptForm.value.provider,
+      phone:                 '0000000000',
+      address:               ptForm.value.programme || `PT ${ptForm.value.year || new Date().getFullYear()}`,
+      type:                  'organization',
+      organization_name:     ptForm.value.provider,
       ...loc,
     }
 

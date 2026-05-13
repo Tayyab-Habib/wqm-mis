@@ -8,18 +8,28 @@ const store = useUiStore()
 // ── Dynamic badge counts ──────────────────────────────────────────────
 const unfitCount = ref(0)
 
+// Total extractor — backend returns { message, data: paginator } and axios
+// interceptor unwraps to body, so res.data is the Laravel paginator.
+function totalFrom(res) {
+  const paginator = res?.data
+  if (paginator?.total !== undefined) return paginator.total
+  if (Array.isArray(paginator))        return paginator.length
+  if (Array.isArray(paginator?.data))  return paginator.data.length
+  return 0
+}
+
 async function fetchUnfitCount() {
   try {
-    const res = await api.post('/search-water-sample', { result: 'Unfit' })
-    const data = res.data?.data
-    // Handle paginated response
-    if (data?.total !== undefined) {
-      unfitCount.value = data.total
-    } else if (Array.isArray(data)) {
-      unfitCount.value = data.length
-    } else if (data?.data) {
-      unfitCount.value = data.data.length
+    // Primary filter — water_samples.result = 'Unfit'
+    let res = await api.post('/search-water-sample', { result: 'Unfit' })
+    let total = totalFrom(res)
+    // Fallback — many older rows have result NULL but current_status=3 (UNFIT)
+    // Mirrors UnfitSampleTrail.vue's own load logic so the badge count matches the page.
+    if (!total) {
+      res = await api.post('/search-water-sample', { current_status: 3 })
+      total = totalFrom(res)
     }
+    unfitCount.value = total
   } catch (e) {
     // Silently fail — badge just won't show
   }
@@ -156,11 +166,16 @@ function getBadge(item) {
 
   .badge {
     margin-left: auto;
-    background: #b91c1c;
+    background: #dc2626;
     color: #fff;
-    font-size: 9px;
-    padding: 1px 5px;
-    border-radius: 8px;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 10px;
+    min-width: 18px;
+    text-align: center;
+    line-height: 1.2;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.08);
   }
 }
 </style>

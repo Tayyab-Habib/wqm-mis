@@ -4,7 +4,7 @@ import { api } from '../../../services/api.js'
 import { sampleService } from '../../../services/sampleService.js'
 import { exportToXLSX } from '../../../utils/exportHelpers.js'
 
-// â”€â”€ State â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── State ─────────────────────────────────────────────────────────────
 const loading      = ref(false)
 const errorMsg     = ref('')
 const unfitSamples = ref([])
@@ -13,10 +13,10 @@ const labFilter    = ref('')
 const statusFilter = ref('')
 const allLabs      = ref([])
 
-// â”€â”€ Status map (current_status integer â†’ label) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Status map (current_status integer â†’ label) ───────────────────────
 const STATUS = { 1:'Pending', 2:'Fit', 3:'Unfit', 4:'In Progress', 5:'Closed' }
 
-// â”€â”€ Map backend row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Map backend row ───────────────────────────────────────────────────
 function mapRow(s) {
   const tests   = s.tests || []
   const round   = s.current_round || 0
@@ -35,17 +35,17 @@ function mapRow(s) {
   // Retest result from last test
   const retestResult = lastTest?.result
     ? (String(lastTest.result).toLowerCase().includes('fit') ? 'Fit' : 'Unfit')
-    : 'â€”'
+    : '—'
 
   return {
     id:          s.slug || String(s.id),
     backendId:   s.id,
-    wss:         s.water_scheme?.name || s.waterScheme?.name || s.water_sample_address || 'â€”',
-    phedDiv:     s.phed_division?.name || s.phedDivision?.name || 'â€”',
-    district:    s.district?.name || 'â€”',
-    date:        s.sampled_at ? formatDate(s.sampled_at) : 'â€”',
-    cause:       s.analysis_result_cause || 'â€”',
-    value:       s.analysis_result_value || 'â€”',
+    wss:         s.water_scheme?.name || s.waterScheme?.name || s.water_sample_address || '—',
+    phedDiv:     s.phed_division?.name || s.phedDivision?.name || '—',
+    district:    s.district?.name || '—',
+    date:        s.sampled_at ? formatDate(s.sampled_at) : '—',
+    cause:       s.analysis_result_cause || '—',
+    value:       s.analysis_result_value || '—',
     actionStatus,
     round,
     retestResult,
@@ -56,13 +56,13 @@ function mapRow(s) {
 }
 
 function formatDate(dt) {
-  if (!dt) return 'â€”'
+  if (!dt) return '—'
   const d = new Date(dt)
   if (isNaN(d)) return dt
   return d.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'2-digit' }).replace(/ /g,'-')
 }
 
-// â”€â”€ Load data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Load data ─────────────────────────────────────────────────────────
 async function loadData() {
   loading.value  = true
   errorMsg.value = ''
@@ -91,7 +91,7 @@ async function loadData() {
   }
 }
 
-// â”€â”€ Summary stats â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Summary stats ─────────────────────────────────────────────────────
 const summary = computed(() => {
   const s = unfitSamples.value
   return {
@@ -104,7 +104,7 @@ const summary = computed(() => {
   }
 })
 
-// â”€â”€ Filtered rows â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Filtered rows ─────────────────────────────────────────────────────
 const filteredRows = computed(() => unfitSamples.value.filter(r => {
   const q = searchText.value.toLowerCase()
   const matchSearch = !q || r.id.toLowerCase().includes(q) || r.wss.toLowerCase().includes(q) || r.district.toLowerCase().includes(q)
@@ -123,7 +123,7 @@ const groupedRows = computed(() => {
   return groups
 })
 
-// â”€â”€ RAG helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── RAG helpers ───────────────────────────────────────────────────────
 function ragClass(row) {
   if (row.actionStatus === 'Resolved')           return 'r-green'
   if (row.actionStatus === 'Fate Decision Req.')  return 'r-red'
@@ -140,7 +140,7 @@ function statusStyle(row) {
   return 'background:#dc2626;color:#fff;border:none'
 }
 
-// â”€â”€ Retest modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Retest modal ──────────────────────────────────────────────────────
 const showRetestModal = ref(false)
 const retestTarget    = ref(null)
 const retestLoading   = ref(false)
@@ -209,11 +209,58 @@ async function submitRetest() {
   }
 }
 
-// â”€â”€ Trail modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Trail modal ───────────────────────────────────────────────────────
 const showTrailModal = ref(false)
 const trailTarget    = ref(null)
 const trailDetail    = ref(null)
 const trailLoading   = ref(false)
+
+// Decoders for water_sample_tests enum columns —
+// Laravel may serialize these as raw integers depending on cast configuration.
+// Mirrors backend enums: WaterSampleTestStatusEnum (0=Pending,1=Completed,2=In Progress)
+// and WaterSampleTestResultEnum (1=Fit, 2=Unfit).
+const TEST_STATUS_MAP = { 0: 'Pending', 1: 'Completed', 2: 'In Progress' }
+const TEST_RESULT_MAP = { 1: 'Fit', 2: 'Unfit' }
+
+function labelStatus(v) {
+  if (v === null || v === undefined || v === '') return null
+  if (typeof v === 'string' && isNaN(Number(v))) return v   // already a label
+  return TEST_STATUS_MAP[Number(v)] ?? String(v)
+}
+function labelResult(v) {
+  if (v === null || v === undefined || v === '') return null
+  if (typeof v === 'string' && isNaN(Number(v))) return v   // already 'Fit'/'Unfit'
+  return TEST_RESULT_MAP[Number(v)] ?? String(v)
+}
+
+// Test rounds shown in the Trail modal. When the backend has no
+// `water_sample_tests` rows for this sample (legacy records that store
+// the result directly on `water_samples`), synthesize an R0 entry so the
+// user still sees the original sampling/analysis dates and the Fit/Unfit
+// result. Real test rounds — when present — take precedence.
+const trailRounds = computed(() => {
+  const d = trailDetail.value
+  if (!d) return []
+  const explicit = d.water_sample_tests || d.tests || []
+  if (explicit.length) {
+    return explicit.map(t => ({
+      ...t,
+      status: labelStatus(t.status),
+      result: labelResult(t.result),
+    }))
+  }
+  if (d.sampled_at || d.analyzed_at || d.result) {
+    return [{
+      id: 'r0-' + (d.id || 'sample'),
+      round: 0,
+      sampled_at:  d.sampled_at  || null,
+      analyzed_at: d.analyzed_at || null,
+      status: d.analyzed_at ? 'Completed' : (STATUS[d.current_status] || 'Pending'),
+      result: labelResult(d.result),
+    }]
+  }
+  return []
+})
 
 async function openTrail(row) {
   trailTarget.value = row
@@ -230,7 +277,7 @@ async function openTrail(row) {
   }
 }
 
-// â”€â”€ Fate modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Fate modal ────────────────────────────────────────────────────────
 const showFateModal = ref(false)
 const fateTarget    = ref(null)
 const fateDecision  = ref('')
@@ -267,7 +314,7 @@ async function submitFate() {
   }
 }
 
-// â”€â”€ Export â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Export ────────────────────────────────────────────────────────────
 function exportData() {
   if (!filteredRows.value.length) { alert('No data to export.'); return }
   exportToXLSX(filteredRows.value.map(r => ({
@@ -472,7 +519,7 @@ onMounted(loadData)
             <tr v-for="(row, i) in rows" :key="row.id"
                 :class="i%2===1?'alt':''"
                 :style="row.actionStatus === 'Fate Decision Req.' ? 'background:#fff0f5' : ''">
-              <td class="mono" style="font-size:11.5px;font-weight:600"
+              <td class="mono" style="font-size:11.5px;font-weight:400"
                   :style="row.actionStatus === 'Fate Decision Req.' ? 'color:#9d174d' : ''">{{ row.id }}</td>
               <td>{{ row.wss }}</td>
               <td style="font-size:11px">{{ row.phedDiv }}</td>
@@ -596,10 +643,10 @@ onMounted(loadData)
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-if="!(trailDetail.water_sample_tests || trailDetail.tests || []).length">
+                    <tr v-if="!trailRounds.length">
                       <td colspan="5" style="text-align:center;padding:20px;color:var(--muted)">No test rounds recorded yet.</td>
                     </tr>
-                    <tr v-for="(t, i) in (trailDetail.water_sample_tests || trailDetail.tests || [])" :key="t.id" :class="i%2===1?'alt':''">
+                    <tr v-for="(t, i) in trailRounds" :key="t.id" :class="i%2===1?'alt':''">
                       <td class="mono">R{{ t.round }}</td>
                       <td>{{ t.sampled_at ? formatDate(t.sampled_at) : '—' }}</td>
                       <td>{{ t.analyzed_at ? formatDate(t.analyzed_at) : 'Pending' }}</td>

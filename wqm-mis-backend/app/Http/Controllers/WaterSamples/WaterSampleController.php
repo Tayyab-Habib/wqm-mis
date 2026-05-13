@@ -277,7 +277,12 @@ class WaterSampleController extends Controller
             'modifiedByUser:id,name',
             'region:id,name',
             'circle:id,name',
-            'phedDivision:id,name'
+            'phedDivision:id,name',
+            // Test rounds — needed by the Unfit Sample Trail "Trail" modal so it
+            // can show R0/R1/R2/R3 history. Safe additive load: existing consumers
+            // simply receive an extra `tests` array on the payload.
+            'tests' => fn($q) => $q->orderBy('round')
+                ->select(['id','water_sample_id','round','status','result','sampled_at','analyzed_at']),
         ]);
 
         return response()->json([
