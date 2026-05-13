@@ -1180,8 +1180,6 @@ onMounted(() => {
 </template>
 
 <style lang="scss" scoped>
-@import '../../../assets/styles/variables.scss';
-
 .invoices-page {
   display: flex;
   flex-direction: column;
