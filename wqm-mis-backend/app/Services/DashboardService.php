@@ -118,11 +118,11 @@ class DashboardService
             ->count();
 
         $totalWaterSamplesFit = (clone $query)
-            ->where('result', '=', WaterSampleResultEnum::FIT->value)
+            ->whereIn('result', ['Fit', '1'])
             ->count();
 
         $totalWaterSamplesUnfit = (clone $query)
-            ->where('result', '=', WaterSampleResultEnum::UNFIT->value)
+            ->whereIn('result', ['Unfit', '2'])
             ->count();
 
         $percentageWaterSamplesFit = ($totalTestedWaterSamples > 0) ? ($totalWaterSamplesFit / $totalTestedWaterSamples) * 100 : 0;
@@ -155,11 +155,11 @@ class DashboardService
             ->count();
 
         $totalPrivateWaterSamplesFit = (clone $query)
-            ->where('result', '=', WaterSampleResultEnum::FIT->value)
+            ->whereIn('result', ['Fit', '1'])
             ->count();
 
         $totalPrivateWaterSamplesUnfit = (clone $query)
-            ->where('result', '=', WaterSampleResultEnum::UNFIT->value)
+            ->whereIn('result', ['Unfit', '2'])
             ->count();
 
         $percentagePrivateWaterSamplesFit = ($totalPrivateWaterSamples > 0) ? ($totalPrivateWaterSamplesFit / $totalPrivateWaterSamples) * 100 : 0;
@@ -194,11 +194,11 @@ class DashboardService
             ->count();
 
         $totalOnDemandTestSamplesFit = (clone $query)
-            ->where('result', '=', WaterSampleResultEnum::FIT->value)
+            ->whereIn('result', ['Fit', '1'])
             ->count();
 
         $totalOnDemandTestSamplesUnFit = (clone $query)
-            ->where('result', '=', WaterSampleResultEnum::UNFIT->value)
+            ->whereIn('result', ['Unfit', '2'])
             ->count();
 
         $percentageOnDemandWaterSamplesFit = ($totalOnDemandTestSamples > 0) ? ($totalOnDemandTestSamplesFit / $totalOnDemandTestSamples) * 100 : 0;
@@ -233,11 +233,11 @@ class DashboardService
             ->count();
 
         $totalPhysicalSamplesFit = (clone $query)
-            ->where('result', '=', WaterSampleResultEnum::FIT->value)
+            ->whereIn('result', ['Fit', '1'])
             ->count();
 
         $totalPhysicalSamplesUnFit = (clone $query)
-            ->where('result', '=', WaterSampleResultEnum::UNFIT->value)
+            ->whereIn('result', ['Unfit', '2'])
             ->count();
 
         $percentagePhysicalSamplesFit = ($totalPhysicalSamples > 0) ? ($totalPhysicalSamplesFit / $totalPhysicalSamples) * 100 : 0;
@@ -272,11 +272,11 @@ class DashboardService
             ->count();
 
         $totalChemicalSamplesFit = (clone $query)
-            ->where('result', '=', WaterSampleResultEnum::FIT->value)
+            ->whereIn('result', ['Fit', '1'])
             ->count();
 
         $totalChemicalSamplesUnFit = (clone $query)
-            ->where('result', '=', WaterSampleResultEnum::UNFIT->value)
+            ->whereIn('result', ['Unfit', '2'])
             ->count();
 
         $percentageChemicalSamplesFit = ($totalChemicalSamples > 0) ? ($totalChemicalSamplesFit / $totalChemicalSamples) * 100 : 0;
@@ -311,11 +311,11 @@ class DashboardService
             ->count();
 
         $totalMicroBialSamplesFit = (clone $query)
-            ->where('result', '=', WaterSampleResultEnum::FIT->value)
+            ->whereIn('result', ['Fit', '1'])
             ->count();
 
         $totalMicroBialSamplesUnFit = (clone $query)
-            ->where('result', '=', WaterSampleResultEnum::UNFIT->value)
+            ->whereIn('result', ['Unfit', '2'])
             ->count();
 
         $percentageMicroBialSamplesFit = ($totalMicroBialSamples > 0) ? ($totalMicroBialSamplesFit / $totalMicroBialSamples) * 100 : 0;
@@ -333,11 +333,11 @@ class DashboardService
         $totalWaterSchemes = WaterScheme::query()->count();
 
         $totalWaterSchemesFit = WaterScheme::query()
-            ->whereHas('waterSample', fn(Builder $query) => $query->applyDashboardFilters($this->request, 'water_schemes')->where('result', '=', WaterSampleResultEnum::FIT->value))
+            ->whereHas('waterSample', fn(Builder $query) => $query->applyDashboardFilters($this->request, 'water_schemes')->whereIn('result', ['Fit', '1']))
             ->count();
 
         $totalWaterSchemesUnfit = WaterScheme::query()
-            ->whereHas('waterSample', fn(Builder $query) => $query->applyDashboardFilters($this->request, 'water_schemes')->where('result', '=', WaterSampleResultEnum::UNFIT->value))
+            ->whereHas('waterSample', fn(Builder $query) => $query->applyDashboardFilters($this->request, 'water_schemes')->whereIn('result', ['Unfit', '2']))
             ->count();
 
         $percentageWaterSchemesFit = $totalWaterSchemes !== 0 ? $totalWaterSchemesFit / $totalWaterSchemes * 100 : 0;
@@ -467,8 +467,8 @@ class DashboardService
             ->select('id', 'name')
             ->withCount([
                 'waterSamples as tested' => fn($query) => $query->applyDashboardFilters($this->request, 'water_samples')->whereNotNull('result'),
-                'waterSamples as unfit' => fn($query) => $query->applyDashboardFilters($this->request, 'water_samples')->where('result', '=', WaterSampleResultEnum::UNFIT->value),
-                'waterSamples as fit' => fn($query) => $query->applyDashboardFilters($this->request, 'water_samples')->where('result', '=', WaterSampleResultEnum::FIT->value),
+                'waterSamples as unfit' => fn($query) => $query->applyDashboardFilters($this->request, 'water_samples')->whereIn('result', ['Unfit', '2']),
+                'waterSamples as fit' => fn($query) => $query->applyDashboardFilters($this->request, 'water_samples')->whereIn('result', ['Fit', '1']),
             ])
             ->get();
 
@@ -658,8 +658,8 @@ class DashboardService
             ->applyDashboardFilters($this->request, 'water_samples')
             ->selectRaw(
                 'DATE_FORMAT(created_at, "%Y-%m") AS month, CASE
-                        WHEN result = "' . WaterSampleResultEnum::FIT->value . '" THEN "fit"
-                        WHEN result = "' . WaterSampleResultEnum::UNFIT->value . '" THEN "unfit"
+                        WHEN result IN ("Fit", "1") THEN "fit"
+                        WHEN result IN ("Unfit", "2") THEN "unfit"
                     END AS result, COUNT(result) as total_count')
             ->whereNotNull('result')
             ->groupBy('month', 'result')

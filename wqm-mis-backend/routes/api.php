@@ -174,6 +174,8 @@ Route::post('login', [AuthController::class, 'login']);
 
 Route::middleware('auth:sanctum')->group(callback: function () {
     Route::post('dashboard', DashboardController::class);
+    Route::post('dashboard/district-heatmap', [DashboardController::class, 'districtHeatmap']);
+    Route::post('dashboard/lab-kpis', [DashboardController::class, 'labKpis']);
     Route::post('district-wise-contaminants', DistrictWiseContaminantsController::class);
 
     // XEN Dashboard Routes

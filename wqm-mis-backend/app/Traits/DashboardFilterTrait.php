@@ -3,6 +3,7 @@
 namespace App\Traits;
 
 use App\Enums\DurationEnum;
+use App\Models\User;
 use App\Models\WaterSamples\WaterSample;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
@@ -14,7 +15,17 @@ trait DashboardFilterTrait
     public function scopeApplyDashboardFilters(Builder $query, $request, string $tableAlias, string $column = 'created_at')
     {
         return $query
-            ->when($tableAlias === (new WaterSample)->getTable() && isset($request->type), fn($query) => $query->where('slug', 'LIKE', '%'.$request->type.'%'))
+            // Sample type lives on collectable_type, not in the slug string.
+            // PHE = collectable_type is App\Models\User; Private = anything else.
+            ->when($tableAlias === (new WaterSample)->getTable() && isset($request->type), function ($query) use ($request) {
+                if ($request->type === 'PHE') {
+                    return $query->where('water_samples.collectable_type', User::class);
+                }
+                if ($request->type === 'Private') {
+                    return $query->where('water_samples.collectable_type', '!=', User::class);
+                }
+                return $query;
+            })
             ->when(isset($request->district_id), fn($query) => $query->where($tableAlias . '.district_id', $request->district_id))
             ->when(isset($request->division_id), fn($query) => $query->where($tableAlias . '.division_id', $request->division_id))
             ->when(isset($request->duration) && $tableAlias !== 'laboratories', function ($query) use ($request, $column) {
