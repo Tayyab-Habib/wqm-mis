@@ -72,10 +72,83 @@ async function searchSample() {
   }
 }
 
+// Walk grouped or flat details, collect distinct analyst names
+function collectAnalystNames(details) {
+  const flat = Array.isArray(details)
+    ? details
+    : Object.values(details || {}).flat()
+  const names = new Set()
+  flat.forEach(d => {
+    const n = d?.analyst_name || d?.analyst?.name
+    if (n) names.add(n)
+  })
+  return [...names]
+}
+
+// Compress desired_test (JSON array / comma list / plain string) into PCM / PC / P / C / M code
+function formatTestType(raw) {
+  if (!raw) return '—'
+  let parts = []
+  if (Array.isArray(raw)) {
+    parts = raw
+  } else {
+    const str = String(raw).trim()
+    if (str.startsWith('[')) {
+      try { parts = JSON.parse(str) } catch { parts = [str] }
+    } else {
+      parts = str.split(/[,;]/)
+    }
+  }
+  const blob = parts.join(' ').toLowerCase()
+  let code = ''
+  if (blob.includes('physical'))        code += 'P'
+  if (blob.includes('chemical'))        code += 'C'
+  if (blob.includes('microbiological') ||
+      blob.includes('microbial') ||
+      blob.includes('bacteriological')) code += 'M'
+  return code || (Array.isArray(raw) ? raw.join(', ') : String(raw))
+}
+
+// Parse a Laravel timestamp that may arrive as:
+//   - ISO:           "2026-05-13T10:30:00Z"  /  "2026-05-13T10:30:00.000000Z"
+//   - SQL-ish:       "2026-05-13 10:30:00"
+//   - Pretty (accessor-formatted): "07 May, 2026 09:30"
+function splitDateTime(stamp) {
+  if (!stamp) return { date: '—', time: '—' }
+  const s = String(stamp).trim()
+
+  // ISO / SQL: YYYY-MM-DD[ T]HH:MM
+  const iso = s.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})/)
+  if (iso) return { date: iso[1], time: iso[2] }
+
+  // Pretty format: extract HH:MM, treat the rest as the date string.
+  const timeMatch = s.match(/(\d{1,2}:\d{2}(?::\d{2})?)/)
+  if (timeMatch) {
+    const time = timeMatch[1].substring(0, 5)
+    const date = s.replace(timeMatch[0], '').trim()
+    return { date: date || '—', time }
+  }
+
+  // Date-only string — return as-is
+  return { date: s, time: '—' }
+}
+
 // ── Map report data ───────────────────────────────────────────────────
 const report = computed(() => {
   if (!rawData.value) return null
   const s = rawData.value.water_sample || rawData.value
+
+  const analystNames = collectAnalystNames(s.water_sample_details)
+  const labIncharge      = s.lab_incharge?.name      || s.labIncharge?.name      || ''
+  const researchOfficer  = s.research_officer?.name  || s.researchOfficer?.name  || ''
+  const createdByName    = s.created_by_user?.name   || s.createdByUser?.name    || ''
+
+  // Analysed By → users who actually entered test results (one row per analyst,
+  // joined). Falls back to lab_incharge then created_by_user.
+  const analysedBy = analystNames.length
+    ? analystNames.join(', ')
+    : (labIncharge || createdByName || '—')
+
   return {
     sampleId:         s.slug || String(s.id),
     reportNo:         `RPT-${new Date(s.created_at||Date.now()).getFullYear()}-${String(s.id).padStart(5,'0')}`,
@@ -84,35 +157,52 @@ const report = computed(() => {
     division:         s.division?.name || '—',
     collectionPoint:  s.sampling_point || '—',
     sourceGps:        s.latitude && s.longitude ? `${s.latitude}, ${s.longitude}` : '—',
-    collectionDate:   s.sampled_at ? s.sampled_at.split(' ')[0] : '—',
-    collectionTime:   s.sampled_at ? (s.sampled_at.split(' ')[1] || '').substring(0,5) : '—',
-    dateReceived:     s.reported_at ? s.reported_at.split(' ')[0] : (s.created_at ? s.created_at.split(' ')[0] : '—'),
-    collectedBy:      s.collected_by || s.created_by_user?.name || s.createdByUser?.name || '—',
-    analysedBy:       s.lab_incharge?.name || s.labIncharge?.name || s.research_officer?.name || s.researchOfficer?.name || '—',
-    testType:         s.test_type || s.desired_test || '—',
-    reasonForTesting: s.complaint || '—',
+    collectionDate:   splitDateTime(s.sampled_at).date,
+    collectionTime:   splitDateTime(s.sampled_at).time,
+    dateReceived:     splitDateTime(s.reported_at).date !== '—'
+                        ? splitDateTime(s.reported_at).date
+                        : splitDateTime(s.created_at).date,
+    collectedBy:      s.collected_by || createdByName || '—',
+    analysedBy,
+    checkedBy:        researchOfficer || '—',
+    issuedBy:         labIncharge || '—',
+    // desired_test is the array of parameter categories (Physical / Chemical / Microbial);
+    // test_type is the sample's freshness category ("Fresh"), not what this column is asking for.
+    testType:         formatTestType(s.desired_test || s.test_type),
+    reasonForTesting: s.complaint_by_other?.trim()
+                        || s.complaint
+                        || '—',
     overallResult:    s.result || 'Pending',
     laboratory:       s.laboratory?.name || 'Central Water Quality Laboratory, Peshawar',
-    labIncharge:      s.lab_incharge?.name || s.labIncharge?.name || '—',
-    researchOfficer:  s.research_officer?.name || s.researchOfficer?.name || '—',
-    createdBy:        s.created_by_user?.name || s.createdByUser?.name || '—',
+    labIncharge:      labIncharge || '—',
+    researchOfficer:  researchOfficer || '—',
+    createdBy:        createdByName || '—',
   }
 })
 
 // ── Map parameter details ─────────────────────────────────────────────
+const isMissing = (v) => v === null || v === undefined || v === '' ||
+                          (typeof v === 'string' && v.trim() === '')
+
 function mapParam(d) {
-  const result = d.input_result ?? d.analysis_result ?? 'NT'
-  const whoEnd = parseFloat(d.who_guideline_end)
+  // Pick the first non-missing of input_result then analysis_result, else NT
+  const raw = !isMissing(d.input_result)    ? d.input_result
+            : !isMissing(d.analysis_result) ? d.analysis_result
+            : null
+  const result = raw === null ? 'NT' : String(raw).trim()
+
+  const whoEnd   = parseFloat(d.who_guideline_end)
   const whoStart = parseFloat(d.who_guideline_start)
-  const val = parseFloat(result)
+  const val      = parseFloat(result)
+  const resLower = result.toLowerCase()
 
   let status = 'Info'
-  if (d.criteria && result !== 'NT' && result !== null) {
-    if (!isNaN(val) && !isNaN(whoEnd)) {
-      status = (val > whoEnd || (!isNaN(whoStart) && val < whoStart)) ? 'Unfit' : 'Fit'
-    } else if (result === '+ve') {
+  if (d.criteria && result !== 'NT') {
+    if (!isNaN(val) && !isNaN(whoEnd) && whoEnd > 0) {
+      status = (val > whoEnd || (!isNaN(whoStart) && whoStart > 0 && val < whoStart)) ? 'Unfit' : 'Fit'
+    } else if (['+ve', 'detected', 'positive', 'present'].includes(resLower)) {
       status = 'Unfit'
-    } else if (result === '-ve') {
+    } else if (['-ve', 'not detected', 'negative', 'absent', 'nil', 'none'].includes(resLower)) {
       status = 'Fit'
     }
   }
@@ -133,35 +223,47 @@ function mapParam(d) {
   }
 }
 
+// Classify a detail's `type` into one of: physical / chemical / microbial / other.
+// "On Demand" tests are chemistry-style assays (Arsenic, Fluoride, Iron, ...) — group as chemical.
+function classifyType(typeStr) {
+  const t = String(typeStr || '').toLowerCase()
+  if (t.includes('physical') && !t.includes('chemical')) return 'physical'
+  if (t.includes('microbial') || t.includes('biological')) return 'microbial'
+  if (t.includes('chemical') || t.includes('on demand') || t.includes('on-demand')) return 'chemical'
+  return 'other'
+}
+
+// Pull a flat array of detail rows out of either { type: [...] } groups or [ ... ] flat
+function flattenDetails(details) {
+  if (!details) return []
+  if (Array.isArray(details)) return details
+  return Object.entries(details).flatMap(([type, arr]) =>
+    Array.isArray(arr) ? arr.map(d => ({ ...d, type: d.type || type })) : []
+  )
+}
+
 const physicalParams = computed(() => {
   if (!rawData.value) return []
   const s = rawData.value.water_sample || rawData.value
-  const details = s.water_sample_details
-  if (!details) return []
-  // details may be grouped by type or flat array
-  if (Array.isArray(details)) return details.filter(d => String(d.type).toLowerCase().includes('physical')).map(mapParam)
-  const group = details['Physical'] || details['physical'] || []
-  return Array.isArray(group) ? group.map(mapParam) : []
+  return flattenDetails(s.water_sample_details)
+    .filter(d => classifyType(d.type) === 'physical')
+    .map(mapParam)
 })
 
 const chemicalParams = computed(() => {
   if (!rawData.value) return []
   const s = rawData.value.water_sample || rawData.value
-  const details = s.water_sample_details
-  if (!details) return []
-  if (Array.isArray(details)) return details.filter(d => String(d.type).toLowerCase().includes('chemical')).map(mapParam)
-  const group = details['Physical & Chemical'] || details['Chemical'] || details['chemical'] || []
-  return Array.isArray(group) ? group.map(mapParam) : []
+  return flattenDetails(s.water_sample_details)
+    .filter(d => classifyType(d.type) === 'chemical')
+    .map(mapParam)
 })
 
 const microbialParams = computed(() => {
   if (!rawData.value) return []
   const s = rawData.value.water_sample || rawData.value
-  const details = s.water_sample_details
-  if (!details) return []
-  if (Array.isArray(details)) return details.filter(d => String(d.type).toLowerCase().includes('micro') || String(d.type).toLowerCase().includes('biological')).map(mapParam)
-  const group = details['Microbiological(MF)'] || details['Microbiological(Kit)'] || details['microbial'] || []
-  return Array.isArray(group) ? group.map(mapParam) : []
+  return flattenDetails(s.water_sample_details)
+    .filter(d => classifyType(d.type) === 'microbial')
+    .map(mapParam)
 })
 
 const isUnfit = computed(() => report.value?.overallResult?.toLowerCase() === 'unfit' || report.value?.overallResult === '2')
@@ -200,8 +302,44 @@ function printReport() { window.print() }
     <div v-if="!report && !loading" style="text-align:center;padding:40px;color:var(--muted);font-size:13px">
       Enter a Sample ID and click Search to view the report.
     </div>
-    <div v-if="loading" style="text-align:center;padding:40px;color:var(--muted);font-size:13px">
-      Loading report...
+
+    <!-- ── Skeleton loading (matches the report layout) ── -->
+    <div v-if="loading" class="isr-sk">
+      <!-- Govt header -->
+      <div class="sk sk-header"></div>
+
+      <!-- Meta grid (12 cells, 2 columns) -->
+      <div class="sk-meta">
+        <div class="sk-meta-cell" v-for="i in 12" :key="'sm'+i">
+          <div class="sk sk-lbl"></div>
+          <div class="sk sk-val"></div>
+        </div>
+      </div>
+
+      <!-- 3 parameter tables (Physical / Chemical / Microbial) -->
+      <div v-for="g in 3" :key="'st'+g" style="margin-top:18px">
+        <div class="sk sk-section-head"></div>
+        <div class="sk-tbl">
+          <div class="sk-tbl-head">
+            <div class="sk sk-th" v-for="i in 6" :key="'th'+g+'-'+i"></div>
+          </div>
+          <div class="sk-tbl-row" v-for="r in 4" :key="'tr'+g+'-'+r">
+            <div class="sk sk-td" v-for="i in 6" :key="'tc'+g+'-'+r+'-'+i"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Verdict banner -->
+      <div class="sk sk-verdict"></div>
+
+      <!-- 3 signature blocks -->
+      <div class="sk-sigs">
+        <div class="sk-sig" v-for="i in 3" :key="'ss'+i">
+          <div class="sk sk-sig-line"></div>
+          <div class="sk sk-sig-name"></div>
+          <div class="sk sk-sig-role"></div>
+        </div>
+      </div>
     </div>
 
     <!-- ── REPORT DOCUMENT ── -->
@@ -258,6 +396,14 @@ function printReport() { window.print() }
           <div style="padding:8px 14px;border-bottom:1px solid #d0d7e0">
             <div style="color:#6b7280;font-size:10.5px">Analysed By</div>
             <div style="font-weight:600">{{ report.analysedBy }}</div>
+          </div>
+          <div style="background:#f0f7ff;padding:8px 14px;border-bottom:1px solid #d0d7e0;border-right:1px solid #d0d7e0">
+            <div style="color:#6b7280;font-size:10.5px">Checked By</div>
+            <div style="font-weight:600">{{ report.checkedBy }}</div>
+          </div>
+          <div style="padding:8px 14px;border-bottom:1px solid #d0d7e0">
+            <div style="color:#6b7280;font-size:10.5px">Issued By</div>
+            <div style="font-weight:600">{{ report.issuedBy }}</div>
           </div>
           <div style="background:#f0f7ff;padding:8px 14px;border-right:1px solid #d0d7e0">
             <div style="color:#6b7280;font-size:10.5px">Test Type</div>
@@ -421,4 +567,76 @@ function printReport() { window.print() }
   #report-print, #report-print * { visibility: visible; }
   #report-print { position: absolute; left: 0; top: 0; width: 100%; }
 }
+
+/* ── Skeleton loading ─────────────────────────────────────────────── */
+.isr-sk {
+  max-width: 860px;
+  margin: 0 auto;
+  background: #fff;
+  border: 1px solid #d0d7e0;
+  border-radius: 6px;
+  padding: 28px 32px;
+  box-shadow: 0 2px 12px rgba(0,0,0,.08);
+}
+.isr-sk .sk {
+  background: linear-gradient(90deg, #e5e7eb 0%, #f3f4f6 50%, #e5e7eb 100%);
+  background-size: 200% 100%;
+  border-radius: 4px;
+  animation: isr-shimmer 1.4s infinite linear;
+}
+@keyframes isr-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.isr-sk .sk-header { height: 72px; margin-bottom: 18px; }
+
+.isr-sk .sk-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border: 1px solid #d0d7e0;
+  border-radius: 5px;
+  overflow: hidden;
+  margin-bottom: 18px;
+}
+.isr-sk .sk-meta-cell {
+  padding: 8px 14px;
+  border-bottom: 1px solid #e5e7eb;
+}
+.isr-sk .sk-meta-cell:nth-child(odd) { border-right: 1px solid #e5e7eb; background: #f8fafc; }
+.isr-sk .sk-lbl { height: 8px; width: 45%; margin-bottom: 6px; }
+.isr-sk .sk-val { height: 12px; width: 70%; }
+
+.isr-sk .sk-section-head { height: 14px; width: 200px; margin-bottom: 6px; }
+
+.isr-sk .sk-tbl {
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.isr-sk .sk-tbl-head, .isr-sk .sk-tbl-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1.5fr 1fr 1.5fr;
+  gap: 8px;
+  padding: 8px 10px;
+}
+.isr-sk .sk-tbl-head { background: #f3f4f6; }
+.isr-sk .sk-tbl-row + .sk-tbl-row { border-top: 1px solid #f3f4f6; }
+.isr-sk .sk-th, .isr-sk .sk-td { height: 11px; }
+
+.isr-sk .sk-verdict {
+  height: 60px;
+  border-radius: 7px;
+  margin: 18px 0;
+}
+
+.isr-sk .sk-sigs {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 20px;
+  margin-top: 8px;
+}
+.isr-sk .sk-sig { text-align: center; }
+.isr-sk .sk-sig-line { height: 1px; width: 100%; margin-bottom: 8px; }
+.isr-sk .sk-sig-name { height: 12px; width: 70%; margin: 0 auto 4px; }
+.isr-sk .sk-sig-role { height: 9px; width: 55%; margin: 0 auto; }
 </style>
