@@ -555,9 +555,6 @@ onMounted(async () => {
           <tr v-if="!labRows.length && generated">
             <td colspan="11" style="text-align:center;padding:24px;color:var(--muted)">No data found for the selected filters.</td>
           </tr>
-          <tr v-if="!generated && !loading">
-            <td colspan="11" style="text-align:center;padding:24px;color:var(--muted)">Loading…</td>
-          </tr>
 
           <template v-for="row in labRows" :key="row.id">
             <!-- Lab row -->
