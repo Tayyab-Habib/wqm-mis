@@ -22,7 +22,7 @@ class PWRController extends Controller
             'district_id'     => ['nullable', 'exists:districts,id'],
             'phed_division_id'=> ['nullable', 'exists:phed_divisions,id'],
             'laboratory_id'   => ['nullable', 'exists:laboratories,id'],
-            'sample_type'     => ['nullable', 'in:PHE,Private,PT'],   // collectable_type
+            'sample_type'     => ['nullable', 'in:PHE,Private'],     // collectable_type (PT will land with the PT model)
             'test_type'       => ['nullable', 'string'],              // accepted for back-compat
             'test_id'         => ['nullable', 'exists:tests,id'],
         ]);
@@ -86,8 +86,11 @@ class PWRController extends Controller
 
         // For criteria=1 tests, count exceeding using both bounds of the WHO range
         // (e.g. pH 6.5-8.5 → value < 6.5 OR value > 8.5). Falls back to laboratory guidelines if WHO is missing.
+        // Track which tests have usable bounds — criteria=1 with no bounds can't be classified (→ Grey).
         $exceedingByTest = [];
+        $hasBoundsByTest = [];
         foreach ($allTests as $testId => $test) {
+            $hasBoundsByTest[$testId] = false;
             if (!$test->criteria) { $exceedingByTest[$testId] = 0; continue; }
 
             $minRaw = $test->who_guideline_start ?? $test->laboratory_guideline_start;
@@ -95,6 +98,7 @@ class PWRController extends Controller
             $hasMin = $minRaw !== null && $minRaw !== '' && is_numeric($minRaw);
             $hasMax = $maxRaw !== null && $maxRaw !== '' && is_numeric($maxRaw);
             if (!$hasMin && !$hasMax) { $exceedingByTest[$testId] = 0; continue; }
+            $hasBoundsByTest[$testId] = true;
 
             $q = DB::table('water_sample_details')
                 ->whereIn('water_sample_id', $sampleIds)
@@ -113,20 +117,31 @@ class PWRController extends Controller
 
         // ── Build parameter overview ──────────────────────────────────
         // Per SRS: include every active parameter, even with 0 tests.
+        //
+        // "tested" semantics (Option A — math ties across the row and the KP totals):
+        //   - criteria=1: count of NUMERIC results only (the comparable subset; non-numeric
+        //     observations like "Agreeable" / "NT" can't be compared to a threshold).
+        //   - criteria=0: count of ALL non-empty results (no threshold, no exclusions).
+        // This guarantees:  pct = exceeding / tested  on every row, and at KP totals.
         $paramOverview  = [];
         $totalTested    = 0;
         $totalExceeding = 0;
 
         foreach ($allTests as $testId => $test) {
-            $agg       = $detailAgg->get($testId);
-            $tested    = $agg ? (int)$agg->total_tested : 0;
-            $exceeding = $exceedingByTest[$testId] ?? 0;
+            $agg           = $detailAgg->get($testId);
+            $totalRaw      = $agg ? (int)$agg->total_tested  : 0;
+            $numericOnly   = $agg ? (int)$agg->numeric_count : 0;
+            $exceeding     = $exceedingByTest[$testId] ?? 0;
+
+            $tested = $test->criteria ? $numericOnly : $totalRaw;
 
             $pct   = $tested > 0 ? round(($exceeding / $tested) * 100, 1) : 0;
             $ratio = $tested > 0 ? $exceeding / $tested : 0;
 
+            // Risk level requires criteria=1 AND usable bounds AND data.
+            // Without bounds we can't classify — show Grey instead of false-positive Green.
             $riskLevel = 'Grey';
-            if ($test->criteria && $tested > 0) {
+            if ($test->criteria && ($hasBoundsByTest[$testId] ?? false) && $tested > 0) {
                 if ($ratio > 0.2)      $riskLevel = 'Red';
                 elseif ($ratio > 0.1)  $riskLevel = 'Amber';
                 else                   $riskLevel = 'Green';
@@ -153,21 +168,20 @@ class PWRController extends Controller
         usort($paramOverview, fn($a, $b) => $b['pct'] <=> $a['pct']);
 
         // ── District-wise breakdown ───────────────────────────────────
-        // For the selected parameter (or all), count per district
-        $districtAgg = DB::table('water_sample_details as wsd')
-            ->join('water_samples as ws', 'ws.id', '=', 'wsd.water_sample_id')
-            ->whereIn('wsd.water_sample_id', $sampleIds)
-            ->whereNull('wsd.deleted_at')
-            ->whereNotNull('wsd.analysis_result')
-            ->where('wsd.analysis_result', '!=', '')
-            ->when($request->filled('test_id'), fn($q) => $q->where('wsd.test_id', $request->test_id))
+        // When no parameter is selected: count one row per analyzed sample
+        // (joining to water_sample_details inflated this by N tests-per-sample).
+        $districtAgg = DB::table('water_samples')
+            ->whereIn('id', $sampleIds)
+            ->whereNotNull('district_id')
+            ->whereNotNull('result')
+            ->where('result', '!=', '')
             ->selectRaw('
-                ws.district_id,
+                district_id,
                 COUNT(*) as total,
-                SUM(CASE WHEN ws.result = "Fit" OR ws.result = "1" THEN 1 ELSE 0 END) as fit,
-                SUM(CASE WHEN ws.result = "Unfit" OR ws.result = "2" THEN 1 ELSE 0 END) as unfit
+                SUM(CASE WHEN result IN ("Fit", "1") THEN 1 ELSE 0 END) as fit,
+                SUM(CASE WHEN result IN ("Unfit", "2") THEN 1 ELSE 0 END) as unfit
             ')
-            ->groupBy('ws.district_id')
+            ->groupBy('district_id')
             ->get();
 
         // If a specific parameter is selected, compute per-district exceeding using BOTH bounds
@@ -189,6 +203,7 @@ class PWRController extends Controller
                 ->join('water_samples as ws', 'ws.id', '=', 'wsd.water_sample_id')
                 ->whereIn('wsd.water_sample_id', $sampleIds)
                 ->whereNull('wsd.deleted_at')
+                ->whereNotNull('ws.district_id')
                 ->where('wsd.test_id', $request->test_id)
                 ->whereNotNull('wsd.analysis_result')
                 ->where('wsd.analysis_result', '!=', '')
@@ -229,6 +244,7 @@ class PWRController extends Controller
         })->sortByDesc('pct')->values()->toArray();
 
         // ── KP Totals ─────────────────────────────────────────────────
+        // Sums are over the same "tested" values shown per row, so KP math = sum(rows).
         $kpTotals = [
             'total_tested'   => $totalTested,
             'total_exceeding'=> $totalExceeding,

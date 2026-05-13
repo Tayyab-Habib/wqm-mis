@@ -339,7 +339,6 @@ onMounted(async () => {
           <option value="">All Sample Types</option>
           <option value="PHE">PHE</option>
           <option value="Private">Private</option>
-          <option value="PT">PT</option>
         </select>
       </div>
 
@@ -366,9 +365,48 @@ onMounted(async () => {
       ⚠️ {{ errorMsg }}
     </div>
 
-    <!-- Loading -->
-    <div v-if="loading" style="text-align:center;padding:48px;color:var(--muted);font-size:13px">
-      Loading report data...
+    <!-- Loading — skeleton placeholders matching the real layout -->
+    <div v-if="loading" class="pwr-sk">
+      <!-- Banner -->
+      <div class="sk sk-banner"></div>
+
+      <!-- 3 KP stat cards -->
+      <div class="sk-cards">
+        <div class="sk-card">
+          <div class="sk sk-lbl"></div>
+          <div class="sk sk-val"></div>
+        </div>
+        <div class="sk-card">
+          <div class="sk sk-lbl"></div>
+          <div class="sk sk-val"></div>
+        </div>
+        <div class="sk-card">
+          <div class="sk sk-lbl"></div>
+          <div class="sk sk-val"></div>
+        </div>
+      </div>
+
+      <!-- View 1 — Parameter Overview -->
+      <div class="sk sk-section-head"></div>
+      <div class="sk-tbl">
+        <div class="sk-tbl-head">
+          <div class="sk sk-th" v-for="i in 6" :key="'ph'+i"></div>
+        </div>
+        <div class="sk-tbl-row" v-for="r in 8" :key="'pr'+r">
+          <div class="sk sk-td" v-for="i in 6" :key="'pc'+r+'-'+i"></div>
+        </div>
+      </div>
+
+      <!-- View 2 — District Breakdown -->
+      <div class="sk sk-section-head"></div>
+      <div class="sk-tbl">
+        <div class="sk-tbl-head">
+          <div class="sk sk-th" v-for="i in 6" :key="'dh'+i"></div>
+        </div>
+        <div class="sk-tbl-row" v-for="r in 5" :key="'dr'+r">
+          <div class="sk sk-td" v-for="i in 6" :key="'dc'+r+'-'+i"></div>
+        </div>
+      </div>
     </div>
 
     <template v-if="!loading && generated">
@@ -451,9 +489,10 @@ onMounted(async () => {
                 {{ pctStr(kpTotals.pct) }}
               </td>
               <td style="text-align:center">
+                <!-- Match per-parameter logic + legend: Green covers 0–10% when data exists -->
                 <span class="rag"
-                  :class="kpTotals.pct > 20 ? 'r-red' : kpTotals.pct > 10 ? 'r-amber' : kpTotals.pct > 0 ? 'r-green' : 'r-grey'">
-                  {{ kpTotals.pct > 20 ? 'Red' : kpTotals.pct > 10 ? 'Amber' : kpTotals.pct > 0 ? 'Green' : 'Grey' }}
+                  :class="kpTotals.total_tested === 0 ? 'r-grey' : kpTotals.pct > 20 ? 'r-red' : kpTotals.pct > 10 ? 'r-amber' : 'r-green'">
+                  {{ kpTotals.total_tested === 0 ? 'Grey' : kpTotals.pct > 20 ? 'Red' : kpTotals.pct > 10 ? 'Amber' : 'Green' }}
                 </span>
               </td>
             </tr>
@@ -523,19 +562,6 @@ onMounted(async () => {
         </table>
       </div>
 
-      <!-- Legend -->
-      <div style="font-size:10.5px;color:var(--muted);margin-top:10px;line-height:1.9">
-        <b>Risk Level:</b>
-        <span class="rag r-green"  style="margin:0 4px">Green</span> &gt;0% exceeding (within acceptable range) &nbsp;·&nbsp;
-        <span class="rag r-amber"  style="margin:0 4px">Amber</span> &gt;10% exceeding &nbsp;·&nbsp;
-        <span class="rag r-red"    style="margin:0 4px">Red</span>   &gt;20% exceeding &nbsp;·&nbsp;
-        <span class="rag r-grey"   style="margin:0 4px">Grey</span>  No criteria / no data
-        <br>
-        <b>Remarks:</b>
-        <span class="rag r-red"    style="margin:0 4px">Action Required</span> &gt;20% &nbsp;·&nbsp;
-        <span class="rag r-amber"  style="margin:0 4px">Monitor</span> 10–20% &nbsp;·&nbsp;
-        <span class="rag r-green"  style="margin:0 4px">No Action</span> ≤10%
-      </div>
     </template>
   </div>
 </template>
@@ -637,4 +663,54 @@ onMounted(async () => {
   .tbl-wrap, .tbl-wrap *, .cards, .cards *, .sh, .sh * { visibility: visible; }
   body { font-size: 10px; }
 }
+
+/* ── Skeleton loading (matches PWR layout) ─────────────────────────── */
+.pwr-page .sk {
+  background: linear-gradient(90deg, #e5e7eb 0%, #f3f4f6 50%, #e5e7eb 100%);
+  background-size: 200% 100%;
+  border-radius: 4px;
+  animation: pwr-sk-shimmer 1.4s infinite linear;
+}
+@keyframes pwr-sk-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.pwr-page .sk-banner { height: 38px; margin-bottom: 12px; }
+
+.pwr-page .sk-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.pwr-page .sk-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pwr-page .sk-lbl { height: 10px; width: 55%; }
+.pwr-page .sk-val { height: 22px; width: 40%; }
+
+.pwr-page .sk-section-head { height: 18px; width: 240px; margin: 14px 0 10px; }
+
+.pwr-page .sk-tbl {
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 14px;
+}
+.pwr-page .sk-tbl-head, .pwr-page .sk-tbl-row {
+  display: grid;
+  grid-template-columns: 2fr 1.5fr 1fr 1fr 1fr 1fr;
+  gap: 8px;
+  padding: 10px 12px;
+}
+.pwr-page .sk-tbl-head { background: #f3f4f6; border-bottom: 1px solid #e5e7eb; }
+.pwr-page .sk-tbl-row + .sk-tbl-row { border-top: 1px solid #f3f4f6; }
+.pwr-page .sk-th { height: 12px; }
+.pwr-page .sk-td { height: 12px; }
 </style>
