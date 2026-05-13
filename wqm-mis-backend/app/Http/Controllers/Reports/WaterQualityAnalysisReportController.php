@@ -73,22 +73,22 @@ class WaterQualityAnalysisReportController extends Controller
                     $query->where('collectable_type', '!=', \App\Models\User::class);
                 }
             })
-            ->when(isset($request->water_scheme_id), function ($query) use ($request) {
+            ->when($request->filled('water_scheme_id'), function ($query) use ($request) {
                 $query->where('water_scheme_id', '=', $request->water_scheme_id);
             })
-            ->when(isset($request->laboratory_id), function ($query) use ($request) {
+            ->when($request->filled('laboratory_id'), function ($query) use ($request) {
                 $query->where('laboratory_id', '=', $request->laboratory_id);
             })
-            ->when(isset($request->result), function ($query) use ($request) {
+            ->when($request->filled('result'), function ($query) use ($request) {
                 $query->where('result', '=', $request->result);
             })
-            ->when(isset($request->region_id), function ($query) use ($request) {
+            ->when($request->filled('region_id'), function ($query) use ($request) {
                 $query->where('region_id', '=', $request->region_id);
             })
-            ->when(isset($request->circle_id), function ($query) use ($request) {
+            ->when($request->filled('circle_id'), function ($query) use ($request) {
                 $query->where('circle_id', '=', $request->circle_id);
             })
-            ->when(isset($request->phed_division_id), function ($query) use ($request) {
+            ->when($request->filled('phed_division_id'), function ($query) use ($request) {
                 $query->where('phed_division_id', '=', $request->phed_division_id);
             })
             ->get();

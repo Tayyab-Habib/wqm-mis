@@ -157,7 +157,7 @@ async function generateReport() {
 }
 
 // Compress `desired_test` (JSON array, comma list, or plain string) into a short code:
-//   contains Physical → P, contains Chemical → C, contains Microbiological → M
+//   contains Physical → P, contains Chemical → C, contains Microbiological → M, On Demand → OD
 //   e.g. ["Physical","Physical & Chemical","Microbiological(MF)"] → "PCM"
 function formatTestType(raw) {
   if (!raw) return '—'
@@ -179,7 +179,32 @@ function formatTestType(raw) {
   if (blob.includes('microbiological') ||
       blob.includes('microbial') ||
       blob.includes('bacteriological'))  code += 'M'
+  if (blob.includes('on demand') ||
+      blob.includes('on-demand') ||
+      blob.includes('ondemand'))         code += 'OD'
   return code || (Array.isArray(raw) ? raw.join(', ') : String(raw))
+}
+
+// Defensive date formatter — sampled_at may arrive as ISO ("2026-05-13T..."),
+// SQL ("2026-05-13 12:34:56"), or the Laravel pretty accessor ("13 May, 2026 12:58").
+// Previous code split on 'T' then ' ' which returned just "13" for the pretty format.
+function formatSampledAt(dt) {
+  if (!dt) return '—'
+  const s = String(dt).trim()
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (iso) {
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    return `${iso[3]}-${months[parseInt(iso[2],10)-1]}-${iso[1].slice(-2)}`
+  }
+  const pretty = s.match(/^(\d{1,2})\s+([A-Za-z]{3})[a-z]*,?\s+(\d{4})/)
+  if (pretty) {
+    return `${pretty[1].padStart(2,'0')}-${pretty[2]}-${pretty[3].slice(-2)}`
+  }
+  const d = new Date(s)
+  if (!Number.isNaN(d.getTime())) {
+    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }).replace(/ /g, '-')
+  }
+  return s
 }
 
 // ── Row mapping ────────────────────────────────────────────────────────
@@ -197,7 +222,7 @@ const rows = computed(() => {
       sn:        idx + 1,
       id:        s.slug || String(s.id),
       wss:       s.waterScheme?.name || s.water_sample_address || '—',
-      date:      s.sampled_at ? s.sampled_at.split('T')[0].split(' ')[0] : '—',
+      date:      formatSampledAt(s.sampled_at),
       ce:       (s.region?.name) || '—',
       lab:       s.laboratory?.name || '—',
       district:  s.district?.name || '—',
@@ -407,7 +432,6 @@ onMounted(async () => {
 
       <button class="btn btn-sec btn-sm" style="align-self:flex-end" @click="clearFilters">✕ Clear</button>
       <div class="tsp"></div>
-      <span v-if="loading" style="align-self:flex-end;font-size:11px;color:var(--muted);padding:0 8px">Updating…</span>
       <button v-if="generated" class="btn btn-sec btn-sm" style="align-self:flex-end" @click="exportReport">↓ Export .xlsx</button>
       <button v-if="generated" class="btn btn-sec btn-sm" style="align-self:flex-end" @click="printReport">🖨 Print PDF</button>
     </div>
