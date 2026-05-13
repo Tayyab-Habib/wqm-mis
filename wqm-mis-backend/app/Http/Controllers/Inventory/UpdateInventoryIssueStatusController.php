@@ -171,7 +171,8 @@ class UpdateInventoryIssueStatusController extends Controller
                         ->sum('quantity');
 
 
-                    $availableInventoryPercentage = $materialLogsSum / $inventoryDetail->inventoryable->quantity * 100;
+                    $masterQty = $inventoryDetail->inventoryable->quantity ?? 0;
+                    $availableInventoryPercentage = $masterQty > 0 ? ($materialLogsSum / $masterQty) * 100 : 0;
                     $status = $availableInventoryPercentage < $inventoryDetail->inventoryable->threshold
                         ? MaterialStatusEnum::BELOW_THRESHOLD->value
                         : MaterialStatusEnum::ACTIVE->value;

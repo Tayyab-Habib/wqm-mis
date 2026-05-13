@@ -38,7 +38,13 @@ class MaterialController extends Controller
         if ($this->authUser->hasRole(['system-administrator', 'system-manager'])) {
             $materials = Material::query()->get();
         } else {
-            $laboratoryId = $this->authUser->laboratoryUser->id;
+            $laboratoryId = $this->authUser->laboratoryUser?->id;
+            if (!$laboratoryId) {
+                return response()->json([
+                    'message' => 'User has no laboratory assigned',
+                    'data' => null,
+                ], SymfonyResponse::HTTP_FORBIDDEN);
+            }
 
             $materials = LaboratoryMaterial::query()
                 ->where('laboratory_id', '=', $laboratoryId)
@@ -150,7 +156,13 @@ class MaterialController extends Controller
         if ($this->authUser->hasRole(['system-administrator', 'system-manager'])) {
             $material->load('materialLogs');
         } else {
-            $laboratoryId = $this->authUser->laboratoryUser->id;
+            $laboratoryId = $this->authUser->laboratoryUser?->id;
+            if (!$laboratoryId) {
+                return response()->json([
+                    'message' => 'User has no laboratory assigned',
+                    'data' => null,
+                ], SymfonyResponse::HTTP_FORBIDDEN);
+            }
 
 //            TODO: paginate material and laboratory material logs
             $material = $material->laboratoryMaterials()

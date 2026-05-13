@@ -529,7 +529,7 @@ onMounted(loadEquipment)
               <div class="cell-scroll" :title="eq.model">{{ eq.model }}</div>
             </td>
             <td class="mono">{{ eq.serial_number || '—' }}</td>
-            <td class="mono">{{ eq.id }}</td>
+            <td class="mono">{{ eq.asset_code }}</td>
             <td>{{ fmtDate(eq.purchased) }}</td>
             <td>{{ fmtDate(eq.warranty_expiry) || '—' }}</td>
             <td>{{ eq.calibCycle }}</td>
