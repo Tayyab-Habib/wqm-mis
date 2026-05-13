@@ -4,6 +4,9 @@ export const reportService = {
   // CE-wise report (Annexure-7)
   getCEWiseReport: (filters) => api.post('/reports/ce-wise', filters),
 
+  // Parameter-wise report (PWR)
+  getPWRReport: (filters) => api.post('/reports/pwr', filters),
+
   // Water Quality Analysis Report (GAR / GSR / ASR)
   getWaterQualityAnalysis: (filters) => api.post('/reports/water-quality-analysis', filters),
 

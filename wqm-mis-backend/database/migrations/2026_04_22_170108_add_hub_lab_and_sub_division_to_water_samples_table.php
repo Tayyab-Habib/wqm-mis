@@ -15,8 +15,12 @@ return new class extends Migration
     {
         Schema::table('water_samples', function (Blueprint $table) {
             $table->after('phed_division_id', function ($table) {
-                $table->foreignId('hub_lab_id')->nullable()->constrained()->restrictOnUpdate()->restrictOnDelete();
-                $table->foreignId('sub_division_id')->nullable()->constrained()->restrictOnUpdate()->restrictOnDelete();
+                if (! Schema::hasColumn('water_samples', 'hub_lab_id')) {
+                    $table->foreignId('hub_lab_id')->nullable()->constrained()->restrictOnUpdate()->restrictOnDelete();
+                }
+                if (! Schema::hasColumn('water_samples', 'sub_division_id')) {
+                    $table->foreignId('sub_division_id')->nullable()->constrained()->restrictOnUpdate()->restrictOnDelete();
+                }
             });
         });
     }

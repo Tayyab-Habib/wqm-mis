@@ -18,6 +18,8 @@ class TestParameterController extends Controller
      */
     public function __invoke(Request $request): JsonResponse
     {
+        // Per SRS §2.2 R-07: only active parameters, ordered by display_order.
+        // ASR needs the WHO/lab guideline columns for client-side exceedance highlighting.
         $tests = Test::query()
             ->select([
                 'id', 'water_quality_parameter', 'type', 'unit',
@@ -25,6 +27,7 @@ class TestParameterController extends Controller
                 'who_guideline_start', 'who_guideline_end',
                 'laboratory_guideline_start', 'laboratory_guideline_end',
             ])
+            ->where('is_active', true)
             ->orderByRaw('COALESCE(display_order, 999999)')
             ->orderBy('water_quality_parameter')
             ->get();

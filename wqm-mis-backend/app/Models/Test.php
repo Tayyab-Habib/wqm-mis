@@ -29,6 +29,8 @@ class Test extends Model
         'laboratory_guideline_start',
         'laboratory_guideline_end',
         'rate',
+        'is_active',
+        'display_order',
         'created_by',
         'modified_by',
     ];
