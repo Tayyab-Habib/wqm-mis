@@ -86,22 +86,41 @@ function printClubbedInvoice() {
   window.print();
 }
 async function saveClubbedInvoice() {
+  // F-08 — submit the REAL client identifier (resolved by the wizard) and
+  // the REAL period dates. No more hardcoded `client_id: 1`.
+  const client = clubbedForm.value.client || {}
+  const selected = unbilledSamples.value.filter(s => s.selected)
+  if (selected.length < 2) {
+    alert('Please select at least 2 receipts to generate a clubbed invoice.')
+    return
+  }
+  if (!client.invoiceable_id || !client.invoiceable_type) {
+    alert('Please pick a client first.')
+    return
+  }
+
   loading.value = true;
   try {
     const res = await financeService.createClubbedInvoice({
-      invoice_ids: unbilledSamples.value.filter(s => s.selected).map(s => s.id),
-      client_id: 1, // Mock client ID for now, should come from clubbedForm.clientId
-      client_type: 'App\\Models\\Client', 
-      period_from: clubbedForm.value.periodFrom,
-      period_to: clubbedForm.value.periodTo,
-      description: "Clubbed Invoice generated from system"
+      invoice_ids: selected.map(s => s.id),
+      client_id:   client.invoiceable_id,
+      client_type: client.invoiceable_type,
+      period_from: clubbedForm.value.periodFrom || null,
+      period_to:   clubbedForm.value.periodTo   || null,
+      description: 'Clubbed Invoice generated from system'
     });
     showClubbedModal.value = false;
-    alert("Clubbed Invoice generated successfully: " + res.data.clubbed_slug);
+    const slug = res?.data?.clubbed_slug || res?.data?.data?.clubbed_slug || '(slug unavailable)'
+    alert('Clubbed Invoice generated successfully: ' + slug);
     fetchData();
   } catch (err) {
     console.error(err);
-    alert("Failed to generate clubbed invoice: " + (err.response?.data?.message || err.message));
+    // Surface the SRS validation messages from F-13/F-15 directly.
+    const e = err.response?.data
+    const msg = e?.errors
+      ? Object.values(e.errors).flat().join('\n')
+      : (e?.message || err.message)
+    alert('Failed to generate clubbed invoice: ' + msg);
   } finally {
     loading.value = false;
   }
@@ -412,6 +431,8 @@ function openPaymentModal(invoice) {
 }
 
 async function submitPayment() {
+  // F-03 — send the full audit payload the backend now persists:
+  // amount, payment_mode, payment_date, receipt_no, received_by, remarks.
   if (!paymentForm.value.amount || paymentForm.value.amount <= 0) {
     alert('Please enter a valid amount.')
     return
@@ -420,21 +441,31 @@ async function submitPayment() {
     alert('Amount cannot exceed outstanding balance.')
     return
   }
+  const allowedModes = ['Cash', 'Cheque', 'Bank Transfer', 'Online']
+  if (!allowedModes.includes(paymentForm.value.payment_mode)) {
+    alert('Please select a valid payment mode: ' + allowedModes.join(', '))
+    return
+  }
 
   loading.value = true
   try {
     await financeService.recordPayment(paymentForm.value.invoiceId, {
-      amount: paymentForm.value.amount,
+      amount:       paymentForm.value.amount,
       payment_mode: paymentForm.value.payment_mode,
       payment_date: paymentForm.value.payment_date,
-      reference: paymentForm.value.reference,
-      received_by: paymentForm.value.received_by
+      receipt_no:   paymentForm.value.reference, // backend accepts both `receipt_no` and `reference`
+      received_by:  paymentForm.value.received_by,
+      remarks:      paymentForm.value.remarks,
     })
     showPaymentModal.value = false
     await fetchData() // Refresh data
   } catch (err) {
     console.error('Payment failed:', err)
-    alert(err.response?.data?.message || 'Payment failed. Please try again.')
+    const e = err.response?.data
+    const msg = e?.errors
+      ? Object.values(e.errors).flat().join('\n')
+      : (e?.message || 'Payment failed. Please try again.')
+    alert(msg)
   } finally {
     loading.value = false
   }
@@ -446,7 +477,32 @@ function printInvoice(inv) {
   window.print()
 }
 
-function exportData() {
+async function exportData() {
+  // F-18 — for the invoices tab use the real server-side xlsx export.
+  // Ledger / Dues still fall through to the legacy CSV builder below
+  // (those reports are not in the SRS xlsx scope).
+  if (activeTab.value === 'individual' || activeTab.value === 'clubbed') {
+    try {
+      const blob = await financeService.exportRevenueXlsx({
+        status: selectedStatus.value !== 'all' ? selectedStatus.value : undefined,
+      })
+      const url = window.URL.createObjectURL(new Blob([blob]))
+      const link = document.createElement('a')
+      const now = new Date()
+      const mon = now.toLocaleString('en-GB', { month: 'short' })
+      const yy  = String(now.getFullYear()).slice(-2)
+      link.href = url
+      link.download = `Finance_AllLabs_${mon}${yy}.xlsx`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+      return
+    } catch (err) {
+      console.error('xlsx export failed, falling back to CSV', err)
+    }
+  }
+
   let csvContent = "data:text/csv;charset=utf-8,";
   let rows = [];
 
