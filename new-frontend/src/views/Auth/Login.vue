@@ -79,10 +79,22 @@ async function handleLogin() {
         permissions: userData.permissions || [],
         laboratory:  userData.laboratory  || null,
         district:    userData.district    || null,
+        // ── XEN portal additions (additive only) ──
+        role_slug:        userData.role_slug || null,
+        phone:            userData.phone || null,
+        phed_division:    userData.phed_division || null,
+        phed_division_id: userData.phed_division_id || null,
+        circle:           userData.circle || null,
+        region:           userData.region || null,
       }
       localStorage.setItem('user', JSON.stringify(user))
       userStore.setUser(user)
-      router.push({ path: '/dashboard', query: { loggedIn: '1' } })
+
+      // Role-aware redirect: XEN-tier officers go to the XEN portal (uses additive role_slug)
+      const roleSlug = (userData.role_slug || '').toString().toLowerCase()
+      const xenRoles = ['xen', 'ce', 'se', 'secretary']
+      const target = xenRoles.includes(roleSlug) ? '/xen/dashboard' : '/dashboard'
+      router.push({ path: target, query: { loggedIn: '1' } })
     } else {
       error.value = 'Login failed. No token received.'
     }
