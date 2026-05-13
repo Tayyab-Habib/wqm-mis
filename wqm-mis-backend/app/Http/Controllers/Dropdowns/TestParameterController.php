@@ -19,7 +19,14 @@ class TestParameterController extends Controller
     public function __invoke(Request $request): JsonResponse
     {
         $tests = Test::query()
-            ->select(['id', 'water_quality_parameter', 'type'])
+            ->select([
+                'id', 'water_quality_parameter', 'type', 'unit',
+                'permissible_limits', 'criteria', 'display_order', 'is_active',
+                'who_guideline_start', 'who_guideline_end',
+                'laboratory_guideline_start', 'laboratory_guideline_end',
+            ])
+            ->orderByRaw('COALESCE(display_order, 999999)')
+            ->orderBy('water_quality_parameter')
             ->get();
 
         return response()->json([
