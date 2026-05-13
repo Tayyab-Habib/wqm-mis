@@ -8,6 +8,7 @@ use App\Enums\CollectedInEnum;
 use App\Enums\ReasonForTestingEnum;
 use App\Enums\SamplingPointEnum;
 use App\Enums\SourceTypeEnum;
+use App\Casts\TolerantEnumCast;
 use App\Enums\TestFrequencyEnum;
 use App\Enums\WaterSampleCurrentStatusEnum;
 use App\Enums\WaterSampleStatusEnum;
@@ -107,12 +108,18 @@ class WaterSample extends Model
      * @var array
      */
     protected $casts = [
-        'test_type' => TestFrequencyEnum::class,
-        'collected_by' => CollectedByEnum::class,
-        'source_type' => SourceTypeEnum::class,
-        'sampling_point' => SamplingPointEnum::class,
-        'collected_in' => CollectedInEnum::class,
-        'complaint' => ReasonForTestingEnum::class,
+        // D-02 fix — every legacy enum cast on this table is being made
+        // tolerant of empty strings + case variations. The existing data
+        // contains values like 'fresh' (lowercase) and '' (empty), and a
+        // strict ::from() call from JSON serialisation crashes the entire
+        // Finance Module surface area (clubbed-invoice billing-summary
+        // accessor, SBP-pending list, etc.). No data migration required.
+        'test_type'      => TolerantEnumCast::class . ':' . TestFrequencyEnum::class,
+        'collected_by'   => TolerantEnumCast::class . ':' . CollectedByEnum::class,
+        'source_type'    => TolerantEnumCast::class . ':' . SourceTypeEnum::class,
+        'sampling_point' => TolerantEnumCast::class . ':' . SamplingPointEnum::class,
+        'collected_in'   => TolerantEnumCast::class . ':' . CollectedInEnum::class,
+        'complaint'      => TolerantEnumCast::class . ':' . ReasonForTestingEnum::class,
 //        'desired_test' => DesiredTestEnum::class,
 //        'sampled_at' => 'datetime:Y-m-d H:i:s',
         'is_draft' => 'boolean',
