@@ -2,300 +2,718 @@
 
 namespace App\Http\Controllers\Finance;
 
+use App\Enums\WaterSampleInvoiceStatusEnum;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Finance\RecordPaymentRequest;
+use App\Http\Requests\Finance\StoreClubbedInvoiceRequest;
 use App\Models\Client;
-use App\Models\User;
 use App\Models\WaterSamples\WaterSampleInvoice;
 use App\Models\WaterSamples\WaterSampleInvoiceLog;
+use App\Notifications\ClubbedInvoiceGenerated;
+use App\Services\FinanceSlugService;
+use App\Services\SmsService;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
+use Illuminate\Support\Facades\Log;
+use Symfony\Component\HttpFoundation\Response as Http;
 
 class FinanceInvoiceController extends Controller
 {
-    /**
-     * GET /api/finance/invoices
-     */
+    public function __construct(
+        private readonly FinanceSlugService $slugService,
+        private readonly SmsService $smsService,
+    ) {
+    }
+
+    /* =========================================================================
+     |  F-01  GET /api/finance/invoices
+     |        Consolidated Revenue Register.
+     |        Each row carries the LATEST payment metadata (mode, receipt no,
+     |        date, recorded-by) — not just totals.
+     * ===================================================================== */
     public function index(Request $request): JsonResponse
     {
         $query = WaterSampleInvoice::query()
             ->with([
-                'waterSample:id,slug,created_at,laboratory_id,water_scheme_id' => [
-                    'laboratory:id,name',
+                'waterSample:id,slug,laboratory_id,water_scheme_id,created_at' => [
+                    'laboratory:id,name,code',
                     'waterScheme:id,name',
-                    'waterSampleDetails.test'
+                    'waterSampleDetails.test',
                 ],
                 'invoiceable',
+                'childInvoices.waterSample.laboratory:id,name,code',
                 'childInvoices.waterSample.waterSampleDetails.test',
+                // F-01 — pull the most recent payment log for each invoice
+                'waterSampleInvoiceLogs' => fn ($q) => $q->latest('id')->limit(1),
+                'waterSampleInvoiceLogs.user:id,name',
             ]);
 
-        // Filters
         if ($request->filled('status')) {
-            $query->where('status', $request->status);
+            // Accept either the SRS label ("Partially Paid") or the enum value ("partial")
+            $key = $this->normalizeStatusFilter($request->status);
+            if ($key !== null) {
+                $query->where('status', $key);
+            }
+        }
+        if ($request->filled('lab_id')) {
+            $labId = (int) $request->lab_id;
+            $query->whereHas('waterSample', fn ($q) => $q->where('laboratory_id', $labId));
+        }
+        if ($request->filled('client_id')) {
+            $query->where('invoiceable_id', (int) $request->client_id);
+        }
+        if ($request->filled('date_from')) {
+            $query->whereDate('created_at', '>=', $request->date_from);
+        }
+        if ($request->filled('date_to')) {
+            $query->whereDate('created_at', '<=', $request->date_to);
         }
         if ($request->filled('search')) {
-            $search = $request->search;
-            $query->where(function($q) use ($search) {
-                $q->whereHas('waterSample', fn($sq) => $sq->where('slug', 'like', "%{$search}%"))
-                  ->orWhereHas('invoiceable', fn($iq) => $iq->where('name', 'like', "%{$search}%")->orWhere('organization_name', 'like', "%{$search}%"))
-                  ->orWhere('clubbed_slug', 'like', "%{$search}%");
+            $s = $request->search;
+            $query->where(function ($q) use ($s) {
+                $q->whereHas('waterSample', fn ($sq) => $sq->where('slug', 'like', "%{$s}%"))
+                    ->orWhereHas('invoiceable', fn ($iq) => $iq->where('name', 'like', "%{$s}%")
+                        ->orWhere('organization_name', 'like', "%{$s}%"))
+                    ->orWhere('clubbed_slug', 'like', "%{$s}%");
             });
         }
-        
+
         $invoices = $query->orderByDesc('id')->get();
 
-        $data = $invoices->map(function ($inv) {
-            $client = $inv->invoiceable;
-            $clientName = $client?->name ?? $client?->organization_name ?? ($inv->waterSample?->waterScheme?->name) ?? '—';
-            $labName    = $inv->waterSample?->laboratory?->name ?? ($inv->childInvoices->first()?->waterSample?->laboratory?->name) ?? '—';
-            $date       = $inv->getRawOriginal('created_at') ? \Carbon\Carbon::parse($inv->getRawOriginal('created_at'))->format('d-M-y') : '—';
-            
-            $slug = $inv->is_clubbed ? ($inv->clubbed_slug ?? 'C/'.str_pad($inv->id, 5, '0', STR_PAD_LEFT)) : ($inv->waterSample?->slug ?? '—');
-            
-            $statusMap = ['pending' => 'Unpaid', 'partial' => 'Partial', 'paid' => 'Paid'];
-            $status = $statusMap[$inv->status?->value ?? 'pending'] ?? 'Unpaid';
+        $rows = $invoices->map(function (WaterSampleInvoice $inv) {
+            $client     = $inv->invoiceable;
+            $clientName = $client?->name ?? $client?->organization_name ?? $inv->waterSample?->waterScheme?->name ?? '—';
+            $labName    = $inv->waterSample?->laboratory?->name
+                         ?? $inv->childInvoices->first()?->waterSample?->laboratory?->name
+                         ?? '—';
+
+            $latestLog = $inv->waterSampleInvoiceLogs->first(); // latest()->limit(1) loaded
+            $slug      = $inv->is_clubbed
+                ? ($inv->clubbed_slug ?: 'C-' . str_pad((string) $inv->id, 5, '0', STR_PAD_LEFT))
+                : ($inv->waterSample?->slug ?? '—');
 
             return [
-                'id'       => $inv->id,
-                'slug'     => $slug,
-                'client'   => $clientName,
-                'lab'      => $labName,
-                'date'     => $date,
-                'samples'  => $inv->is_clubbed ? $inv->childInvoices->count() : 1,
-                'total'    => (float) $inv->net_amount,
-                'received' => (float) $inv->paid,
-                'balance'  => (float) $inv->balance,
-                'status'   => $status,
-                'type'     => $inv->is_clubbed ? 'clubbed' : 'individual',
-                'is_clubbed' => (bool)$inv->is_clubbed,
-                'billing_summary' => $inv->billing_summary, // Added
+                'id'                 => $inv->id,
+                'slug'               => $slug,
+                'client'             => $clientName,
+                'lab'                => $labName,
+                'date'               => \Carbon\Carbon::parse($inv->getRawOriginal('created_at'))->format('d-M-y'),
+                'samples'            => $inv->is_clubbed ? $inv->childInvoices->count() : 1,
+                'total'              => (float) $inv->net_amount,
+                'received'           => (float) $inv->paid,
+                'balance'            => (float) $inv->balance,
+                'status'             => $inv->status_label,                // SRS label (F-02)
+                'status_key'         => $inv->status?->value ?? 'pending', // stable key for clients
+                'type'               => $inv->is_clubbed ? 'clubbed' : 'individual',
+                'is_clubbed'         => (bool) $inv->is_clubbed,
+                'billing_summary'    => $inv->billing_summary,
+
+                // F-01 — latest-payment metadata aggregated onto the invoice row
+                'payment_mode'       => $latestLog?->payment_mode,
+                'receipt_no'         => $latestLog?->receipt_no ?? $latestLog?->note,
+                'date_of_payment'    => optional($latestLog?->payment_date)->format('Y-m-d')
+                                        ?? \Carbon\Carbon::parse($latestLog?->getRawOriginal('created_at'))->format('Y-m-d'),
+                'recorded_by'        => $latestLog?->received_by_name ?? $latestLog?->user?->name,
             ];
         });
 
         return response()->json([
             'message' => 'Success fetching finance invoices',
             'data'    => [
-                'invoices' => $data->values(),
-                'summary'  => [
-                    'total_invoiced'    => $data->sum('total'),
-                    'total_collected'   => $data->sum('received'),
-                    'total_outstanding' => $data->sum('balance'),
-                    'pending_sbp'       => $data->where('status', 'Partial')->sum('balance'),
-                ],
+                'invoices' => $rows->values(),
+                'summary'  => $this->buildLightSummary($rows),
             ],
-        ], SymfonyResponse::HTTP_OK);
+        ], Http::HTTP_OK);
     }
 
-    /**
-     * GET /api/finance/ledger
-     */
+    /* =========================================================================
+     |  GET /api/finance/ledger  — unchanged shape but now per-row friendly.
+     * ===================================================================== */
     public function ledger(Request $request): JsonResponse
     {
-        $invoices = WaterSampleInvoice::with(['waterSample.laboratory', 'invoiceable', 'childInvoices.waterSample.laboratory'])->orderByDesc('created_at')->get();
-        $logs = WaterSampleInvoiceLog::with([
-            'waterSampleInvoice.waterSample.laboratory',
-            'waterSampleInvoice.invoiceable',
-            'waterSampleInvoice.childInvoices.waterSample.waterSampleDetails.test',
-            'user'
-        ])->orderBy('created_at', 'desc')->get();
+        $invoices = WaterSampleInvoice::with([
+            'waterSample.laboratory:id,name,code',
+            'invoiceable',
+            'childInvoices.waterSample.laboratory:id,name,code',
+        ])->orderByDesc('created_at')->get();
 
-        $ledger = collect();
+        $logs = WaterSampleInvoiceLog::with([
+            'waterSampleInvoice.waterSample.laboratory:id,name,code',
+            'waterSampleInvoice.invoiceable',
+            'waterSampleInvoice.childInvoices.waterSample.laboratory:id,name,code',
+            'user:id,name',
+        ])->orderByDesc('created_at')->get();
+
+        $rows = collect();
 
         foreach ($invoices as $inv) {
             $clientName = $inv->invoiceable?->name ?? $inv->invoiceable?->organization_name ?? '—';
-            $ledger->push([
-                'id'           => $inv->id,
-                'txId'         => $inv->is_clubbed ? ($inv->clubbed_slug ?? 'C-'.$inv->id) : ($inv->waterSample?->slug ?? 'INV-'.$inv->id),
-                'date'         => $inv->getRawOriginal('created_at') ? \Carbon\Carbon::parse($inv->getRawOriginal('created_at'))->format('Y-m-d') : null,
-                'type'         => $inv->is_clubbed ? 'Clubbed Invoice' : 'Invoice',
-                'client'       => $clientName,
-                'lab'          => $inv->waterSample?->laboratory?->name ?? ($inv->childInvoices->first()?->waterSample?->laboratory?->name) ?? '—',
+            $rows->push([
+                'id'             => $inv->id,
+                'txId'           => $inv->is_clubbed
+                                    ? ($inv->clubbed_slug ?: 'C-' . $inv->id)
+                                    : ($inv->waterSample?->slug ?? 'INV-' . $inv->id),
+                'date'           => \Carbon\Carbon::parse($inv->getRawOriginal('created_at'))->format('Y-m-d'),
+                'type'           => $inv->is_clubbed ? 'Clubbed Invoice' : 'Invoice',
+                'client'         => $clientName,
+                'lab'            => $inv->waterSample?->laboratory?->name
+                                    ?? $inv->childInvoices->first()?->waterSample?->laboratory?->name
+                                    ?? '—',
                 'amountInvoiced' => (float) $inv->net_amount,
                 'amountReceived' => 0,
-                'balanceDue'   => (float) $inv->balance,
-                'debit'        => (float) $inv->net_amount,
-                'credit'       => null,
-                'paymentMode'  => '—',
-                'receiptNo'    => '—',
-                'recordedBy'   => 'System',
-                'note'         => $inv->billing_summary['formula'] ?? 'Invoice raised',
+                'balanceDue'     => (float) $inv->balance,
+                'debit'          => (float) $inv->net_amount,
+                'credit'         => null,
+                'paymentMode'    => '—',
+                'receiptNo'      => '—',
+                'recordedBy'     => 'System',
+                'note'           => $inv->billing_summary['formula'] ?? 'Invoice raised',
             ]);
         }
 
         foreach ($logs as $log) {
             $inv = $log->waterSampleInvoice;
-            if (!$inv) continue;
-            $clientName = $inv->invoiceable?->name ?? $inv->invoiceable?->organization_name ?? '—';
-            $ledger->push([
-                'id'           => $inv->id,
-                'txId'         => 'PAY-' . str_pad($log->id, 5, '0', STR_PAD_LEFT),
-                'date'         => $log->getRawOriginal('created_at') ? \Carbon\Carbon::parse($log->getRawOriginal('created_at'))->format('Y-m-d') : null,
-                'type'         => $log->payment_mode === 'SBP' ? 'SBP Deposit' : 'Payment',
-                'client'       => $clientName,
-                'lab'          => $inv->waterSample?->laboratory?->name ?? ($inv->childInvoices->first()?->waterSample?->laboratory?->name) ?? '—',
+            if (!$inv) {
+                continue;
+            }
+            $rows->push([
+                'id'             => $inv->id,
+                'txId'           => 'PAY-' . str_pad((string) $log->id, 5, '0', STR_PAD_LEFT),
+                'date'           => optional($log->payment_date)->format('Y-m-d') ?? \Carbon\Carbon::parse($log->getRawOriginal('created_at'))->format('Y-m-d'),
+                'type'           => $log->sbp_submission_id ? 'SBP Deposit' : 'Payment',
+                'client'         => $inv->invoiceable?->name ?? $inv->invoiceable?->organization_name ?? '—',
+                'lab'            => $inv->waterSample?->laboratory?->name
+                                    ?? $inv->childInvoices->first()?->waterSample?->laboratory?->name
+                                    ?? '—',
                 'amountInvoiced' => 0,
                 'amountReceived' => (float) $log->paid,
-                'balanceDue'   => (float) $log->balance,
-                'debit'        => null,
-                'credit'       => (float) $log->paid,
-                'paymentMode'  => $log->payment_mode,
-                'receiptNo'    => $log->note ?? '—',
-                'recordedBy'   => $log->user?->name ?? '—',
-                'note'         => 'Payment received',
+                'balanceDue'     => (float) $log->balance,
+                'debit'          => null,
+                'credit'         => (float) $log->paid,
+                'paymentMode'    => $log->payment_mode ?? '—',
+                'receiptNo'      => $log->receipt_no ?? $log->note ?? '—',
+                'recordedBy'     => $log->received_by_name ?? $log->user?->name ?? '—',
+                'note'           => 'Payment received',
             ]);
         }
 
         return response()->json([
             'message' => 'Success fetching finance ledger',
-            'data'    => $ledger->sortByDesc('date')->values(),
-        ], SymfonyResponse::HTTP_OK);
+            'data'    => $rows->sortByDesc('date')->values(),
+        ], Http::HTTP_OK);
     }
 
-    /**
-     * GET /api/finance/dues
-     */
+    /* =========================================================================
+     |  GET /api/finance/dues  — invoices with outstanding balance.
+     * ===================================================================== */
     public function dues(Request $request): JsonResponse
     {
         $dues = WaterSampleInvoice::where('balance', '>', 0)
-            ->with(['waterSample.laboratory', 'invoiceable', 'childInvoices.waterSample.waterSampleDetails.test'])
+            ->with([
+                'waterSample.laboratory:id,name,code',
+                'invoiceable',
+                'childInvoices.waterSample.laboratory:id,name,code',
+            ])
             ->orderByDesc('id')
             ->get()
-            ->map(function ($inv) {
+            ->map(function (WaterSampleInvoice $inv) {
                 return [
                     'id'      => $inv->id,
                     'slug'    => $inv->is_clubbed ? $inv->clubbed_slug : ($inv->waterSample?->slug ?? '—'),
                     'client'  => $inv->invoiceable?->name ?? $inv->invoiceable?->organization_name ?? '—',
-                    'lab'     => $inv->waterSample?->laboratory?->name ?? ($inv->childInvoices->first()?->waterSample?->laboratory?->name) ?? '—',
-                    'date'    => $inv->getRawOriginal('created_at') ? \Carbon\Carbon::parse($inv->getRawOriginal('created_at'))->format('d-M-y') : '—',
+                    'lab'     => $inv->waterSample?->laboratory?->name
+                                 ?? $inv->childInvoices->first()?->waterSample?->laboratory?->name
+                                 ?? '—',
+                    'date'    => \Carbon\Carbon::parse($inv->getRawOriginal('created_at'))->format('d-M-y'),
                     'total'   => (float) $inv->net_amount,
                     'balance' => (float) $inv->balance,
+                    'status'  => $inv->status_label,
                 ];
             });
 
-        return response()->json(['message' => 'Success', 'data' => $dues], SymfonyResponse::HTTP_OK);
+        return response()->json([
+            'message' => 'Success',
+            'data'    => $dues,
+        ], Http::HTTP_OK);
     }
 
-    /**
-     * POST /api/finance/clubbed-invoice
-     */
-    public function storeClubbedInvoice(Request $request): JsonResponse
+    /* =========================================================================
+     |  F-05 / F-18  GET /api/finance/revenue-summary
+     |               Real revenue figures bucketed by collected / outstanding /
+     |               submitted-to-SBP / pending-SBP, with full filter support.
+     * ===================================================================== */
+    public function revenueSummary(Request $request): JsonResponse
     {
-        $validated = $request->validate([
-            'invoice_ids'  => ['required', 'array', 'min:2'],
-            'client_id'    => ['required', 'integer'],
-            'client_type'  => ['required', 'string'],
-            'period_from'  => ['nullable', 'date'],
-            'period_to'    => ['nullable', 'date'],
-            'description'  => ['nullable', 'string'],
+        [$invoiceQuery, $logQuery] = $this->buildFilteredQueries($request);
+
+        $totalInvoiced  = (clone $invoiceQuery)->sum('net_amount');
+        $totalCollected = (clone $logQuery)->sum('paid');
+        $totalOutstand  = (clone $invoiceQuery)->sum('balance');
+        $submittedSbp   = (clone $logQuery)->whereNotNull('sbp_submission_id')->sum('paid');
+        $pendingSbp     = (clone $logQuery)->whereNull('sbp_submission_id')->sum('paid');
+
+        return response()->json([
+            'message' => 'Success fetching revenue summary',
+            'data' => [
+                'total_invoiced'    => (float) $totalInvoiced,
+                'total_collected'   => (float) $totalCollected,
+                'total_outstanding' => (float) $totalOutstand,
+                'submitted_to_sbp'  => (float) $submittedSbp,
+                'pending_sbp'       => (float) $pendingSbp,
+                'filters_applied'   => array_filter([
+                    'lab_id'         => $request->lab_id,
+                    'client_id'      => $request->client_id,
+                    'district_id'    => $request->district_id,
+                    'date_from'      => $request->date_from,
+                    'date_to'        => $request->date_to,
+                    'payment_status' => $request->status,
+                ], static fn ($v) => $v !== null && $v !== ''),
+            ],
+        ], Http::HTTP_OK);
+    }
+
+    /* =========================================================================
+     |  F-07  GET /api/finance/dashboard-card
+     |        Powers the Total Revenue + Pending Revenue cards.
+     |        IMPORTANT: pulls from water_sample_invoice_logs, not from the
+     |        legacy `payments` table (purchase orders) which is what the
+     |        old `laboratory_wise_revenue` figure was incorrectly using.
+     * ===================================================================== */
+    public function dashboardCard(Request $request): JsonResponse
+    {
+        $from = $request->filled('date_from') ? Carbon::parse($request->date_from) : Carbon::now()->startOfMonth();
+        $to   = $request->filled('date_to')   ? Carbon::parse($request->date_to)   : Carbon::now()->endOfDay();
+
+        $totalRevenue = (float) WaterSampleInvoiceLog::sum('paid');                  // F-07 — all-time total
+        $periodRevenue = (float) WaterSampleInvoiceLog::whereBetween('created_at', [$from, $to])->sum('paid');
+        // F-06 — Pending is sum of ALL open balances regardless of period
+        $pendingRevenue = (float) WaterSampleInvoice::where('balance', '>', 0)->sum('balance');
+
+        return response()->json([
+            'message' => 'Success',
+            'data' => [
+                'total_revenue'    => $totalRevenue,
+                'period_revenue'   => $periodRevenue,
+                'pending_revenue'  => $pendingRevenue,
+                'period_from'      => $from->toDateString(),
+                'period_to'        => $to->toDateString(),
+            ],
+        ], Http::HTTP_OK);
+    }
+
+    /* =========================================================================
+     |  F-08  GET /api/finance/unbilled-by-client/{client_id}
+     |        Lists every NOT-yet-clubbed individual invoice for a client.
+     |        Drives Step 3 of the SRS wizard.
+     * ===================================================================== */
+    public function unbilledByClient(int $clientId, Request $request): JsonResponse
+    {
+        $type = $request->input('client_type', Client::class);
+        $from = $request->date_from;
+        $to   = $request->date_to;
+
+        $rows = WaterSampleInvoice::query()
+            ->where('invoiceable_id', $clientId)
+            ->where('invoiceable_type', $type)
+            ->where('is_clubbed', false)
+            ->whereNull('clubbed_invoice_id')
+            ->when($from, fn ($q) => $q->whereDate('created_at', '>=', $from))
+            ->when($to,   fn ($q) => $q->whereDate('created_at', '<=', $to))
+            ->with([
+                'waterSample:id,slug,laboratory_id,created_at',
+                'waterSample.laboratory:id,name,code',
+                'waterSample.waterSampleDetails.test',
+            ])
+            ->orderBy('id')
+            ->get();
+
+        $data = $rows->map(fn (WaterSampleInvoice $inv) => [
+            'id'         => $inv->id,
+            'slug'       => $inv->waterSample?->slug ?? ('INV-' . $inv->id),
+            'date'       => \Carbon\Carbon::parse($inv->waterSample?->getRawOriginal('created_at'))->format('d-M-y'),
+            'category'   => $inv->calculateCategory(),
+            'amount'     => (float) $inv->net_amount,
+            'balance'    => (float) $inv->balance,
+            'status'     => $inv->status_label,
+            'lab_id'     => $inv->waterSample?->laboratory_id,
+            'lab_code'   => $inv->waterSample?->laboratory?->code,
+            'selected'   => true, // SRS Step 3: pre-selected by default
         ]);
 
-        $children = WaterSampleInvoice::whereIn('id', $validated['invoice_ids'])->get();
-        $total    = $children->sum('net_amount');
+        return response()->json([
+            'message' => 'Success',
+            'data'    => $data,
+            'meta'    => [
+                'count' => $data->count(),
+                // SRS F-08: client list is filtered to those with ≥2 unpaid receipts
+                'clubbable' => $data->count() >= 2,
+            ],
+        ], Http::HTTP_OK);
+    }
 
-        DB::beginTransaction();
-        try {
-            // Create Parent Clubbed Invoice
+    /* =========================================================================
+     |  GET /api/finance/clients-with-unbilled
+     |        Step 1 of SRS wizard — clients with ≥ 2 individual invoices not
+     |        yet attached to a clubbed parent.
+     * ===================================================================== */
+    public function clientsWithUnbilled(Request $request): JsonResponse
+    {
+        $rows = WaterSampleInvoice::query()
+            ->where('is_clubbed', false)
+            ->whereNull('clubbed_invoice_id')
+            ->selectRaw('invoiceable_id, invoiceable_type, COUNT(*) AS n')
+            ->groupBy('invoiceable_id', 'invoiceable_type')
+            ->having('n', '>=', 2)
+            ->get();
+
+        $data = $rows->map(function ($r) {
+            $client = ($r->invoiceable_type)::find($r->invoiceable_id);
+            return [
+                'invoiceable_id'   => $r->invoiceable_id,
+                'invoiceable_type' => $r->invoiceable_type,
+                'name'             => $client?->name ?? $client?->organization_name ?? ('Client ' . $r->invoiceable_id),
+                'unbilled_count'   => (int) $r->n,
+            ];
+        })->values();
+
+        return response()->json([
+            'message' => 'Success',
+            'data'    => $data,
+        ], Http::HTTP_OK);
+    }
+
+    /* =========================================================================
+     |  F-08 / F-09 / F-11 / F-13 / F-15 / F-16  POST /api/finance/clubbed-invoice
+     | --------------------------------------------------------------------------
+     |  All cross-row validations live in StoreClubbedInvoiceRequest. By the
+     |  time we enter this method we know:
+     |    • ≥ 2 unique, undeleted invoice ids
+     |    • None of them are already clubbed
+     |    • All share the same client AND same laboratory
+     * ===================================================================== */
+    public function storeClubbedInvoice(StoreClubbedInvoiceRequest $request): JsonResponse
+    {
+        $validated = $request->validated();
+
+        return DB::transaction(function () use ($validated) {
+            // Re-lock children FOR UPDATE in transaction order to prevent a
+            // concurrent request from clubbing the same ids in parallel.
+            $children = WaterSampleInvoice::query()
+                ->whereIn('id', $validated['invoice_ids'])
+                ->lockForUpdate()
+                ->with('waterSample:id,laboratory_id')
+                ->get();
+
+            // Defence-in-depth: re-check F-13 inside the lock window.
+            $stillCleanIds = $children->filter(
+                fn ($c) => is_null($c->clubbed_invoice_id) && !$c->is_clubbed
+            )->pluck('id');
+            if ($stillCleanIds->count() !== $children->count()) {
+                throw new \RuntimeException('One or more invoices were clubbed by another process — aborting.');
+            }
+
+            $labId = optional($children->first()->waterSample)->laboratory_id;
+            $total = (float) $children->sum('net_amount');
+
+            $client = $this->resolveClient($validated['client_type'], (int) $validated['client_id']);
+
             $clubbed = WaterSampleInvoice::create([
-                'invoiceable_id'   => $validated['client_id'],
-                'invoiceable_type' => $validated['client_type'],
-                'price'            => $total,
-                'net_amount'       => $total,
-                'paid'             => 0,
-                'balance'          => $total,
-                'status'           => 'pending',
-                'is_clubbed'       => true,
-                'period_from'      => $validated['period_from'],
-                'period_to'        => $validated['period_to'],
-                'created_by'       => auth()->id(),
+                'invoiceable_id'          => $validated['client_id'],
+                'invoiceable_type'        => $validated['client_type'],
+                'price'                   => $total,
+                'net_amount'              => $total,
+                'paid'                    => 0,
+                'balance'                 => $total,
+                'status'                  => WaterSampleInvoiceStatusEnum::PENDING->value,
+                'is_clubbed'              => true,
+                'period_from'             => $validated['period_from']  ?? null, // D-01
+                'period_to'               => $validated['period_to']    ?? null, // D-01
+                'created_by'              => auth()->id(),
+                'online_viewing_password' => $this->generateOnlineViewingPassword($client), // F-16
             ]);
 
-            // Assign unique clubbed slug
-            $year = date('y');
-            $labCode = 'LAB'; 
-            $clubbed->update(['clubbed_slug' => "C/{$year}/{$labCode}/C" . str_pad($clubbed->id, 4, '0', STR_PAD_LEFT)]);
+            // F-09 — per-lab sequential slug. Falls back gracefully if lab id missing.
+            $slug = $labId
+                ? $this->slugService->nextClubbedSlug($labId)
+                : 'C/' . Carbon::now()->format('y') . '/LAB' . $clubbed->id . '/C0001';
+            $clubbed->update(['clubbed_slug' => $slug]);
 
-            // Link children
-            WaterSampleInvoice::whereIn('id', $validated['invoice_ids'])->update([
-                'clubbed_invoice_id' => $clubbed->id
-            ]);
+            // Link the children (F-13 enforced upstream + by the lock above).
+            WaterSampleInvoice::whereIn('id', $children->pluck('id'))
+                ->update(['clubbed_invoice_id' => $clubbed->id]);
 
-            DB::commit();
-            return response()->json(['message' => 'Clubbed Invoice generated successfully', 'data' => $clubbed], 201);
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return response()->json(['message' => $e->getMessage()], 500);
-        }
+            // F-12 / F-16 — notify client (email) + SMS the viewing password.
+            $this->notifyClient($clubbed->fresh(['childInvoices', 'invoiceable']), $client);
+
+            return response()->json([
+                'message' => 'Clubbed Invoice generated successfully',
+                'data'    => $clubbed->fresh([
+                    'childInvoices.waterSample.waterSampleDetails.test',
+                    'invoiceable',
+                ]),
+            ], Http::HTTP_CREATED);
+        });
     }
 
-    /**
-     * POST /api/finance/record-payment/{waterSampleInvoice}
-     */
-    public function recordPayment(Request $request, WaterSampleInvoice $waterSampleInvoice): JsonResponse
+    /* =========================================================================
+     |  F-03 / F-14  POST /api/finance/record-payment/{waterSampleInvoice}
+     | --------------------------------------------------------------------------
+     |  Adds (does NOT overwrite) `paid`; persists the full audit trail of
+     |  Date of Receipt / Mode / Receipt-No / Received-By; for clubbed
+     |  invoices, distributes proportionally to constituents.
+     * ===================================================================== */
+    public function recordPayment(RecordPaymentRequest $request, WaterSampleInvoice $waterSampleInvoice): JsonResponse
     {
-        $validated = $request->validate([
-            'amount'       => ['required', 'numeric', 'gt:0'],
-            'payment_mode' => ['required', 'string'],
-            'reference'    => ['nullable', 'string'],
-        ]);
+        $validated = $request->validated();
 
-        $amount = (float) $validated['amount'];
-        if ($amount > $waterSampleInvoice->balance + 0.01) { 
-            return response()->json(['message' => 'Exceeds balance'], 422);
+        $amount = round((float) $validated['amount'], 2);
+
+        if (bccomp((string) $amount, (string) ($waterSampleInvoice->balance + 0.001), 2) > 0) {
+            return response()->json(['message' => 'Exceeds balance'], Http::HTTP_UNPROCESSABLE_ENTITY);
         }
 
-        DB::beginTransaction();
-        try {
-            // Create main log
-            $waterSampleInvoice->waterSampleInvoiceLogs()->create([
-                'user_id'      => auth()->id(),
-                'paid'         => $amount,
-                'balance'      => max(0, $waterSampleInvoice->balance - $amount),
-                'payment_mode' => $validated['payment_mode'],
-                'note'         => $validated['reference'],
-            ]);
+        $paymentDate = $validated['payment_date'] ?? now()->toDateString();
+        $receiptNo   = $validated['receipt_no']   ?? ($validated['reference'] ?? null);
 
-            // Update parent totals
-            $newPaid = $waterSampleInvoice->paid + $amount;
-            $newBal  = max(0, $waterSampleInvoice->net_amount - $newPaid);
-            $status  = $newBal <= 0 ? 'paid' : 'partial';
+        return DB::transaction(function () use ($waterSampleInvoice, $amount, $validated, $paymentDate, $receiptNo) {
+            $newPaid = (float) $waterSampleInvoice->paid + $amount;
+            $newBal  = max(0, (float) $waterSampleInvoice->net_amount - $newPaid);
+            $status  = $newBal <= 0 ? WaterSampleInvoiceStatusEnum::PAID->value : WaterSampleInvoiceStatusEnum::PARTIAL->value;
+
+            // Parent log
+            $waterSampleInvoice->waterSampleInvoiceLogs()->create([
+                'user_id'          => auth()->id(),
+                'paid'             => $amount,
+                'balance'          => $newBal,
+                'payment_mode'     => $validated['payment_mode'],
+                'note'             => $validated['remarks']      ?? null,
+                'payment_date'     => $paymentDate,
+                'receipt_no'       => $receiptNo,
+                'received_by_name' => $validated['received_by']  ?? auth()->user()?->name,
+            ]);
 
             $waterSampleInvoice->update([
                 'paid'    => $newPaid,
                 'balance' => $newBal,
-                'status'  => $status
+                'status'  => $status,
             ]);
 
-            // PROPORTIONAL DISTRIBUTION for clubbed invoices
+            // F-14 — proportional distribution for clubbed parents
             if ($waterSampleInvoice->is_clubbed) {
-                $children = $waterSampleInvoice->childInvoices;
-                foreach ($children as $child) {
-                    $ratio = $child->net_amount / $waterSampleInvoice->net_amount;
-                    $childPaid = $amount * $ratio;
-                    
-                    $child->waterSampleInvoiceLogs()->create([
-                        'user_id'      => auth()->id(),
-                        'paid'         => $childPaid,
-                        'balance'      => max(0, $child->balance - $childPaid),
-                        'payment_mode' => $validated['payment_mode'],
-                        'note'         => "Distributed from Clubbed Invoice " . $waterSampleInvoice->clubbed_slug,
-                    ]);
-
-                    $cPaid = $child->paid + $childPaid;
-                    $cBal  = max(0, $child->net_amount - $cPaid);
-                    $child->update([
-                        'paid'    => $cPaid,
-                        'balance' => $cBal,
-                        'status'  => $cBal <= 0 ? 'paid' : 'partial'
-                    ]);
-                }
+                $this->distributeToChildren($waterSampleInvoice, $amount, $validated, $paymentDate, $receiptNo);
             }
 
-            DB::commit();
             return response()->json(['message' => 'Payment recorded successfully']);
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return response()->json(['message' => $e->getMessage()], 500);
+        });
+    }
+
+    /* =========================================================================
+     |  F-10 / F-12  GET /api/finance/clubbed-invoices/{id}/pdf
+     |               Renders the SRS-compliant clubbed-invoice template.
+     * ===================================================================== */
+    public function clubbedPdf(WaterSampleInvoice $waterSampleInvoice)
+    {
+        if (!$waterSampleInvoice->is_clubbed) {
+            return response()->json([
+                'message' => 'This endpoint is only valid for clubbed invoices.',
+            ], Http::HTTP_BAD_REQUEST);
+        }
+
+        $waterSampleInvoice->load([
+            'invoiceable',
+            'childInvoices.waterSample.laboratory:id,name,code,address,email,phone',
+            'childInvoices.waterSample.waterSampleDetails.test',
+        ]);
+
+        $payload = [
+            'waterSampleInvoice' => $waterSampleInvoice,
+            'client'             => $waterSampleInvoice->invoiceable,
+            'childCount'         => $waterSampleInvoice->childInvoices->count(),
+            'billingSummary'     => $waterSampleInvoice->billing_summary,
+        ];
+
+        // F-10 — render the SRS-compliant clubbed-invoice template. If
+        // wkhtmltopdf is not installed on the server (a known deployment
+        // dependency — see also the existing `WaterSampleInvoiceController::
+        // generatePdf`), fall back to the HTML view so the SRS-format
+        // invoice is still produced and the endpoint never 500s.
+        if (class_exists(\PDF::class)) {
+            try {
+                $pdf = \PDF::loadView('waterSample.clubbed-invoice', $payload);
+                $pdf->setOption('page-size', 'A4');
+                $fileName = 'clubbed-invoice-' . str_replace('/', '-', $waterSampleInvoice->clubbed_slug ?? $waterSampleInvoice->id) . '.pdf';
+                return $pdf->download($fileName);
+            } catch (\Throwable $e) {
+                Log::warning('wkhtmltopdf failed, returning HTML', [
+                    'invoice_id' => $waterSampleInvoice->id,
+                    'error'      => $e->getMessage(),
+                ]);
+            }
+        }
+        return response()->view('waterSample.clubbed-invoice', $payload);
+    }
+
+    /* ---------- Private helpers --------------------------------------------- */
+
+    private function normalizeStatusFilter(string $raw): ?string
+    {
+        $raw = strtolower(trim($raw));
+        return match ($raw) {
+            'unpaid', 'pending'                            => 'pending',
+            'partial', 'partially paid', 'partially_paid'  => 'partial',
+            'paid'                                          => 'paid',
+            'all'                                           => null,
+            default                                         => null,
+        };
+    }
+
+    private function buildLightSummary($rows): array
+    {
+        return [
+            'total_invoiced'    => (float) $rows->sum('total'),
+            'total_collected'   => (float) $rows->sum('received'),
+            'total_outstanding' => (float) $rows->sum('balance'),
+        ];
+    }
+
+    /** @return array{0: \Illuminate\Database\Eloquent\Builder, 1: \Illuminate\Database\Eloquent\Builder} */
+    private function buildFilteredQueries(Request $request): array
+    {
+        $invoiceQuery = WaterSampleInvoice::query();
+        $logQuery     = WaterSampleInvoiceLog::query();
+
+        if ($request->filled('lab_id')) {
+            $labId = (int) $request->lab_id;
+            $invoiceQuery->whereHas('waterSample', fn ($q) => $q->where('laboratory_id', $labId));
+            $logQuery->whereHas('waterSampleInvoice.waterSample', fn ($q) => $q->where('laboratory_id', $labId));
+        }
+        if ($request->filled('client_id')) {
+            $cid = (int) $request->client_id;
+            $invoiceQuery->where('invoiceable_id', $cid);
+            $logQuery->whereHas('waterSampleInvoice', fn ($q) => $q->where('invoiceable_id', $cid));
+        }
+        if ($request->filled('district_id')) {
+            $did = (int) $request->district_id;
+            $invoiceQuery->whereHas('waterSample', fn ($q) => $q->where('district_id', $did));
+            $logQuery->whereHas('waterSampleInvoice.waterSample', fn ($q) => $q->where('district_id', $did));
+        }
+        if ($request->filled('date_from')) {
+            $invoiceQuery->whereDate('created_at', '>=', $request->date_from);
+            $logQuery->whereDate('created_at', '>=', $request->date_from);
+        }
+        if ($request->filled('date_to')) {
+            $invoiceQuery->whereDate('created_at', '<=', $request->date_to);
+            $logQuery->whereDate('created_at', '<=', $request->date_to);
+        }
+        if ($request->filled('status')) {
+            $key = $this->normalizeStatusFilter($request->status);
+            if ($key !== null) {
+                $invoiceQuery->where('status', $key);
+            }
+        }
+        return [$invoiceQuery, $logQuery];
+    }
+
+    private function resolveClient(string $type, int $id)
+    {
+        try {
+            if (!class_exists($type)) {
+                return null;
+            }
+            return ($type)::find($id);
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    /**
+     * F-16 — Online viewing password.
+     *
+     * The SRS specifies this is "the mobile number of the client", printed on
+     * the invoice header and emailed/SMSed to the client. We mirror that:
+     * fall back to a random 8-digit value if no phone is on file so the
+     * column is never null.
+     */
+    private function generateOnlineViewingPassword($client): string
+    {
+        $phone = $client?->phone;
+        if (!empty($phone)) {
+            return (string) $phone;
+        }
+        return (string) random_int(10000000, 99999999);
+    }
+
+    private function notifyClient(WaterSampleInvoice $clubbed, $client): void
+    {
+        if (!$client) {
+            return;
+        }
+        try {
+            if (!empty($client->email)) {
+                $client->notify(new ClubbedInvoiceGenerated($clubbed));
+            }
+            $this->smsService->send(
+                $client->phone ?? null,
+                "Clubbed Invoice {$clubbed->clubbed_slug} generated. "
+                . "Total: PKR " . number_format((float) $clubbed->net_amount) . ". "
+                . "Online viewing password: {$clubbed->online_viewing_password}"
+            );
+        } catch (\Throwable $e) {
+            // Email/SMS failure must NOT roll back the invoice creation.
+            Log::warning('Clubbed invoice notification failed', [
+                'invoice_id' => $clubbed->id,
+                'error'      => $e->getMessage(),
+            ]);
+        }
+    }
+
+    private function distributeToChildren(WaterSampleInvoice $parent, float $amount, array $validated, string $paymentDate, ?string $receiptNo): void
+    {
+        $children = $parent->childInvoices()->get();
+        $parentNet = (float) $parent->net_amount;
+        if ($parentNet <= 0) {
+            return;
+        }
+
+        // Allocate by ratio, then assign rounding remainder to the largest child
+        // to guarantee Σchildren.paid_delta == amount.
+        $allocated = 0.0;
+        $rows = [];
+        foreach ($children as $child) {
+            $ratio    = (float) $child->net_amount / $parentNet;
+            $portion  = round($amount * $ratio, 2);
+            $allocated += $portion;
+            $rows[]   = [$child, $portion];
+        }
+        $rounding = round($amount - $allocated, 2);
+        if (abs($rounding) > 0.001 && !empty($rows)) {
+            usort($rows, fn ($a, $b) => (float) $b[0]->net_amount <=> (float) $a[0]->net_amount);
+            $rows[0][1] = round($rows[0][1] + $rounding, 2);
+        }
+
+        foreach ($rows as [$child, $portion]) {
+            $cPaid = (float) $child->paid + $portion;
+            $cBal  = max(0, (float) $child->net_amount - $cPaid);
+            $cStat = $cBal <= 0 ? WaterSampleInvoiceStatusEnum::PAID->value : WaterSampleInvoiceStatusEnum::PARTIAL->value;
+
+            $child->waterSampleInvoiceLogs()->create([
+                'user_id'          => auth()->id(),
+                'paid'             => $portion,
+                'balance'          => $cBal,
+                'payment_mode'     => $validated['payment_mode'],
+                'note'             => 'Distributed from Clubbed Invoice ' . ($parent->clubbed_slug ?? 'C-' . $parent->id),
+                'payment_date'     => $paymentDate,
+                'receipt_no'       => $receiptNo,
+                'received_by_name' => $validated['received_by'] ?? auth()->user()?->name,
+            ]);
+
+            $child->update([
+                'paid'    => $cPaid,
+                'balance' => $cBal,
+                'status'  => $cStat,
+            ]);
         }
     }
 }
