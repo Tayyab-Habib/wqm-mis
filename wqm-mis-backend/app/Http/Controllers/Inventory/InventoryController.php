@@ -50,6 +50,38 @@ class InventoryController extends Controller
                 'data' => null,
             ], SymfonyResponse::HTTP_OK);
         }
+
+        // Attach the issuing lab's effective available qty (available_quantity
+        // minus expired-batch qty) to each detail so the approver can see what
+        // they can actually fulfill before clicking Issue.
+        $sourceLabId = $authUser->laboratoryDetails?->laboratory_id;
+        if ($sourceLabId) {
+            $today = now()->toDateString();
+            foreach ($inventories->items() as $inv) {
+                foreach ($inv->inventoryDetails as $det) {
+                    if ($det->inventoryable_type !== Material::class) {
+                        $det->central_available_qty = null;
+                        continue;
+                    }
+                    $lm = \App\Models\Material\LaboratoryMaterial::query()
+                        ->where('laboratory_id', $sourceLabId)
+                        ->where('material_id', $det->inventoryable_id)
+                        ->first();
+                    if (!$lm) {
+                        $det->central_available_qty = 0;
+                        continue;
+                    }
+                    $expired = \App\Models\Material\LaboratoryMaterialLog::query()
+                        ->where('laboratory_material_id', $lm->id)
+                        ->where('status', 'in')
+                        ->whereNotNull('date_of_expiry')
+                        ->where('date_of_expiry', '<', $today)
+                        ->sum('quantity');
+                    $det->central_available_qty = max(0, (float) $lm->available_quantity - (float) $expired);
+                }
+            }
+        }
+
         return response()->json([
             'message' => 'Success fetching inventories',
             'data' => $inventories

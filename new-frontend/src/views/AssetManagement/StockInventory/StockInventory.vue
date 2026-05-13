@@ -2,6 +2,10 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { assetService } from '../../../services/assetService.js'
 import { dropdownService } from '../../../services/dropdownService.js'
+import { useUserStore } from '../../../stores/useUserStore.js'
+
+const userStore = useUserStore()
+const isAdmin   = computed(() => userStore.isSuperAdmin)
 
 // ─── Tabs ──────────────────────────────────────────────────────────────────
 const activeMainTab = ref('consumables')   // consumables | inventory
@@ -14,6 +18,7 @@ const errorMsg     = ref('')
 const searchText   = ref('')
 const catFilter    = ref('')
 const ragFilter    = ref('')
+const labFilter    = ref('')   // system-admin only — filters table by laboratory_id
 
 // ─── Stock Out: state ──────────────────────────────────────────────────────
 const stockOutTxns      = ref([])
@@ -113,8 +118,12 @@ function batchesFor(item) {
 // bounding rect each time the menu opens.
 const actionMenuOpenFor = ref(null)
 const actionMenuItem = ref(null)
-const actionMenuPos = ref({ top: 0, left: 0 })
+// When flipping above the button we anchor `bottom` instead of `top` so the
+// menu always sits flush against the button regardless of its actual height.
+const actionMenuPos = ref({ top: null, bottom: null, left: 0 })
 const MENU_WIDTH = 170
+// Rough height used only to decide WHETHER to flip — not for positioning.
+const MENU_HEIGHT_ESTIMATE = 130
 
 function toggleActionMenu(item, ev) {
   if (actionMenuOpenFor.value === item.id) {
@@ -123,10 +132,12 @@ function toggleActionMenu(item, ev) {
   }
   if (ev?.currentTarget) {
     const rect = ev.currentTarget.getBoundingClientRect()
-    // Align menu's right edge with button's right edge; flip up if no space below
-    const top = rect.bottom + 4
+    const spaceBelow = window.innerHeight - rect.bottom
+    const flipUp = spaceBelow < MENU_HEIGHT_ESTIMATE + 8
     const left = Math.max(8, rect.right - MENU_WIDTH)
-    actionMenuPos.value = { top, left }
+    actionMenuPos.value = flipUp
+      ? { top: null, bottom: (window.innerHeight - rect.top + 4), left }
+      : { top: rect.bottom + 4, bottom: null, left }
   }
   actionMenuItem.value = item
   actionMenuOpenFor.value = item.id
@@ -285,7 +296,7 @@ async function submitRaiseDemand() {
 // ─── Edit Item modal ───────────────────────────────────────────────────────
 const showEditItemModal = ref(false)
 const editItemForm = ref({
-  id: null, name: '', category: '', unit: 'Kit',
+  id: null, lm_id: null, name: '', category: '', unit: 'Kit',
   available_quantity: '', threshold: '', date_of_expiry: '', supplier: '', remarks: ''
 })
 const editItemErrors = ref({})
@@ -294,6 +305,7 @@ const editItemSaving = ref(false)
 function openEditItem(item) {
   editItemForm.value = {
     id: item.materialId,
+    lm_id: item.id, // laboratory_material id — backend syncs the per-lab qty/threshold against this row
     name: item.name,
     category: item.cat || '',
     unit: item.unit || 'Kit',
@@ -317,16 +329,21 @@ async function saveEditItem() {
   if (f.threshold === '' || Number(f.threshold) < 0) errs.threshold = ['Threshold must be 0 or greater']
   if (Object.keys(errs).length) { editItemErrors.value = errs; return }
 
-  // `date_of_expiry` lives on `material_logs` (per-batch), not on `materials`,
-  // so we deliberately omit it from the master-catalog update payload.
+  // `date_of_expiry` lives on per-batch log rows. We pass it through so the
+  // backend can update the latest log row for this lab allocation.
+  // `laboratory_material_id` tells the backend which per-lab allocation row to
+  // sync qty + threshold (and expiry) against — without it, the listing (which
+  // reads from `laboratory_materials`) would keep showing the old value.
   const qty = Number(f.available_quantity).toFixed(2)
   const payload = {
-    name:               f.name.trim(),
-    category:           f.category || null,
-    unit:               f.unit,
-    quantity:           qty,
-    available_quantity: qty,
-    threshold:          Number(f.threshold).toFixed(2),
+    name:                    f.name.trim(),
+    category:                f.category || null,
+    unit:                    f.unit,
+    quantity:                qty,
+    available_quantity:      qty,
+    threshold:               Number(f.threshold).toFixed(2),
+    laboratory_material_id:  f.lm_id,
+    date_of_expiry:          f.date_of_expiry || null,
     supplier:           f.supplier?.trim() || null,
     status:             'active',
   }
@@ -372,12 +389,20 @@ const showRecipientLab = computed(() =>
 )
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
-const CAT_ORDER = ['chem', 'micro', 'glass', 'safety']
+const CAT_ORDER = ['chem', 'micro', 'glass', 'safety', 'other']
 const CAT_LABELS = {
   chem:   'CHEMICAL REAGENTS',
   micro:  'MICROBIOLOGICAL MEDIA & REAGENTS',
   glass:  'GLASSWARE & PLASTICWARE',
-  safety: 'PROTECTIVE & SAFETY SUPPLIES'
+  safety: 'PROTECTIVE & SAFETY SUPPLIES',
+  other:  'OTHER',
+}
+const CAT_ICONS = {
+  chem:   '🧪',
+  micro:  '🔴',
+  glass:  '🧫',
+  safety: '🖐',
+  other:  '📦',
 }
 
 function deriveCategory(name = '') {
@@ -420,7 +445,10 @@ function mapMaterial(m) {
   const valid   = expDate && !Number.isNaN(expDate.getTime())
   const expWarn = valid && expDate < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
   const expCrit = valid && expDate < new Date()
-  const { rag, ragClass } = statusToRag(m.status, qty, m.threshold)
+  // Date-based expiry trumps stock-based status: if the earliest batch is past
+  // its expiry, the item is Expired regardless of qty/threshold.
+  let { rag, ragClass } = statusToRag(m.status, qty, m.threshold)
+  if (expCrit) { rag = 'Expired'; ragClass = 'r-red' }
 
   // `/laboratory/materials/all` returns laboratory_materials rows: `m.id` is the
   // lab-allocation id, NOT the master material id. The backend stock-out
@@ -429,6 +457,8 @@ function mapMaterial(m) {
   return {
     id:         m.id,
     materialId: m.material?.id ?? m.material_id ?? m.id,
+    laboratoryId:   m.laboratory_id ?? m.laboratory?.id ?? null,
+    laboratoryName: m.laboratory?.name || '',
     cat:    m.category || m.material?.category || m.type || deriveCategory(m.name || m.material?.name),
     name:   m.name || m.material?.name || '-',
     unit:   m.unit || '-',
@@ -534,7 +564,8 @@ const filteredItems = computed(() => stockItems.value.filter(it => {
   const matchSearch = !searchText.value || it.name.toLowerCase().includes(searchText.value.toLowerCase())
   const matchCat    = !catFilter.value  || it.cat === catFilter.value
   const matchRag    = !ragFilter.value  || it.rag === ragFilter.value
-  return matchSearch && matchCat && matchRag
+  const matchLab    = !labFilter.value  || String(it.laboratoryId) === String(labFilter.value)
+  return matchSearch && matchCat && matchRag && matchLab
 }))
 
 const groupedItems = computed(() => {
@@ -546,10 +577,12 @@ const groupedItems = computed(() => {
   return groups
 })
 
-const summaryAdequate  = computed(() => stockItems.value.filter(i => i.rag === 'Adequate').length)
-const summaryDepleting = computed(() => stockItems.value.filter(i => i.rag === 'Depleting').length)
-const summaryCritical  = computed(() => stockItems.value.filter(i => i.rag === 'Critical' || i.qty === 0).length)
-const summaryExpired   = computed(() => stockItems.value.filter(i => i.rag === 'Expired').length)
+// Summary cards reflect the current lab filter (and other filters) so admins
+// switching labs see counts for the lab they're inspecting, not the whole DB.
+const summaryAdequate  = computed(() => filteredItems.value.filter(i => i.rag === 'Adequate').length)
+const summaryDepleting = computed(() => filteredItems.value.filter(i => i.rag === 'Depleting').length)
+const summaryCritical  = computed(() => filteredItems.value.filter(i => i.rag === 'Critical' || i.qty === 0).length)
+const summaryExpired   = computed(() => filteredItems.value.filter(i => i.rag === 'Expired').length)
 
 // ─── Stock Out: derived ────────────────────────────────────────────────────
 const filteredTxns = computed(() => stockOutTxns.value.filter(t => {
@@ -1031,7 +1064,7 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
         <div class="cards summary-cards">
           <div class="card card-blue">
             <div class="c-lbl">TOTAL ITEMS</div>
-            <div class="c-val c-blue-val">{{ stockItems.length }}</div>
+            <div class="c-val c-blue-val">{{ filteredItems.length }}</div>
           </div>
           <div class="card card-green">
             <div class="c-lbl">ADEQUATE</div>
@@ -1059,6 +1092,13 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
             <option value="micro">Microbiological Media &amp; Reagents</option>
             <option value="glass">Glassware &amp; Plasticware</option>
             <option value="safety">Protective &amp; Safety Supplies</option>
+            <option value="other">Other</option>
+          </select>
+
+          <!-- Admin-only: filter the table by laboratory -->
+          <select v-if="isAdmin" v-model="labFilter" class="form-select select-w">
+            <option value="">All Labs</option>
+            <option v-for="l in labs" :key="l.id" :value="l.id">{{ l.name }}</option>
           </select>
           <select v-model="ragFilter" class="form-select select-w-sm">
             <option value="">All RAG</option>
@@ -1087,15 +1127,8 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
           </div>
         </div>
 
-        <!-- Loading / Error -->
-        <div v-if="loading" class="empty-state">⏳ Loading stock items…</div>
-        <div v-else-if="errorMsg" class="empty-state error">
-          {{ errorMsg }}
-          <button class="btn btn-sec outline retry-btn" @click="loadStock">Retry</button>
-        </div>
-
-        <!-- Table -->
-        <div v-else class="tbl-wrap">
+        <!-- Skeleton (initial load) -->
+        <div v-if="loading" class="tbl-wrap">
           <table class="table">
             <thead>
               <tr>
@@ -1111,12 +1144,52 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
               </tr>
             </thead>
             <tbody>
+              <tr v-for="i in 6" :key="'sk-' + i" class="item-row skeleton-row">
+                <td><span class="sk-bar sk-bar-xs"></span></td>
+                <td><span class="sk-bar sk-bar-xs"></span></td>
+                <td><span class="sk-bar sk-bar-lg"></span></td>
+                <td><span class="sk-bar sk-bar-md"></span></td>
+                <td><span class="sk-bar sk-bar-sm"></span></td>
+                <td><span class="sk-bar sk-bar-sm"></span></td>
+                <td><span class="sk-bar sk-bar-md"></span></td>
+                <td><span class="sk-bar sk-bar-md"></span></td>
+                <td><span class="sk-bar sk-bar-md"></span></td>
+                <td><span class="sk-bar sk-bar-md"></span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Error -->
+        <div v-else-if="errorMsg" class="empty-state error">
+          {{ errorMsg }}
+          <button class="btn btn-sec outline retry-btn" @click="loadStock">Retry</button>
+        </div>
+
+        <!-- Table -->
+        <div v-else class="tbl-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th style="width: 48px;"></th>
+                <th style="width: 60px; text-align: center;">S#</th>
+                <th style="text-align: left;">Item Name</th>
+                <th style="text-align: left;">Location</th>
+                <th style="text-align: center;">Unit</th>
+                <th style="text-align: center;">Total Qty</th>
+                <th style="text-align: center;">Batches</th>
+                <th style="text-align: center;">Earliest Expiry</th>
+                <th style="text-align: center;">RAG</th>
+                <th style="text-align: center;">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
               <template v-for="cat in CAT_ORDER" :key="cat">
                 <template v-if="groupedItems[cat] && groupedItems[cat].length > 0">
                   <tr class="category-header-row">
-                    <td colspan="9">
+                    <td colspan="10">
                       <span class="cat-title">
-                        <span class="cat-marker"></span>{{ CAT_LABELS[cat] }}
+                        <span class="cat-icon">{{ CAT_ICONS[cat] }}</span>{{ CAT_LABELS[cat] }}
                       </span>
                     </td>
                   </tr>
@@ -1128,6 +1201,9 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
                       <td style="text-align: center; color: #334155;">{{ idx + 1 }}</td>
                       <td style="text-align: left;">
                         <b class="item-name">{{ item.name }}</b>
+                      </td>
+                      <td style="text-align: left; color: #475569; font-size: 12px;">
+                        {{ item.laboratoryName || '—' }}
                       </td>
                       <td style="text-align: center; color: #475569;">{{ item.unit }}</td>
                       <td style="text-align: center;">
@@ -1163,6 +1239,7 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
                           <span class="batch-id">{{ batch.batchId }}</span>
                           <span class="batch-desc"> — {{ batch.description }}</span>
                         </td>
+                        <td></td>
                         <td style="text-align: center; color: #475569;">{{ batch.unit }}</td>
                         <td style="text-align: center;">{{ batch.qty }}</td>
                         <td style="text-align: center; color: #94a3b8;">—</td>
@@ -1184,7 +1261,7 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
                 </template>
               </template>
               <tr v-if="!filteredItems.length">
-                <td colspan="9" class="text-center empty-row">No stock items found.</td>
+                <td colspan="10" class="text-center empty-row">No stock items found.</td>
               </tr>
             </tbody>
           </table>
@@ -1241,8 +1318,43 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
           <button class="btn btn-pri add-btn" @click="showLogIssueModal = true">+ Log Issue</button>
         </div>
 
-        <!-- Loading / Error -->
-        <div v-if="stockOutLoading" class="empty-state">⏳ Loading transactions…</div>
+        <!-- Skeleton loading -->
+        <div v-if="stockOutLoading" class="tbl-wrap">
+          <table class="table txn-table">
+            <thead>
+              <tr>
+                <th style="width: 50px; text-align: center;">S#</th>
+                <th style="text-align: left;">Txn ID</th>
+                <th style="text-align: left;">Date</th>
+                <th style="text-align: left;">Item Name</th>
+                <th style="text-align: left;">Category</th>
+                <th style="text-align: center;">Unit</th>
+                <th style="text-align: center;">Qty OUT</th>
+                <th style="text-align: center;">Type</th>
+                <th style="text-align: left;">Recipient Lab</th>
+                <th style="text-align: left;">Recipient Name</th>
+                <th style="text-align: left;">Recipient Role</th>
+                <th style="text-align: left;">Remarks</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="i in 6" :key="'sk-so-' + i" class="item-row skeleton-row">
+                <td><span class="sk-bar sk-bar-xs"></span></td>
+                <td><span class="sk-bar sk-bar-sm"></span></td>
+                <td><span class="sk-bar sk-bar-sm"></span></td>
+                <td><span class="sk-bar sk-bar-lg"></span></td>
+                <td><span class="sk-bar sk-bar-md"></span></td>
+                <td><span class="sk-bar sk-bar-xs"></span></td>
+                <td><span class="sk-bar sk-bar-sm"></span></td>
+                <td><span class="sk-bar sk-bar-sm"></span></td>
+                <td><span class="sk-bar sk-bar-md"></span></td>
+                <td><span class="sk-bar sk-bar-md"></span></td>
+                <td><span class="sk-bar sk-bar-sm"></span></td>
+                <td><span class="sk-bar sk-bar-md"></span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <div v-else-if="stockOutError" class="empty-state error">
           {{ stockOutError }}
           <button class="btn btn-sec outline retry-btn" @click="loadStockOut">Retry</button>
@@ -1360,7 +1472,41 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
         </div>
 
         <!-- Loading / Error -->
-        <div v-if="inventoryLoading" class="empty-state">⏳ Loading inventory…</div>
+        <!-- Skeleton loading -->
+        <div v-if="inventoryLoading" class="tbl-wrap">
+          <table class="table txn-table">
+            <thead>
+              <tr>
+                <th style="width: 50px; text-align: center;">S#</th>
+                <th style="text-align: left;">Item Name</th>
+                <th style="text-align: left;">Category</th>
+                <th style="text-align: left;">Item Code</th>
+                <th style="text-align: center;">Qty</th>
+                <th style="text-align: center;">Unit</th>
+                <th style="text-align: center;">Condition</th>
+                <th style="text-align: center;">Purchase Date</th>
+                <th style="text-align: right;">Purchase Value</th>
+                <th style="text-align: left;">Location</th>
+                <th style="text-align: center;">Last Verified</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="i in 6" :key="'sk-inv-' + i" class="item-row skeleton-row">
+                <td><span class="sk-bar sk-bar-xs"></span></td>
+                <td><span class="sk-bar sk-bar-lg"></span></td>
+                <td><span class="sk-bar sk-bar-md"></span></td>
+                <td><span class="sk-bar sk-bar-sm"></span></td>
+                <td><span class="sk-bar sk-bar-xs"></span></td>
+                <td><span class="sk-bar sk-bar-xs"></span></td>
+                <td><span class="sk-bar sk-bar-sm"></span></td>
+                <td><span class="sk-bar sk-bar-md"></span></td>
+                <td><span class="sk-bar sk-bar-sm"></span></td>
+                <td><span class="sk-bar sk-bar-md"></span></td>
+                <td><span class="sk-bar sk-bar-md"></span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <div v-else-if="inventoryError" class="empty-state error">
           {{ inventoryError }}
           <button class="btn btn-sec outline retry-btn" @click="loadInventory">Retry</button>
@@ -1461,8 +1607,43 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
           <button class="btn btn-pri add-btn" @click="openLogOutModal">+ Log Out</button>
         </div>
 
-        <!-- Loading / Error -->
-        <div v-if="inventoryLoading" class="empty-state">⏳ Loading transactions…</div>
+        <!-- Skeleton loading -->
+        <div v-if="inventoryLoading" class="tbl-wrap">
+          <table class="table txn-table">
+            <thead>
+              <tr>
+                <th style="width: 50px; text-align: center;">S#</th>
+                <th style="text-align: left;">Txn ID</th>
+                <th style="text-align: left;">Date</th>
+                <th style="text-align: left;">Asset Code</th>
+                <th style="text-align: left;">Item Name</th>
+                <th style="text-align: left;">Category</th>
+                <th style="text-align: center;">Qty</th>
+                <th style="text-align: center;">Disposal Type</th>
+                <th style="text-align: left;">Recipient Lab</th>
+                <th style="text-align: left;">Recipient Name</th>
+                <th style="text-align: left;">Recipient Role</th>
+                <th style="text-align: left;">Remarks</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="i in 6" :key="'sk-io-' + i" class="item-row skeleton-row">
+                <td><span class="sk-bar sk-bar-xs"></span></td>
+                <td><span class="sk-bar sk-bar-sm"></span></td>
+                <td><span class="sk-bar sk-bar-sm"></span></td>
+                <td><span class="sk-bar sk-bar-sm"></span></td>
+                <td><span class="sk-bar sk-bar-lg"></span></td>
+                <td><span class="sk-bar sk-bar-md"></span></td>
+                <td><span class="sk-bar sk-bar-xs"></span></td>
+                <td><span class="sk-bar sk-bar-sm"></span></td>
+                <td><span class="sk-bar sk-bar-md"></span></td>
+                <td><span class="sk-bar sk-bar-md"></span></td>
+                <td><span class="sk-bar sk-bar-sm"></span></td>
+                <td><span class="sk-bar sk-bar-md"></span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <div v-else-if="inventoryError" class="empty-state error">
           {{ inventoryError }}
           <button class="btn btn-sec outline retry-btn" @click="loadInventory">Retry</button>
@@ -1788,7 +1969,12 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
       <template v-if="actionMenuOpenFor !== null && actionMenuItem">
         <div class="action-menu-backdrop" @click="closeActionMenu"></div>
         <div class="action-menu floating-menu"
-             :style="{ top: actionMenuPos.top + 'px', left: actionMenuPos.left + 'px', width: MENU_WIDTH + 'px' }"
+             :style="{
+               top:    actionMenuPos.top    != null ? actionMenuPos.top    + 'px' : 'auto',
+               bottom: actionMenuPos.bottom != null ? actionMenuPos.bottom + 'px' : 'auto',
+               left:   actionMenuPos.left + 'px',
+               width:  MENU_WIDTH + 'px'
+             }"
              @click.stop>
           <div class="action-menu-item" @click="openTrail(actionMenuItem)">
             <span class="ami-icon">📋</span> Trail
