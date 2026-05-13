@@ -23,10 +23,14 @@ class Client extends Model
         'phone',
         'address',
         'type',
-        'organization_name'
+        'organization_name',
+        'password',
+        'portal_token',
     ];
     protected $hidden = [
-        'deleted_at'
+        'deleted_at',
+        'password',
+        'portal_token',
     ];
 
     protected static function booted()

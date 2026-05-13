@@ -4,15 +4,15 @@ import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import { useUserStore } from '../../stores/useUserStore.js'
 
-const router   = useRouter()
-const route    = useRoute()
+const router    = useRouter()
+const route     = useRoute()
 const userStore = useUserStore()
 
 const BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8002'
 
-const form    = ref({ email: '', password: '' })
-const loading = ref(false)
-const error   = ref('')
+const form         = ref({ email: '', password: '' })
+const loading      = ref(false)
+const error        = ref('')
 const showPassword = ref(false)
 
 // ── Toast ─────────────────────────────────────────────────────────────
@@ -42,47 +42,73 @@ async function handleLogin() {
   error.value   = ''
 
   try {
-    // Step 1: Get CSRF cookie — required because EnsureFrontendRequestsAreStateful is active
-    await axios.get(`${BASE}/sanctum/csrf-cookie`, {
-      withCredentials: true,
-    })
+    // Step 1: Get CSRF cookie
+    await axios.get(`${BASE}/sanctum/csrf-cookie`, { withCredentials: true })
 
-    // Step 2: Read the XSRF-TOKEN cookie that Laravel just set
+    // Step 2: Read XSRF-TOKEN cookie
     const xsrfToken = document.cookie
       .split('; ')
       .find(row => row.startsWith('XSRF-TOKEN='))
       ?.split('=')[1]
 
-    // Step 3: POST login with the XSRF token in header
-    const response = await axios.post(
-      `${BASE}/api/login`,
-      { email: form.value.email, password: form.value.password },
-      {
-        withCredentials: true,
-        headers: {
-          'Accept':       'application/json',
-          'Content-Type': 'application/json',
-          'X-XSRF-TOKEN': xsrfToken ? decodeURIComponent(xsrfToken) : '',
-        },
+    const headers = {
+      'Accept':       'application/json',
+      'Content-Type': 'application/json',
+      'X-XSRF-TOKEN': xsrfToken ? decodeURIComponent(xsrfToken) : '',
+    }
+    const creds = { email: form.value.email, password: form.value.password }
+
+    // Step 3: Try admin login first; fall back to client portal login on 401
+    let response     = null
+    let isClientLogin = false
+
+    try {
+      response = await axios.post(`${BASE}/api/login`, creds, { withCredentials: true, headers })
+    } catch (adminErr) {
+      if (adminErr.response?.status === 401) {
+        // Try client portal
+        response = await axios.post(`${BASE}/api/client-portal/login`, creds, { withCredentials: true, headers })
+        isClientLogin = true
+      } else {
+        throw adminErr
       }
-    )
+    }
 
     const userData = response.data?.data || response.data
 
     if (userData?.token) {
-      const user = {
-        id:          userData.id,
-        name:        userData.name,
-        email:       userData.email,
-        token:       userData.token,
-        role:        userData.roles?.[0]?.name || userData.role || 'user',
-        permissions: userData.permissions || [],
-        laboratory:  userData.laboratory  || null,
-        district:    userData.district    || null,
+      if (isClientLogin || userData.user_type === 'client') {
+        // ── Client portal user ──
+        const clientUser = {
+          id:                userData.id,
+          name:              userData.name,
+          email:             userData.email,
+          phone:             userData.phone,
+          organization_name: userData.organization_name,
+          token:             userData.token,
+          user_type:         'client',
+          role:              'client',
+          permissions:       [],
+        }
+        localStorage.setItem('user', JSON.stringify(clientUser))
+        userStore.setUser(clientUser)
+        router.push('/client-portal/results')
+      } else {
+        // ── Admin / staff user ──
+        const user = {
+          id:          userData.id,
+          name:        userData.name,
+          email:       userData.email,
+          token:       userData.token,
+          role:        userData.roles?.[0]?.name || userData.role || 'user',
+          permissions: userData.permissions || [],
+          laboratory:  userData.laboratory  || null,
+          district:    userData.district    || null,
+        }
+        localStorage.setItem('user', JSON.stringify(user))
+        userStore.setUser(user)
+        router.push({ path: '/dashboard', query: { loggedIn: '1' } })
       }
-      localStorage.setItem('user', JSON.stringify(user))
-      userStore.setUser(user)
-      router.push({ path: '/dashboard', query: { loggedIn: '1' } })
     } else {
       error.value = 'Login failed. No token received.'
     }

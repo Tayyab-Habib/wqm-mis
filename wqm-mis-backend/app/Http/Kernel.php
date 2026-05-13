@@ -98,5 +98,6 @@ class Kernel extends HttpKernel
         'update_modified_user' => UpdateModifiedByCreatedByFields::class,
         'api-login-log' => ApiLoginLogMiddleware::class,
         'api-request-log' => ApiRequestLogMiddleware::class,
+        'client.portal' => \App\Http\Middleware\AuthenticateClientPortal::class,
     ];
 }

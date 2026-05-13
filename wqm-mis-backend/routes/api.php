@@ -440,3 +440,19 @@ Route::middleware('auth:sanctum')->group(callback: function () {
 });
 
 include('newapis.php');
+
+// ── Client Portal ─────────────────────────────────────────────────────
+Route::prefix('client-portal')->group(function () {
+    // Public: login & logout
+    Route::post('login',  [\App\Http\Controllers\ClientPortal\ClientPortalAuthController::class, 'login']);
+    Route::post('logout', [\App\Http\Controllers\ClientPortal\ClientPortalAuthController::class, 'logout']);
+
+    // Protected: requires client portal token
+    Route::middleware('client.portal')->group(function () {
+        Route::get('me',             [\App\Http\Controllers\ClientPortal\ClientPortalController::class, 'me']);
+        Route::get('samples',        [\App\Http\Controllers\ClientPortal\ClientPortalController::class, 'samples']);
+        Route::get('invoices',       [\App\Http\Controllers\ClientPortal\ClientPortalController::class, 'invoices']);
+        Route::get('email-reports',  [\App\Http\Controllers\ClientPortal\ClientPortalController::class, 'emailReports']);
+        Route::put('change-password',[\App\Http\Controllers\ClientPortal\ClientPortalController::class, 'changePassword']);
+    });
+});

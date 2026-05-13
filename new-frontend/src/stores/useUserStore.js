@@ -11,6 +11,7 @@ export const useUserStore = defineStore('user', () => {
   const isLoggedIn = computed(() => !!currentUser.value?.token)
   const isSuperAdmin = computed(() => currentUser.value?.role === 'system-administrator')
   const isLabIncharge = computed(() => ['system-administrator', 'lab-incharge'].includes(currentUser.value?.role))
+  const isClient = computed(() => currentUser.value?.user_type === 'client')
   const token = computed(() => currentUser.value?.token || null)
 
   function setUser(user) {
@@ -27,5 +28,5 @@ export const useUserStore = defineStore('user', () => {
     localStorage.removeItem('user')
   }
 
-  return { currentUser, isLoggedIn, isSuperAdmin, isLabIncharge, token, setUser, logout }
+  return { currentUser, isLoggedIn, isSuperAdmin, isLabIncharge, isClient, token, setUser, logout }
 })
