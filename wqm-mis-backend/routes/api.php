@@ -183,6 +183,17 @@ Route::middleware('auth:sanctum')->group(callback: function () {
         Route::get('dashboard', [\App\Http\Controllers\Xen\XenDashboardController::class, 'index']);
         Route::get('trail', [\App\Http\Controllers\Xen\XenDashboardController::class, 'trail']);
         Route::post('actions/request-retest', [\App\Http\Controllers\Xen\XenDashboardController::class, 'requestRetest']);
+
+        // XEN Portal — division-scoped resources
+        Route::get('me',              [\App\Http\Controllers\Xen\XenPortalController::class, 'me']);
+        Route::get('wss-register',    [\App\Http\Controllers\Xen\XenPortalController::class, 'wssRegister']);
+        Route::get('gsr',             [\App\Http\Controllers\Xen\XenPortalController::class, 'gsr']);
+        Route::get('isr',             [\App\Http\Controllers\Xen\XenPortalController::class, 'isrList']);
+        Route::get('isr/{id}',        [\App\Http\Controllers\Xen\XenPortalController::class, 'isrShow']);
+        Route::get('retest-samples',  [\App\Http\Controllers\Xen\XenPortalController::class, 'retestSamples']);
+        Route::get('overdue-wss',     [\App\Http\Controllers\Xen\XenPortalController::class, 'overdueWss']);
+        Route::get('notifications',   [\App\Http\Controllers\Xen\XenPortalController::class, 'notifications']);
+        Route::put('settings',        [\App\Http\Controllers\Xen\XenPortalController::class, 'updateSettings']);
     });
 
     //start locality routes

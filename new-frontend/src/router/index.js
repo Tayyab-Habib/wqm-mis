@@ -47,6 +47,23 @@ const routes = [
       { path: 'wss-details', name: 'WSSDetails', meta: { title: 'Water Scheme Details' }, component: () => import('../views/WSSDetails/WSSDetails.vue') },
     ],
   },
+  // ── XEN Portal (separate layout, same login) ──────────────────────────
+  {
+    path: '/xen',
+    component: () => import('../layouts/XenLayout.vue'),
+    meta: { requiresAuth: true, portal: 'xen' },
+    children: [
+      { path: '', redirect: '/xen/dashboard' },
+      { path: 'dashboard',      name: 'XenDashboard',    meta: { title: 'XEN Dashboard' },     component: () => import('../views/Xen/XenDashboard.vue') },
+      { path: 'unfit-trail',    name: 'XenUnfitTrail',   meta: { title: 'Unfit Trail' },       component: () => import('../views/Xen/XenUnfitTrail.vue') },
+      { path: 'retest-samples', name: 'XenRetestSamples',meta: { title: 'Retest Samples' },    component: () => import('../views/Xen/XenRetestSamples.vue') },
+      { path: 'gsr',            name: 'XenGsr',          meta: { title: 'GSR — My Division' }, component: () => import('../views/Xen/XenGsr.vue') },
+      { path: 'isr',            name: 'XenIsr',          meta: { title: 'Individual Sample Report' }, component: () => import('../views/Xen/XenIsr.vue') },
+      { path: 'isr/:id',        name: 'XenIsrDetail',    meta: { title: 'Sample Report' },     component: () => import('../views/Xen/XenIsrDetail.vue') },
+      { path: 'wss-register',   name: 'XenWssRegister',  meta: { title: 'WSS Register' },      component: () => import('../views/Xen/XenWssRegister.vue') },
+      { path: 'settings',       name: 'XenSettings',     meta: { title: 'Settings' },          component: () => import('../views/Xen/XenSettings.vue') },
+    ],
+  },
 ]
 
 const router = createRouter({
@@ -55,16 +72,21 @@ const router = createRouter({
 })
 
 // Auth guard
+const XEN_ROLES = ['xen', 'ce', 'se', 'secretary']
+
 router.beforeEach((to, from, next) => {
   const userStr = localStorage.getItem('user')
   const isAuthenticated = !!userStr
+  let user = null
+  try { user = userStr ? JSON.parse(userStr) : null } catch { user = null }
+  // Read role_slug (additive XEN field) — falls back to role for safety
+  const roleSlug = (user?.role_slug || user?.role || '').toString().toLowerCase()
+  const isXen = XEN_ROLES.includes(roleSlug)
 
   if (to.meta.requiresAuth && !isAuthenticated) {
-    // Redirect to login if route requires auth and user is not authenticated
     next('/login')
   } else if (to.path === '/login' && isAuthenticated) {
-    // Redirect to dashboard if already logged in and trying to access login
-    next('/dashboard')
+    next(isXen ? '/xen/dashboard' : '/dashboard')
   } else {
     next()
   }
