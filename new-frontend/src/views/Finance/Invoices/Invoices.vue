@@ -1497,12 +1497,21 @@ onMounted(() => {
 
 /* Modals & Forms */
 .payment-modal {
+  /* Responsive: cap to viewport, let the body scroll if content overflows.
+     The base .modal class supplies max-height: 80vh; overflow-y: auto, but
+     this modal opts out so the dark header/footer stay sticky around a
+     scrollable body. */
   width: 580px;
+  max-width: 95vw;
+  max-height: 92vh;
   padding: 0;
   overflow: hidden;
   border-radius: 8px;
+  display: flex;
+  flex-direction: column;
 
   .modal-header {
+    flex: 0 0 auto;             /* never shrinks, never scrolls */
     background: #1f2937;
     color: #fff;
     padding: 18px 24px;
@@ -1512,11 +1521,11 @@ onMounted(() => {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      
+
       h2 { color: #fff; margin: 0; font-size: 18px; display: flex; align-items: center; }
     }
     .modal-subtitle { font-size: 13px; color: #9ca3af; margin-top: 6px; }
-    
+
     .btn-close-modal {
       background: #374151;
       color: #fff;
@@ -1530,24 +1539,35 @@ onMounted(() => {
   }
 
   .modal-body {
-    padding: 24px;
+    flex: 1 1 auto;             /* takes remaining space */
+    overflow-y: auto;           /* scrolls when content exceeds the panel */
+    padding: 20px 24px;
     background: #fff;
+    /* Slim scrollbar so it doesn't dominate visually */
+    scrollbar-width: thin;
+    &::-webkit-scrollbar { width: 8px; }
+    &::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    &::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
   }
 
   .payment-info-box {
     display: flex;
     justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
     background: #f8fafc;
     border: 1px solid #e2e8f0;
     border-radius: 6px;
-    padding: 16px 20px;
-    margin-bottom: 24px;
+    padding: 14px 18px;
+    margin-bottom: 18px;
 
     .info-col {
       display: flex;
       flex-direction: column;
       align-items: center;
-      
+      flex: 1 1 30%;
+      min-width: 130px;
+
       .info-label { font-size: 12px; color: #64748b; margin-bottom: 6px; }
       .info-value { font-size: 16px; font-weight: 700; }
     }
@@ -1557,7 +1577,7 @@ onMounted(() => {
     &.c2 {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 16px 24px;
+      gap: 14px 20px;
     }
     label {
       display: block;
@@ -1582,16 +1602,18 @@ onMounted(() => {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
     padding: 12px 16px;
     border-radius: 6px;
     border: 1px solid #e2e8f0;
-    
+
     &.bg-green-light { background: #f0fdf4; border-color: #bbf7d0; }
     &.bg-gray-light { background: #f8fafc; }
 
     .remaining-label { font-size: 13px; color: #475569; }
     .remaining-value { font-size: 16px; font-weight: 700; }
-    
+
     .badge-paid {
       background: #bbf7d0;
       color: #166534;
@@ -1603,12 +1625,45 @@ onMounted(() => {
   }
 
   .modal-footer {
-    padding: 16px 24px;
+    flex: 0 0 auto;             /* sticky at the bottom */
+    padding: 14px 24px;
     background: #fff;
-    border-top: none;
+    border-top: 1px solid #e2e8f0;
     display: flex;
-    justify-content: flex-start; /* Changed from right aligned */
+    justify-content: flex-start;
     gap: 12px;
+  }
+
+  /* ── Responsive tweaks ─────────────────────────────────────────────── */
+  @media (max-width: 640px) {
+    width: 100%;
+    max-width: 100vw;
+    max-height: 100vh;
+    border-radius: 0;             /* edge-to-edge on phones */
+
+    .modal-header { padding: 14px 16px; }
+    .modal-body   { padding: 16px; }
+    .modal-footer { padding: 12px 16px; flex-direction: column; align-items: stretch;
+                    .btn { width: 100%; } }
+
+    .form-grid.c2 { grid-template-columns: 1fr; }   /* stack into one column */
+
+    .payment-info-box {
+      padding: 12px;
+      .info-col { flex: 1 1 100%; align-items: flex-start;
+                  flex-direction: row; justify-content: space-between;
+                  .info-label { margin-bottom: 0; }
+                  .info-value { font-size: 15px; } }
+    }
+  }
+  @media (max-height: 700px) {
+    /* On short laptop screens, tighten vertical paddings so the form fits
+       without scrolling for the common case. Body still scrolls if needed. */
+    .modal-header  { padding-top: 12px; padding-bottom: 12px; }
+    .modal-body    { padding-top: 14px; padding-bottom: 14px; }
+    .payment-info-box { padding: 10px 14px; margin-bottom: 12px;
+                        .info-value { font-size: 15px; } }
+    .form-grid.c2 { gap: 10px 18px; }
   }
 }
 
