@@ -10,7 +10,7 @@ const routes = [
   {
     path: '/',
     component: () => import('../layouts/MainLayout.vue'),
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, requiresAdmin: true },
     children: [
       { path: '', redirect: '/dashboard' },
       { path: 'dashboard',                       name: 'Dashboard',             meta: { title: 'Dashboard' },                       component: () => import('../views/Dashboard/Dashboard.vue') },
@@ -64,6 +64,20 @@ const routes = [
       { path: 'settings',       name: 'XenSettings',     meta: { title: 'Settings' },          component: () => import('../views/Xen/XenSettings.vue') },
     ],
   },
+
+  // ── Client Portal ──────────────────────────────────────────────────
+  {
+    path: '/client-portal',
+    component: () => import('../layouts/ClientPortalLayout.vue'),
+    meta: { requiresAuth: true, requiresClient: true },
+    children: [
+      { path: '',              redirect: '/client-portal/results' },
+      { path: 'results',       name: 'ClientResults',      meta: { title: 'My Results' },      component: () => import('../views/ClientPortal/ClientResults.vue') },
+      { path: 'email-reports', name: 'ClientEmailReports', meta: { title: 'Email Reports' },   component: () => import('../views/ClientPortal/ClientEmailReports.vue') },
+      { path: 'billing',       name: 'ClientBilling',      meta: { title: 'Billing' },         component: () => import('../views/ClientPortal/ClientBilling.vue') },
+      { path: 'profile',       name: 'ClientProfile',      meta: { title: 'My Profile' },      component: () => import('../views/ClientPortal/ClientProfile.vue') },
+    ],
+  },
 ]
 
 const router = createRouter({
@@ -81,15 +95,32 @@ router.beforeEach((to, from, next) => {
   try { user = userStr ? JSON.parse(userStr) : null } catch { user = null }
   // Read role_slug (additive XEN field) — falls back to role for safety
   const roleSlug = (user?.role_slug || user?.role || '').toString().toLowerCase()
-  const isXen = XEN_ROLES.includes(roleSlug)
+  const isXen    = XEN_ROLES.includes(roleSlug)
+  const isClient = user?.user_type === 'client'
 
+  // Not logged in — redirect to login
   if (to.meta.requiresAuth && !isAuthenticated) {
-    next('/login')
-  } else if (to.path === '/login' && isAuthenticated) {
-    next(isXen ? '/xen/dashboard' : '/dashboard')
-  } else {
-    next()
+    return next('/login')
   }
+
+  // Already logged in — redirect away from login page based on user type
+  if (to.path === '/login' && isAuthenticated) {
+    if (isXen)    return next('/xen/dashboard')
+    if (isClient) return next('/client-portal/results')
+    return next('/dashboard')
+  }
+
+  // Client trying to access admin area
+  if (to.meta.requiresAdmin && isClient) {
+    return next('/client-portal/results')
+  }
+
+  // Admin trying to access client portal
+  if (to.meta.requiresClient && !isClient) {
+    return next('/dashboard')
+  }
+
+  next()
 })
 
 export default router
