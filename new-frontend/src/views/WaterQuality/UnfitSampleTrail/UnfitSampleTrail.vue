@@ -35,17 +35,17 @@ function mapRow(s) {
   // Retest result from last test
   const retestResult = lastTest?.result
     ? (String(lastTest.result).toLowerCase().includes('fit') ? 'Fit' : 'Unfit')
-    : 'â€”'
+    : '—'
 
   return {
     id:          s.slug || String(s.id),
     backendId:   s.id,
-    wss:         s.water_scheme?.name || s.waterScheme?.name || s.water_sample_address || 'â€”',
-    phedDiv:     s.phed_division?.name || s.phedDivision?.name || 'â€”',
-    district:    s.district?.name || 'â€”',
-    date:        s.sampled_at ? formatDate(s.sampled_at) : 'â€”',
-    cause:       s.analysis_result_cause || 'â€”',
-    value:       s.analysis_result_value || 'â€”',
+    wss:         s.water_scheme?.name || s.waterScheme?.name || s.water_sample_address || '—',
+    phedDiv:     s.phed_division?.name || s.phedDivision?.name || '—',
+    district:    s.district?.name || '—',
+    date:        s.sampled_at ? formatDate(s.sampled_at) : '—',
+    cause:       s.analysis_result_cause || '—',
+    value:       s.analysis_result_value || '—',
     actionStatus,
     round,
     retestResult,
@@ -56,7 +56,7 @@ function mapRow(s) {
 }
 
 function formatDate(dt) {
-  if (!dt) return 'â€”'
+  if (!dt) return '—'
   const d = new Date(dt)
   if (isNaN(d)) return dt
   return d.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'2-digit' }).replace(/ /g,'-')
