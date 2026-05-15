@@ -3,6 +3,8 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { xenService } from '../../services/xenService.js'
 import SkelRow from './SkelRow.vue'
+import XenTrailModal from './XenTrailModal.vue'
+import XenLogActionModal from './XenLogActionModal.vue'
 
 const router = useRouter()
 const loading = ref(true)
@@ -55,6 +57,26 @@ function statusText(s) {
   if (s === 'resolved') return 'Resolved'
   return s || '—'
 }
+
+// ── Trail / Log modals ───────────────────────────────────────
+const showTrailModal = ref(false)
+const trailSampleId  = ref(null)
+function openTrail(s) {
+  trailSampleId.value = s.id || s.water_sample_id
+  showTrailModal.value = true
+}
+
+const showLogModal = ref(false)
+const logSample    = ref({ id: null, slug: '', wss: '' })
+function openLog(s) {
+  logSample.value = {
+    id:   s.id || s.water_sample_id,
+    slug: s.slug || '',
+    wss:  s.water_scheme_name || s.sample_name || '',
+  }
+  showLogModal.value = true
+}
+function onActionSaved() { load() }
 
 function exportCsv() {
   const head = ['Sample ID','WSS','Date','Cause','Parameter','Status','Stage']
@@ -135,8 +157,8 @@ function exportCsv() {
               <td><span class="pill" :class="statusClass(s.status)">{{ statusText(s.status) }}</span></td>
               <td>{{ s.current_round > 0 ? ('R' + s.current_round) : '—' }}</td>
               <td>
-                <button v-if="statusClass(s.status) === 'st-red'" class="btn btn-pri" @click="router.push(`/xen/isr/${s.id}`)">▶ Log</button>
-                <RouterLink :to="`/xen/isr/${s.id}`" class="btn btn-sec">👁 Trail</RouterLink>
+                <button v-if="statusClass(s.status) === 'st-red'" class="btn btn-pri" @click="openLog(s)">▶ Log</button>
+                <button class="btn btn-sec" @click="openTrail(s)">👁 Trail</button>
               </td>
             </tr>
             <tr v-if="filtered.length === 0"><td colspan="8" class="empty">No unfit samples match the filters.</td></tr>
@@ -144,6 +166,9 @@ function exportCsv() {
         </tbody>
       </table>
     </div>
+
+    <XenTrailModal     v-model="showTrailModal" :sample-id="trailSampleId" @saved="onActionSaved" />
+    <XenLogActionModal v-model="showLogModal"   :sample-id="logSample.id" :sample-slug="logSample.slug" :wss-name="logSample.wss" @saved="onActionSaved" />
   </div>
 </template>
 

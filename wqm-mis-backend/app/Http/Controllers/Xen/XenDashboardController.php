@@ -354,6 +354,75 @@ class XenDashboardController extends Controller
         }
     }
 
+    /**
+     * Full trail data for one sample — used by the XEN Trail modal.
+     * Returns: timeline (test/action/notification events), sidebar sample info,
+     * notifications panel, and the list of action types the log form offers.
+     */
+    public function trailDetail($id)
+    {
+        $user = auth()->user()->load(['phedDivision', 'district']);
+
+        $sample = WaterSample::query()
+            ->with([
+                'waterScheme:id,name',
+                'phedDivision:id,name',
+                'district:id,name',
+                'tests' => fn($q) => $q->orderBy('round'),
+            ])
+            ->when($user->phed_division_id, fn($q) => $q->where('phed_division_id', $user->phed_division_id))
+            ->findOrFail($id);
+
+        $formatted = $this->formatUnfitSampleWithTimeline($sample);
+
+        // Notifications list for the right sidebar
+        $notifs = DB::table('notifications as n')
+            ->leftJoin('users as u', 'n.notifiable_id', '=', 'u.id')
+            ->where('n.water_sample_id', $sample->id)
+            ->orderBy('n.created_at')
+            ->select('n.id', 'n.created_at', 'n.type_key', 'n.data', 'n.action_taken_at', 'u.name as user_name')
+            ->get()
+            ->map(function ($n) {
+                $data = is_string($n->data ?? '') ? json_decode($n->data, true) : ($n->data ?? []);
+                return [
+                    'id'          => $n->id,
+                    'created_at'  => $n->created_at,
+                    'type_key'    => $n->type_key,
+                    'message'     => $data['message'] ?? null,
+                    'recipient'   => $n->user_name,
+                    'status'      => $n->action_taken_at ? 'Acknowledged' : 'Initial',
+                ];
+            });
+
+        // Cause / parameter — derive from latest unfit test remarks if present
+        $unfitTest = $sample->tests->first(function ($t) {
+            $r = $t->result instanceof \BackedEnum ? $t->result->value : $t->result;
+            return (int) $r === WaterSampleTestResultEnum::UNFIT->value;
+        });
+        $causeText = $unfitTest?->remarks ?: ($formatted['cause'] ?? 'Lab Test');
+
+        return response()->json(array_merge($formatted, [
+            'sample_info' => [
+                'sample_id'     => $sample->slug,
+                'wss'           => $sample->waterScheme?->name ?? '—',
+                'phed_division' => $sample->phedDivision?->name ?? '—',
+                'xen_name'      => $user->name ?? '—',
+                'cause'         => $causeText,
+            ],
+            'notifications_panel' => $notifs,
+            'action_types' => [
+                'Chlorination Done',
+                'Source Cleaned',
+                'Inspected',
+                'Maintenance Done',
+                'Operator Trained',
+                'Source Replaced',
+                'Retest Requested',
+                'Other',
+            ],
+        ]));
+    }
+
     private function formatUnfitSampleWithTimeline($sample)
     {
         $hasAction = DB::table('water_sample_actions')

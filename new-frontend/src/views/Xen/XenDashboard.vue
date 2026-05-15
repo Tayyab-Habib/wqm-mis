@@ -3,6 +3,8 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { xenService } from '../../services/xenService.js'
 import SkelRow from './SkelRow.vue'
+import XenTrailModal from './XenTrailModal.vue'
+import XenLogActionModal from './XenLogActionModal.vue'
 
 const router = useRouter()
 
@@ -70,6 +72,30 @@ function statusLabel(status) {
 function rowOpen(s) {
   // navigate to ISR by water_sample_id
   router.push(`/xen/isr/${s.id || s.water_sample_id}`)
+}
+
+// ── Trail modal ──────────────────────────────────────────────
+const showTrailModal = ref(false)
+const trailSampleId  = ref(null)
+function openTrail(s) {
+  trailSampleId.value = s.id || s.water_sample_id
+  showTrailModal.value = true
+}
+
+// ── Log Action modal ─────────────────────────────────────────
+const showLogModal = ref(false)
+const logSample    = ref({ id: null, slug: '', wss: '' })
+function openLog(s) {
+  logSample.value = {
+    id:   s.id || s.water_sample_id,
+    slug: s.slug || '',
+    wss:  s.water_scheme_name || s.sample_name || '',
+  }
+  showLogModal.value = true
+}
+function onActionSaved() {
+  // Refresh the dashboard so status pills / counters update
+  load()
 }
 </script>
 
@@ -152,8 +178,8 @@ function rowOpen(s) {
                 <td><span class="pill pill-red">{{ s.cause || 'Biological' }}</span></td>
                 <td><span class="pill" :class="statusClass(s.status)">{{ statusLabel(s.status) }}</span></td>
                 <td>
-                  <button v-if="statusClass(s.status) === 'st-red'" class="btn btn-pri" @click="rowOpen(s)">▶ Log</button>
-                  <button class="btn btn-sec" @click="rowOpen(s)">👁 Trail</button>
+                  <button v-if="statusClass(s.status) === 'st-red'" class="btn btn-pri" @click="openLog(s)">▶ Log</button>
+                  <button class="btn btn-sec" @click="openTrail(s)">👁 Trail</button>
                 </td>
               </tr>
               <tr v-if="unfitTop.length === 0">
@@ -240,7 +266,7 @@ function rowOpen(s) {
               <td><span class="pill st-blue">R{{ r.current_round }}</span></td>
               <td>{{ fmtDate(r.analyzed_at) }}</td>
               <td><span class="pill" :class="r.status_badge || 'st-grey'">{{ r.status_label || '—' }}</span></td>
-              <td><RouterLink :to="`/xen/isr/${r.water_sample_id}`" class="btn btn-sec">👁 Trail</RouterLink></td>
+              <td><button class="btn btn-sec" @click="openTrail({ id: r.water_sample_id })">👁 Trail</button></td>
             </tr>
             <tr v-if="retestTop.length === 0">
               <td colspan="7" class="empty">No retest samples in your division.</td>
@@ -249,6 +275,20 @@ function rowOpen(s) {
         </tbody>
       </table>
     </div>
+
+    <!-- ── Trail + Log Action modals ─────────────────────────────── -->
+    <XenTrailModal
+      v-model="showTrailModal"
+      :sample-id="trailSampleId"
+      @saved="onActionSaved"
+    />
+    <XenLogActionModal
+      v-model="showLogModal"
+      :sample-id="logSample.id"
+      :sample-slug="logSample.slug"
+      :wss-name="logSample.wss"
+      @saved="onActionSaved"
+    />
   </div>
 </template>
 

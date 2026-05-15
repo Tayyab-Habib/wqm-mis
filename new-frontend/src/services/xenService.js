@@ -4,6 +4,7 @@ export const xenService = {
   me: () => api.get('/xen/me'),
   dashboard: () => api.get('/xen/dashboard'),
   trail: (type = 'unfit') => api.get(`/xen/trail?type=${type}`),
+  trailDetail: (id) => api.get(`/xen/samples/${id}/trail`),
   requestRetest: (payload) => api.post('/xen/actions/request-retest', payload),
 
   wssRegister: (params = {}) => {
