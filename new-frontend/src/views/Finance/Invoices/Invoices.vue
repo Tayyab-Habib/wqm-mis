@@ -7,6 +7,15 @@ const loading  = ref(false)
 const errorMsg = ref('')
 const activeTab = ref(0)
 
+// ── Toast (matches the pattern in Topbar.vue / UsersHR.vue) ───────────
+const toast = ref({ show: false, message: '', type: 'success' })
+let toastTimer = null
+function showToast(message, type = 'success') {
+  clearTimeout(toastTimer)
+  toast.value = { show: true, message, type }
+  toastTimer = setTimeout(() => { toast.value.show = false }, 4000)
+}
+
 // ── Data from backend ─────────────────────────────────────────────────
 const invoicesList = ref([])
 
@@ -65,8 +74,8 @@ function openPay(inv) {
 }
 
 async function savePayment() {
-  if (!payMode.value) { alert('Please select a payment mode.'); return }
-  if (!payAmount.value || payAmount.value <= 0) { alert('Please enter a valid amount.'); return }
+  if (!payMode.value) { showToast('⚠️ Please select a payment mode.', 'error'); return }
+  if (!payAmount.value || payAmount.value <= 0) { showToast('⚠️ Please enter a valid amount.', 'error'); return }
   try {
     await financeService.createPayment({
       water_sample_invoice_id: payTarget.value.id,
@@ -78,8 +87,9 @@ async function savePayment() {
     })
     await loadInvoices()
     showPayModal.value = false
+    showToast(`✅ Payment of Rs ${Number(payAmount.value).toLocaleString()} recorded`, 'success')
   } catch (e) {
-    alert('Failed to record payment: ' + (e?.message || 'Unknown error'))
+    showToast('❌ Failed to record payment: ' + (e?.response?.data?.message || e?.message || 'Unknown error'), 'error')
     console.error('Payment error:', e)
   }
 }
@@ -127,7 +137,7 @@ const store = { invoices: invoicesList, totals, ledger }
 
 function exportIndividualInvoices() {
   if (!invoicesList.value.length) {
-    alert('No invoices to export.')
+    showToast('⚠️ No invoices to export.', 'error')
     return
   }
   const exportData = invoicesList.value.map(inv => ({
@@ -146,7 +156,7 @@ function exportIndividualInvoices() {
 
 function exportLedger() {
   if (!ledgerRunning.value.length) {
-    alert('No ledger entries to export.')
+    showToast('⚠️ No ledger entries to export.', 'error')
     return
   }
   const exportData = ledgerRunning.value.map(r => ({
@@ -165,7 +175,7 @@ function exportLedger() {
 
 function exportDues() {
   if (!dueInvoices.value.length) {
-    alert('No dues to export.')
+    showToast('⚠️ No dues to export.', 'error')
     return
   }
   const exportData = dueInvoices.value.map(inv => ({
@@ -184,6 +194,22 @@ onMounted(loadInvoices)
 
 <template>
   <div>
+    <!-- ── Toast notification ── -->
+    <Teleport to="body">
+      <Transition name="toast-slide">
+        <div v-if="toast.show"
+             :style="`position:fixed;top:22px;right:24px;z-index:9999;min-width:300px;max-width:460px;
+                      background:${toast.type === 'success' ? '#065f46' : '#991b1b'};
+                      color:#fff;border-radius:8px;padding:14px 18px;
+                      box-shadow:0 6px 32px rgba(0,0,0,.28);font-size:13px;display:flex;align-items:flex-start;gap:10px`">
+          <span style="flex:1;line-height:1.5">{{ toast.message }}</span>
+          <button @click="toast.show = false"
+                  style="background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:4px;
+                         padding:2px 8px;cursor:pointer;font-size:13px;margin-left:4px">✕</button>
+        </div>
+      </Transition>
+    </Teleport>
+
     <!-- KPI Cards -->
     <div class="cards cards-4" style="margin-bottom:14px">
       <div class="card c-gold"><div class="c-lbl">Total Invoiced (YTD)</div><div class="c-val">₨ {{ (totals.invoiced/1000000).toFixed(1) }}M</div></div>
@@ -467,3 +493,10 @@ onMounted(loadInvoices)
     </Teleport>
   </div>
 </template>
+
+<style>
+.toast-slide-enter-active,
+.toast-slide-leave-active { transition: all 0.3s ease; }
+.toast-slide-enter-from,
+.toast-slide-leave-to     { opacity: 0; transform: translateX(60px); }
+</style>
