@@ -1497,15 +1497,20 @@ onMounted(() => {
 
 /* Modals & Forms */
 .payment-modal {
+  /* Responsive: cap to viewport, let the body scroll if content overflows.
+     The base .modal class supplies max-height: 80vh; overflow-y: auto, but
+     this modal opts out so the dark header/footer stay sticky around a
+     scrollable body. */
   width: 520px;
+  max-width: 95vw;
+  max-height: 92vh;
   padding: 0;
   border-radius: 8px;
-  // overflow: auto + max-height keeps the modal scrollable as a safety net
-  // if the viewport is shorter than the (now compact) content.
-  overflow-y: auto;
-  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
 
   .modal-header {
+    flex: 0 0 auto;             /* never shrinks, never scrolls */
     background: #1f2937;
     color: #fff;
     padding: 12px 18px;
@@ -1533,13 +1538,22 @@ onMounted(() => {
   }
 
   .modal-body {
+    flex: 1 1 auto;             /* takes remaining space */
+    overflow-y: auto;           /* scrolls when content exceeds the panel */
     padding: 14px 18px;
     background: #fff;
+    /* Slim scrollbar so it doesn't dominate visually */
+    scrollbar-width: thin;
+    &::-webkit-scrollbar { width: 8px; }
+    &::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    &::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
   }
 
   .payment-info-box {
     display: flex;
     justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
     background: #f8fafc;
     border: 1px solid #e2e8f0;
     border-radius: 6px;
@@ -1550,6 +1564,8 @@ onMounted(() => {
       display: flex;
       flex-direction: column;
       align-items: center;
+      flex: 1 1 30%;
+      min-width: 130px;
 
       .info-label { font-size: 11px; color: #64748b; margin-bottom: 3px; }
       .info-value { font-size: 14px; font-weight: 700; }
@@ -1585,6 +1601,8 @@ onMounted(() => {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
     padding: 8px 12px;
     border-radius: 6px;
     border: 1px solid #e2e8f0;
@@ -1614,12 +1632,45 @@ onMounted(() => {
   textarea.form-input { min-height: 52px; resize: vertical; }
 
   .modal-footer {
+    flex: 0 0 auto;             /* sticky at the bottom */
     padding: 10px 18px;
     background: #fff;
-    border-top: none;
+    border-top: 1px solid #e2e8f0;
     display: flex;
     justify-content: flex-start;
     gap: 10px;
+  }
+
+  /* ── Responsive tweaks ─────────────────────────────────────────────── */
+  @media (max-width: 640px) {
+    width: 100%;
+    max-width: 100vw;
+    max-height: 100vh;
+    border-radius: 0;             /* edge-to-edge on phones */
+
+    .modal-header { padding: 14px 16px; }
+    .modal-body   { padding: 16px; }
+    .modal-footer { padding: 12px 16px; flex-direction: column; align-items: stretch;
+                    .btn { width: 100%; } }
+
+    .form-grid.c2 { grid-template-columns: 1fr; }   /* stack into one column */
+
+    .payment-info-box {
+      padding: 12px;
+      .info-col { flex: 1 1 100%; align-items: flex-start;
+                  flex-direction: row; justify-content: space-between;
+                  .info-label { margin-bottom: 0; }
+                  .info-value { font-size: 15px; } }
+    }
+  }
+  @media (max-height: 700px) {
+    /* On short laptop screens, tighten vertical paddings so the form fits
+       without scrolling for the common case. Body still scrolls if needed. */
+    .modal-header  { padding-top: 12px; padding-bottom: 12px; }
+    .modal-body    { padding-top: 14px; padding-bottom: 14px; }
+    .payment-info-box { padding: 10px 14px; margin-bottom: 12px;
+                        .info-value { font-size: 15px; } }
+    .form-grid.c2 { gap: 10px 18px; }
   }
 }
 
