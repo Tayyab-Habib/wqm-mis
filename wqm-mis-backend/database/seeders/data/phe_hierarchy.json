@@ -1,0 +1,731 @@
+﻿[
+    {
+        "region":  "Region",
+        "admin_division":  "Adminstrative Division",
+        "hub_lab":  "HUB Labs",
+        "phe_circle":  "PHE Circle",
+        "district":  "District",
+        "phed_division":  "PHED Division",
+        "sub_division":  "Sub Divison"
+    },
+    {
+        "region":  "Chief Engineer Center",
+        "admin_division":  "Peshawar",
+        "hub_lab":  "Centreal lab Peshawar",
+        "phe_circle":  "SE Khyber",
+        "district":  "Khyber",
+        "phed_division":  "Khyber",
+        "sub_division":  "Bara"
+    },
+    {
+        "region":  "Chief Engineer Center",
+        "admin_division":  "Peshawar",
+        "hub_lab":  "Centreal lab Peshawar",
+        "phe_circle":  "SE Khyber",
+        "district":  "Khyber",
+        "phed_division":  "Khyber",
+        "sub_division":  "Jamrud"
+    },
+    {
+        "region":  "Chief Engineer Center",
+        "admin_division":  "Peshawar",
+        "hub_lab":  "Centreal lab Peshawar",
+        "phe_circle":  "SE Khyber",
+        "district":  "Mohmand",
+        "phed_division":  "Mohmand",
+        "sub_division":  "Yakaghund"
+    },
+    {
+        "region":  "Chief Engineer Center",
+        "admin_division":  "Peshawar",
+        "hub_lab":  "Centreal lab Peshawar",
+        "phe_circle":  "SE Khyber",
+        "district":  "Mohmand",
+        "phed_division":  "Mohmand",
+        "sub_division":  "Ghalanai"
+    },
+    {
+        "region":  "Chief Engineer Center",
+        "admin_division":  "Peshawar",
+        "hub_lab":  "Centreal lab Peshawar",
+        "phe_circle":  "SE Peshawar",
+        "district":  "Charsadda",
+        "phed_division":  "Charsadda",
+        "sub_division":  "Tangi"
+    },
+    {
+        "region":  "Chief Engineer Center",
+        "admin_division":  "Peshawar",
+        "hub_lab":  "Centreal lab Peshawar",
+        "phe_circle":  "SE Peshawar",
+        "district":  "Charsadda",
+        "phed_division":  "Charsadda",
+        "sub_division":  "Charsadda"
+    },
+    {
+        "region":  "Chief Engineer Center",
+        "admin_division":  "Peshawar",
+        "hub_lab":  "Centreal lab Peshawar",
+        "phe_circle":  "SE Peshawar",
+        "district":  "Nowshera",
+        "phed_division":  "Nowshera",
+        "sub_division":  "No.1 Nowshera"
+    },
+    {
+        "region":  "Chief Engineer Center",
+        "admin_division":  "Peshawar",
+        "hub_lab":  "Centreal lab Peshawar",
+        "phe_circle":  "SE Peshawar",
+        "district":  "Nowshera",
+        "phed_division":  "Nowshera",
+        "sub_division":  "No.2 Nowshera"
+    },
+    {
+        "region":  "Chief Engineer Center",
+        "admin_division":  "Peshawar",
+        "hub_lab":  "Centreal lab Peshawar",
+        "phe_circle":  "SE Peshawar",
+        "district":  "Peshawar",
+        "phed_division":  "Peshawar-I",
+        "sub_division":  "No.1 Peshawar"
+    },
+    {
+        "region":  "Chief Engineer Center",
+        "admin_division":  "Peshawar",
+        "hub_lab":  "Centreal lab Peshawar",
+        "phe_circle":  "SE Peshawar",
+        "district":  "Peshawar",
+        "phed_division":  "Peshawar-I",
+        "sub_division":  "No.2 Peshawar"
+    },
+    {
+        "region":  "Chief Engineer Center",
+        "admin_division":  "Peshawar",
+        "hub_lab":  "Centreal lab Peshawar",
+        "phe_circle":  "SE Peshawar",
+        "district":  "Peshawar",
+        "phed_division":  "Peshawar-II",
+        "sub_division":  "Hassan Khel"
+    },
+    {
+        "region":  "Chief Engineer Center",
+        "admin_division":  "Peshawar",
+        "hub_lab":  "Centreal lab Peshawar",
+        "phe_circle":  "SE Peshawar",
+        "district":  "Peshawar",
+        "phed_division":  "Peshawar-II",
+        "sub_division":  "Pishtakhara"
+    },
+    {
+        "region":  "Chief Engineer Center",
+        "admin_division":  "Mardan",
+        "hub_lab":  "Mardan Hub Lab",
+        "phe_circle":  "SE Mardan",
+        "district":  "Mardan",
+        "phed_division":  "Mardan",
+        "sub_division":  "Takht Bhai Mardan"
+    },
+    {
+        "region":  "Chief Engineer Center",
+        "admin_division":  "Mardan",
+        "hub_lab":  "Mardan Hub Lab",
+        "phe_circle":  "SE Mardan",
+        "district":  "Mardan",
+        "phed_division":  "Mardan",
+        "sub_division":  "Mardan"
+    },
+    {
+        "region":  "Chief Engineer Center",
+        "admin_division":  "Mardan",
+        "hub_lab":  "Mardan Hub Lab",
+        "phe_circle":  "SE Mardan",
+        "district":  "Swabi",
+        "phed_division":  "Swabi",
+        "sub_division":  "Lahor"
+    },
+    {
+        "region":  "Chief Engineer Center",
+        "admin_division":  "Mardan",
+        "hub_lab":  "Mardan Hub Lab",
+        "phe_circle":  "SE Mardan",
+        "district":  "Swabi",
+        "phed_division":  "Swabi",
+        "sub_division":  "Swabi"
+    },
+    {
+        "region":  "Chief Engineer (East)",
+        "admin_division":  "Hazara",
+        "hub_lab":  "Abbottabad Hub lab",
+        "phe_circle":  "SE Abbottabad",
+        "district":  "Abbottabad",
+        "phed_division":  "Abbottabad",
+        "sub_division":  "Sub Division-I Abbottabad"
+    },
+    {
+        "region":  "Chief Engineer (East)",
+        "admin_division":  "Hazara",
+        "hub_lab":  "Abbottabad Hub lab",
+        "phe_circle":  "SE Abbottabad",
+        "district":  "Abbottabad",
+        "phed_division":  "Abbottabad",
+        "sub_division":  "Sub Division-II Abbottabad"
+    },
+    {
+        "region":  "Chief Engineer (East)",
+        "admin_division":  "Hazara",
+        "hub_lab":  "Abbottabad Hub lab",
+        "phe_circle":  "SE Abbottabad",
+        "district":  "Abbottabad",
+        "phed_division":  "BWS Abbottabad",
+        "sub_division":  "BWS Abbottabad"
+    },
+    {
+        "region":  "Chief Engineer (East)",
+        "admin_division":  "Hazara",
+        "hub_lab":  "Abbottabad Hub lab",
+        "phe_circle":  "SE Abbottabad",
+        "district":  "Haripur",
+        "phed_division":  "Haripur",
+        "sub_division":  "Ghazi Haripur"
+    },
+    {
+        "region":  "Chief Engineer (East)",
+        "admin_division":  "Hazara",
+        "hub_lab":  "Abbottabad Hub lab",
+        "phe_circle":  "SE Abbottabad",
+        "district":  "Haripur",
+        "phed_division":  "Haripur",
+        "sub_division":  "Haripur"
+    },
+    {
+        "region":  "Chief Engineer (East)",
+        "admin_division":  "Hazara",
+        "hub_lab":  "Abbottabad Hub lab",
+        "phe_circle":  "SE Mansehra",
+        "district":  "Battagram",
+        "phed_division":  "Battagram",
+        "sub_division":  "Battagram"
+    },
+    {
+        "region":  "Chief Engineer (East)",
+        "admin_division":  "Hazara",
+        "hub_lab":  "Abbottabad Hub lab",
+        "phe_circle":  "SE Mansehra",
+        "district":  "Battagram",
+        "phed_division":  "Battagram",
+        "sub_division":  "Allai Battagram"
+    },
+    {
+        "region":  "Chief Engineer (East)",
+        "admin_division":  "Hazara",
+        "hub_lab":  "Abbottabad Hub lab",
+        "phe_circle":  "SE Mansehra",
+        "district":  "Kohistan Lower",
+        "phed_division":  "Kohistan Lower",
+        "sub_division":  "Pattan Kohistan"
+    },
+    {
+        "region":  "Chief Engineer (East)",
+        "admin_division":  "Hazara",
+        "hub_lab":  "Abbottabad Hub lab",
+        "phe_circle":  "SE Mansehra",
+        "district":  "Kohistan Upper",
+        "phed_division":  "Kohistan Upper",
+        "sub_division":  "Dassu Kohistan"
+    },
+    {
+        "region":  "Chief Engineer (East)",
+        "admin_division":  "Hazara",
+        "hub_lab":  "Abbottabad Hub lab",
+        "phe_circle":  "SE Mansehra",
+        "district":  "Kolai Pallas",
+        "phed_division":  "Kolai Pallas",
+        "sub_division":  "Kolai Palas Kohistan"
+    },
+    {
+        "region":  "Chief Engineer (East)",
+        "admin_division":  "Hazara",
+        "hub_lab":  "Abbottabad Hub lab",
+        "phe_circle":  "SE Mansehra",
+        "district":  "Mansehra",
+        "phed_division":  "Mansehra",
+        "sub_division":  "Mansehra"
+    },
+    {
+        "region":  "Chief Engineer (East)",
+        "admin_division":  "Hazara",
+        "hub_lab":  "Abbottabad Hub lab",
+        "phe_circle":  "SE Mansehra",
+        "district":  "Mansehra",
+        "phed_division":  "Mansehra",
+        "sub_division":  "Oghi Mansehra"
+    },
+    {
+        "region":  "Chief Engineer (East)",
+        "admin_division":  "Hazara",
+        "hub_lab":  "Abbottabad Hub lab",
+        "phe_circle":  "SE Mansehra",
+        "district":  "Mansehra",
+        "phed_division":  "Mansehra",
+        "sub_division":  "Balakot Mansehra"
+    },
+    {
+        "region":  "Chief Engineer (East)",
+        "admin_division":  "Hazara",
+        "hub_lab":  "Abbottabad Hub lab",
+        "phe_circle":  "SE Mansehra",
+        "district":  "Tor Ghar",
+        "phed_division":  "Tor Ghar",
+        "sub_division":  "Tor Ghar"
+    },
+    {
+        "region":  "Chief Engineer (North)",
+        "admin_division":  "Malakand",
+        "hub_lab":  "Batkhela Lab",
+        "phe_circle":  "SE Malakand at Timergara",
+        "district":  "Chitral Lower",
+        "phed_division":  "Chitral Lower",
+        "sub_division":  "Drosh Chitral"
+    },
+    {
+        "region":  "Chief Engineer (North)",
+        "admin_division":  "Malakand",
+        "hub_lab":  "Batkhela Lab",
+        "phe_circle":  "SE Malakand at Timergara",
+        "district":  "Chitral Lower",
+        "phed_division":  "Chitral Lower",
+        "sub_division":  "Chitral"
+    },
+    {
+        "region":  "Chief Engineer (North)",
+        "admin_division":  "Malakand",
+        "hub_lab":  "Batkhela Lab",
+        "phe_circle":  "SE Malakand at Timergara",
+        "district":  "Chitral Upper",
+        "phed_division":  "Chitral Upper",
+        "sub_division":  "Mastuj"
+    },
+    {
+        "region":  "Chief Engineer (North)",
+        "admin_division":  "Malakand",
+        "hub_lab":  "Batkhela Lab",
+        "phe_circle":  "SE Malakand at Timergara",
+        "district":  "Chitral Upper",
+        "phed_division":  "Chitral Upper",
+        "sub_division":  "Booni"
+    },
+    {
+        "region":  "Chief Engineer (North)",
+        "admin_division":  "Malakand",
+        "hub_lab":  "Batkhela Lab",
+        "phe_circle":  "SE Malakand at Timergara",
+        "district":  "Dir Lower",
+        "phed_division":  "Dir Lower",
+        "sub_division":  "Chakdara Dir Lower"
+    },
+    {
+        "region":  "Chief Engineer (North)",
+        "admin_division":  "Malakand",
+        "hub_lab":  "Batkhela Lab",
+        "phe_circle":  "SE Malakand at Timergara",
+        "district":  "Dir Lower",
+        "phed_division":  "Dir Lower",
+        "sub_division":  "Samar Bagh Dir Lower"
+    },
+    {
+        "region":  "Chief Engineer (North)",
+        "admin_division":  "Malakand",
+        "hub_lab":  "Batkhela Lab",
+        "phe_circle":  "SE Malakand at Timergara",
+        "district":  "Dir Lower",
+        "phed_division":  "Dir Lower",
+        "sub_division":  "Timergara, Dir Lower"
+    },
+    {
+        "region":  "Chief Engineer (North)",
+        "admin_division":  "Malakand",
+        "hub_lab":  "Batkhela Lab",
+        "phe_circle":  "SE Malakand at Timergara",
+        "district":  "Dir Upper",
+        "phed_division":  "Dir Upper",
+        "sub_division":  "Sheringal Dir Upper"
+    },
+    {
+        "region":  "Chief Engineer (North)",
+        "admin_division":  "Malakand",
+        "hub_lab":  "Batkhela Lab",
+        "phe_circle":  "SE Malakand at Timergara",
+        "district":  "Dir Upper",
+        "phed_division":  "Dir Upper",
+        "sub_division":  "Dir Upper"
+    },
+    {
+        "region":  "Chief Engineer (North)",
+        "admin_division":  "Malakand",
+        "hub_lab":  "Batkhela Lab",
+        "phe_circle":  "SE Malakand at Timergara",
+        "district":  "Dir Upper",
+        "phed_division":  "Dir Upper",
+        "sub_division":  "Warai Dir Upper"
+    },
+    {
+        "region":  "Chief Engineer (North)",
+        "admin_division":  "Malakand",
+        "hub_lab":  "Batkhela Lab",
+        "phe_circle":  "SE Malakand at Timergara",
+        "district":  "Bajaur",
+        "phed_division":  "Bajaur",
+        "sub_division":  "Khar Bajaur"
+    },
+    {
+        "region":  "Chief Engineer (North)",
+        "admin_division":  "Malakand",
+        "hub_lab":  "Batkhela Lab",
+        "phe_circle":  "SE Malakand at Timergara",
+        "district":  "Bajaur",
+        "phed_division":  "Bajaur",
+        "sub_division":  "Nawagai Bajaur"
+    },
+    {
+        "region":  "Chief Engineer (North)",
+        "admin_division":  "Malakand",
+        "hub_lab":  "Swat Hub lab",
+        "phe_circle":  "SE Swat",
+        "district":  "Buner",
+        "phed_division":  "Buner",
+        "sub_division":  "Totalai Buner"
+    },
+    {
+        "region":  "Chief Engineer (North)",
+        "admin_division":  "Malakand",
+        "hub_lab":  "Swat Hub lab",
+        "phe_circle":  "SE Swat",
+        "district":  "Buner",
+        "phed_division":  "Buner",
+        "sub_division":  "Daggar No.1 Buner"
+    },
+    {
+        "region":  "Chief Engineer (North)",
+        "admin_division":  "Malakand",
+        "hub_lab":  "Swat Hub lab",
+        "phe_circle":  "SE Swat",
+        "district":  "Buner",
+        "phed_division":  "Buner",
+        "sub_division":  "Daggar No.2 Buner"
+    },
+    {
+        "region":  "Chief Engineer (North)",
+        "admin_division":  "Malakand",
+        "hub_lab":  "Swat Hub lab",
+        "phe_circle":  "SE Swat",
+        "district":  "Malakand",
+        "phed_division":  "Malakand",
+        "sub_division":  "Batkhela Malakand"
+    },
+    {
+        "region":  "Chief Engineer (North)",
+        "admin_division":  "Malakand",
+        "hub_lab":  "Swat Hub lab",
+        "phe_circle":  "SE Swat",
+        "district":  "Malakand",
+        "phed_division":  "Malakand",
+        "sub_division":  "Dargai Malakand"
+    },
+    {
+        "region":  "Chief Engineer (North)",
+        "admin_division":  "Malakand",
+        "hub_lab":  "Swat Hub lab",
+        "phe_circle":  "SE Swat",
+        "district":  "Shangla",
+        "phed_division":  "Shangla",
+        "sub_division":  "Puran Shangla"
+    },
+    {
+        "region":  "Chief Engineer (North)",
+        "admin_division":  "Malakand",
+        "hub_lab":  "Swat Hub lab",
+        "phe_circle":  "SE Swat",
+        "district":  "Shangla",
+        "phed_division":  "Shangla",
+        "sub_division":  "Alpuri Shangla"
+    },
+    {
+        "region":  "Chief Engineer (North)",
+        "admin_division":  "Malakand",
+        "hub_lab":  "Swat Hub lab",
+        "phe_circle":  "SE Swat",
+        "district":  "Swat",
+        "phed_division":  "Swat-I",
+        "sub_division":  "Saidu-I Swat"
+    },
+    {
+        "region":  "Chief Engineer (North)",
+        "admin_division":  "Malakand",
+        "hub_lab":  "Swat Hub lab",
+        "phe_circle":  "SE Swat",
+        "district":  "Swat",
+        "phed_division":  "Swat-I",
+        "sub_division":  "Saidu-II Swat"
+    },
+    {
+        "region":  "Chief Engineer (North)",
+        "admin_division":  "Malakand",
+        "hub_lab":  "Swat Hub lab",
+        "phe_circle":  "SE Swat",
+        "district":  "Swat",
+        "phed_division":  "Swat-II",
+        "sub_division":  "Khwazakhela Swat"
+    },
+    {
+        "region":  "Chief Engineer (North)",
+        "admin_division":  "Malakand",
+        "hub_lab":  "Swat Hub lab",
+        "phe_circle":  "SE Swat",
+        "district":  "Swat",
+        "phed_division":  "Swat-II",
+        "sub_division":  "Matta-II Swat-II"
+    },
+    {
+        "region":  "Chief Engineer (North)",
+        "admin_division":  "Malakand",
+        "hub_lab":  "Swat Hub lab",
+        "phe_circle":  "SE Swat",
+        "district":  "Swat",
+        "phed_division":  "Swat-II",
+        "sub_division":  "Matta-I Swat-II"
+    },
+    {
+        "region":  "Chief Engineer (South)",
+        "admin_division":  "Bannu",
+        "hub_lab":  "Bannu Hub lab",
+        "phe_circle":  "SE Bannu",
+        "district":  "Bannu",
+        "phed_division":  "Bannu",
+        "sub_division":  "No.2 Bannu"
+    },
+    {
+        "region":  "Chief Engineer (South)",
+        "admin_division":  "Bannu",
+        "hub_lab":  "Bannu Hub lab",
+        "phe_circle":  "SE Bannu",
+        "district":  "Bannu",
+        "phed_division":  "Bannu",
+        "sub_division":  "No.1 Bannu"
+    },
+    {
+        "region":  "Chief Engineer (South)",
+        "admin_division":  "Bannu",
+        "hub_lab":  "Bannu Hub lab",
+        "phe_circle":  "SE Bannu",
+        "district":  "Lakki Marwat",
+        "phed_division":  "Lakki Marwat",
+        "sub_division":  "Naurang Lakki Marwat"
+    },
+    {
+        "region":  "Chief Engineer (South)",
+        "admin_division":  "Bannu",
+        "hub_lab":  "Bannu Hub lab",
+        "phe_circle":  "SE Bannu",
+        "district":  "Lakki Marwat",
+        "phed_division":  "Lakki Marwat",
+        "sub_division":  "Lakki Marwat-I"
+    },
+    {
+        "region":  "Chief Engineer (South)",
+        "admin_division":  "Bannu",
+        "hub_lab":  "Bannu Hub lab",
+        "phe_circle":  "SE Bannu",
+        "district":  "North Waziristan",
+        "phed_division":  "North Waziristan",
+        "sub_division":  "Ladda"
+    },
+    {
+        "region":  "Chief Engineer (South)",
+        "admin_division":  "Bannu",
+        "hub_lab":  "Bannu Hub lab",
+        "phe_circle":  "SE Bannu",
+        "district":  "North Waziristan",
+        "phed_division":  "North Waziristan",
+        "sub_division":  "Wana"
+    },
+    {
+        "region":  "Chief Engineer (South)",
+        "admin_division":  "DI Khan",
+        "hub_lab":  "DI Khan Hub Lab",
+        "phe_circle":  "SE D.I Khan",
+        "district":  "Dera Ismail Khan",
+        "phed_division":  "Dera Ismail Khan",
+        "sub_division":  "Kulachi"
+    },
+    {
+        "region":  "Chief Engineer (South)",
+        "admin_division":  "DI Khan",
+        "hub_lab":  "DI Khan Hub Lab",
+        "phe_circle":  "SE D.I Khan",
+        "district":  "Dera Ismail Khan",
+        "phed_division":  "Dera Ismail Khan",
+        "sub_division":  "Paharpur"
+    },
+    {
+        "region":  "Chief Engineer (South)",
+        "admin_division":  "DI Khan",
+        "hub_lab":  "DI Khan Hub Lab",
+        "phe_circle":  "SE D.I Khan",
+        "district":  "Dera Ismail Khan",
+        "phed_division":  "Dera Ismail Khan",
+        "sub_division":  "D.I. Khan"
+    },
+    {
+        "region":  "Chief Engineer (South)",
+        "admin_division":  "DI Khan",
+        "hub_lab":  "DI Khan Hub Lab",
+        "phe_circle":  "SE D.I Khan",
+        "district":  "South Waziristan",
+        "phed_division":  "South Waziristan",
+        "sub_division":  "Miranshah"
+    },
+    {
+        "region":  "Chief Engineer (South)",
+        "admin_division":  "DI Khan",
+        "hub_lab":  "DI Khan Hub Lab",
+        "phe_circle":  "SE D.I Khan",
+        "district":  "South Waziristan",
+        "phed_division":  "South Waziristan",
+        "sub_division":  "Mirali"
+    },
+    {
+        "region":  "Chief Engineer (South)",
+        "admin_division":  "DI Khan",
+        "hub_lab":  "DI Khan Hub Lab",
+        "phe_circle":  "SE D.I Khan",
+        "district":  "Tank",
+        "phed_division":  "Tank",
+        "sub_division":  "No.1 Tank"
+    },
+    {
+        "region":  "Chief Engineer (South)",
+        "admin_division":  "DI Khan",
+        "hub_lab":  "DI Khan Hub Lab",
+        "phe_circle":  "SE D.I Khan",
+        "district":  "Tank",
+        "phed_division":  "Tank",
+        "sub_division":  "No.2 Tank"
+    },
+    {
+        "region":  "Chief Engineer (South)",
+        "admin_division":  "Kohat",
+        "hub_lab":  "Kohat Hub Lab",
+        "phe_circle":  "SE Hangu",
+        "district":  "Hangu",
+        "phed_division":  "Hangu",
+        "sub_division":  "Thall Hangu"
+    },
+    {
+        "region":  "Chief Engineer (South)",
+        "admin_division":  "Kohat",
+        "hub_lab":  "Kohat Hub Lab",
+        "phe_circle":  "SE Hangu",
+        "district":  "Hangu",
+        "phed_division":  "Hangu",
+        "sub_division":  "Hangu"
+    },
+    {
+        "region":  "Chief Engineer (South)",
+        "admin_division":  "Kohat",
+        "hub_lab":  "Kohat Hub Lab",
+        "phe_circle":  "SE Hangu",
+        "district":  "Kurram",
+        "phed_division":  "Kurram",
+        "sub_division":  "Upper Kurram"
+    },
+    {
+        "region":  "Chief Engineer (South)",
+        "admin_division":  "Kohat",
+        "hub_lab":  "Kohat Hub Lab",
+        "phe_circle":  "SE Hangu",
+        "district":  "Kurram",
+        "phed_division":  "Kurram",
+        "sub_division":  "Lower Kurram"
+    },
+    {
+        "region":  "Chief Engineer (South)",
+        "admin_division":  "Kohat",
+        "hub_lab":  "Kohat Hub Lab",
+        "phe_circle":  "SE Hangu",
+        "district":  "Orakzai",
+        "phed_division":  "Orakzai",
+        "sub_division":  "Kalaya"
+    },
+    {
+        "region":  "Chief Engineer (South)",
+        "admin_division":  "Kohat",
+        "hub_lab":  "Kohat Hub Lab",
+        "phe_circle":  "SE Hangu",
+        "district":  "Orakzai",
+        "phed_division":  "Orakzai",
+        "sub_division":  "Ghiljo"
+    },
+    {
+        "region":  "Chief Engineer (South)",
+        "admin_division":  "Kohat",
+        "hub_lab":  "Kohat Hub Lab",
+        "phe_circle":  "SE Hangu",
+        "district":  "Karak",
+        "phed_division":  "Karak-I",
+        "sub_division":  "BD Shah"
+    },
+    {
+        "region":  "Chief Engineer (South)",
+        "admin_division":  "Kohat",
+        "hub_lab":  "Kohat Hub Lab",
+        "phe_circle":  "SE Hangu",
+        "district":  "Karak",
+        "phed_division":  "Karak-I",
+        "sub_division":  "Karak-I"
+    },
+    {
+        "region":  "Chief Engineer (South)",
+        "admin_division":  "Kohat",
+        "hub_lab":  "Kohat Hub Lab",
+        "phe_circle":  "SE Hangu",
+        "district":  "Karak",
+        "phed_division":  "Karak-II",
+        "sub_division":  "Takht-e-Nasratti-I Karak"
+    },
+    {
+        "region":  "Chief Engineer (South)",
+        "admin_division":  "Kohat",
+        "hub_lab":  "Kohat Hub Lab",
+        "phe_circle":  "SE Hangu",
+        "district":  "Karak",
+        "phed_division":  "Karak-II",
+        "sub_division":  "Takht-e-Nasratti-II Karak"
+    },
+    {
+        "region":  "Chief Engineer (South)",
+        "admin_division":  "Kohat",
+        "hub_lab":  "Kohat Hub Lab",
+        "phe_circle":  "SE Hangu",
+        "district":  "Kohat",
+        "phed_division":  "Kohat",
+        "sub_division":  "Kohat"
+    },
+    {
+        "region":  "Chief Engineer (South)",
+        "admin_division":  "Kohat",
+        "hub_lab":  "Kohat Hub Lab",
+        "phe_circle":  "SE Hangu",
+        "district":  "Kohat",
+        "phed_division":  "Kohat",
+        "sub_division":  "Lachi Kohat"
+    },
+    {
+        "region":  "Chief Engineer (South)",
+        "admin_division":  "Kohat",
+        "hub_lab":  "Kohat Hub Lab",
+        "phe_circle":  "SE Hangu",
+        "district":  "Kohat",
+        "phed_division":  "BWS Kohat at Shakardara",
+        "sub_division":  "Bulk WS Shakardara Kohat"
+    }
+]

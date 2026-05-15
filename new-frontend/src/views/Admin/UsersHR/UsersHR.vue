@@ -375,7 +375,7 @@ onMounted(loadUsers)
             <td><span class="rag" :class="u.status === 'Active' ? 'r-green' : 'r-red'">{{ u.status }}</span></td>
             <td>
               <button class="btn btn-sec btn-xs" @click="openTrail(u)">🕵 Activity Trail</button>
-              <button class="btn btn-sec btn-xs" style="margin-left:4px" @click="openEditModal(u)">✏ Edit</button>
+              <button v-write class="btn btn-sec btn-xs" style="margin-left:4px" @click="openEditModal(u)">✏ Edit</button>
             </td>
           </tr>
         </tbody>
@@ -383,7 +383,7 @@ onMounted(loadUsers)
       <div class="tbl-footer">
         <span>Showing {{ filtered.length }} of {{ users.length }} users</span>
         <div class="tsp"></div>
-        <button class="btn btn-pri btn-sm" @click="openCreateModal">+ Create User</button>
+        <button v-write class="btn btn-pri btn-sm" @click="openCreateModal">+ Create User</button>
       </div>
     </div>
     </div>
@@ -680,7 +680,7 @@ onMounted(loadUsers)
           <!-- Footer -->
           <div style="padding:14px 26px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px;background:#fafbfc">
             <button class="btn btn-sec" @click="showCreateModal = false">↩ Back</button>
-            <button class="btn btn-pri" @click="submitCreateUser" :disabled="createLoading">
+            <button v-write class="btn btn-pri" @click="submitCreateUser" :disabled="createLoading">
               {{ createLoading ? (editMode ? '⏳ Saving…' : '⏳ Creating…') : (editMode ? '💾 Save Changes' : '✔ Create') }}
             </button>
           </div>

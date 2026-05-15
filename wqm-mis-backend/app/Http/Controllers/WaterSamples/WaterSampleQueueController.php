@@ -5,6 +5,7 @@ namespace App\Http\Controllers\WaterSamples;
 use App\Enums\WaterSampleResultEnum;
 use App\Http\Controllers\Controller;
 use App\Models\WaterSamples\WaterSample;
+use App\Services\AuthScope;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
@@ -66,27 +67,27 @@ class WaterSampleQueueController extends Controller
                 'waterSampleInvoice:id,water_sample_id,price,paid,balance'
             ]);
 
-        if ($authUser->hasAnyRole(['laboratory-assistant', 'junior-clerk'])) {
-            $query->where('created_by', '=', $authUser->id);
-        }
+        // Junior clerk: sees only samples they personally registered (their own work).
+        // Lab assistant: sees every sample that landed at their lab so they can pick
+        // up whatever the clerks have entered. Without this split, a clerk-registered
+        // sample never appeared in the analyst's queue.
+        $applyRoleScope = function ($q) use ($authUser) {
+            if ($authUser->hasRole('junior-clerk')) {
+                $q->where('created_by', '=', $authUser->id);
+            } elseif ($authUser->hasRole('laboratory-assistant')) {
+                $userLabId = $authUser->laboratoryUser?->id;
+                $q->where('laboratory_id', '=', $userLabId ?? 0);
+            }
+        };
 
-        if (!$authUser->hasAnyRole(['system-administrator', 'laboratory-assistant'])) {
-            $laboratoryId = $authUser->laboratoryUser->id;
-            $query->where('laboratory_id', '=', $laboratoryId);
-        }
+        $applyRoleScope($query);
+        AuthScope::waterSamples($query, $authUser);
 
         $waterSamples = $query->paginate(20);
 
         $query2 = WaterSample::query()->select('id');
-
-        if ($authUser->hasAnyRole(['laboratory-assistant', 'junior-clerk'])) {
-            $query2->where('created_by', '=', $authUser->id);
-        }
-
-        if (!$authUser->hasAnyRole(['system-administrator', 'laboratory-assistant'])) {
-            $laboratoryId = $authUser->laboratoryUser->id;
-            $query2->where('laboratory_id', '=', $laboratoryId);
-        }
+        $applyRoleScope($query2);
+        AuthScope::waterSamples($query2, $authUser);
 
 
         $counts = [

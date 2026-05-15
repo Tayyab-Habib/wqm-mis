@@ -368,7 +368,7 @@ onMounted(loadInvoices)
           </div>
           <div style="padding:14px 24px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px;background:#fafbfc">
             <button class="btn btn-sec" @click="showPayModal = false">Cancel</button>
-            <button class="btn btn-pri" @click="savePayment">💾 Save Payment</button>
+            <button v-write class="btn btn-pri" @click="savePayment">💾 Save Payment</button>
           </div>
         </div>
       </div>

@@ -36,7 +36,7 @@ class AssetMaintenanceScheduleController extends Controller
             ->leftJoin('laboratory_assets', 'asset_maintenance_schedule_logs.laboratory_asset_id', '=', 'laboratory_assets.id')
             ->leftJoin('assets', 'laboratory_assets.asset_id', '=', 'assets.id')
             ->leftJoin('laboratories', 'asset_maintenance_schedule_logs.laboratory_id', '=', 'laboratories.id')
-            ->when(!$authUser->hasRole('system-administrator'), fn(Builder $query) => $query->where('asset_maintenance_schedule_logs.laboratory_id', '=', $authUser->laboratoryUser->id))
+            ->when(!$authUser->isUnscoped(), fn(Builder $query) => $query->where('asset_maintenance_schedule_logs.laboratory_id', '=', $authUser->laboratoryUser->id))
             ->get();
 
         if ($assetMaintenanceSchedules->isEmpty()) {

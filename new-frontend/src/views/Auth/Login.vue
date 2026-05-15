@@ -101,24 +101,43 @@ async function handleLogin() {
           email:       userData.email,
           token:       userData.token,
           role:        userData.roles?.[0]?.name || userData.role || 'user',
-          permissions: userData.permissions || [],
+          // RBAC: prefer the plain permission_names array (added in the
+          // RBAC pass); fall back to the legacy encrypted 'permissions' only
+          // if the new field isn't present.
+          permissions: userData.permission_names || userData.permissions || [],
           laboratory:  userData.laboratory  || null,
           district:    userData.district    || null,
+          district_id: userData.district_id || userData.district?.id || null,
           // ── XEN portal additions (additive only) ──
           role_slug:        userData.role_slug || null,
           phone:            userData.phone || null,
           phed_division:    userData.phed_division || null,
           phed_division_id: userData.phed_division_id || null,
           circle:           userData.circle || null,
+          circle_id:        userData.circle_id || userData.circle?.id || null,
           region:           userData.region || null,
+          region_id:        userData.region_id || userData.region?.id || null,
+          // ── RBAC scaffolding flags ──
+          is_view_only:    !!userData.is_view_only,
+          is_dummy:        !!userData.is_dummy,
+          allowed_modules: userData.allowed_modules || null,
         }
         localStorage.setItem('user', JSON.stringify(user))
         userStore.setUser(user)
 
-        // Role-aware redirect: XEN-tier officers go to the XEN portal
+        // Role-aware redirect:
+        //   chief-engineer            → CE portal (standalone placeholder for now)
+        //   superintending-engineer / xen → XEN portal (shared layout, scoped queries)
+        //   legacy short slugs (ce/se/secretary) → XEN portal (back-compat)
+        //   everyone else             → main /dashboard
         const roleSlug = (userData.role_slug || '').toString().toLowerCase()
-        const xenRoles = ['xen', 'ce', 'se', 'secretary']
-        const target = xenRoles.includes(roleSlug) ? '/xen/dashboard' : '/dashboard'
+        let target = '/dashboard'
+        if (roleSlug === 'chief-engineer') {
+          target = '/ce/dashboard'
+        } else if (roleSlug === 'superintending-engineer' || roleSlug === 'xen' ||
+                   roleSlug === 'ce' || roleSlug === 'se' || roleSlug === 'secretary') {
+          target = '/xen/dashboard'
+        }
         router.push({ path: target, query: { loggedIn: '1' } })
       }
     } else {

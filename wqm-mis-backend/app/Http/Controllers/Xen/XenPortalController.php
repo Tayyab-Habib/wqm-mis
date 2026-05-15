@@ -423,37 +423,44 @@ class XenPortalController extends Controller
     {
         $user = $this->scopedUser();
 
-        $items = DB::table('notifications')
+        $rows = DB::table('notifications')
             ->where('notifiable_id', $user->id)
             ->where('notifiable_type', User::class)
             ->orderByDesc('created_at')
             ->limit(50)
-            ->get()
-            ->map(function ($n) {
-                $data = is_string($n->data ?? '') ? json_decode($n->data, true) : ($n->data ?? []);
-                $sample = $n->water_sample_id ? WaterSample::find($n->water_sample_id) : null;
+            ->get();
 
-                $kind = match ($n->type_key) {
-                    'SAMPLE_UNFIT'      => 'Unfit',
-                    'RETEST_REQUESTED'  => 'Retest',
-                    'ESCALATION'        => 'Escalation',
-                    default             => 'Update',
-                };
+        $items = $rows->map(function ($n) {
+            $data = is_string($n->data ?? '') ? json_decode($n->data, true) : ($n->data ?? []);
+            $sample = $n->water_sample_id ? WaterSample::find($n->water_sample_id) : null;
 
-                return [
-                    'id'         => $n->id,
-                    'sample_slug'=> $sample?->slug,
-                    'sample_id'  => $n->water_sample_id,
-                    'kind'       => $kind,
-                    'created_at' => $n->created_at,
-                    'due_at'     => $n->due_at,
-                    'message'    => $data['message'] ?? null,
-                ];
-            });
+            $kind = match ($n->type_key) {
+                'SAMPLE_UNFIT'      => 'Unfit',
+                'RETEST_REQUESTED'  => 'Retest',
+                'ESCALATION'        => 'Escalation',
+                default             => 'Update',
+            };
+
+            return [
+                'id'         => $n->id,
+                'sample_slug'=> $sample?->slug ?? ($data['sample_slug'] ?? null),
+                'sample_id'  => $n->water_sample_id ?? ($data['sample_id'] ?? null),
+                'kind'       => $kind,
+                'created_at' => $n->created_at,
+                'due_at'     => $n->due_at,
+                'read_at'    => $n->read_at,
+                'message'    => $data['message'] ?? null,
+            ];
+        });
+
+        // Unread count = rows with read_at NULL. The full items list still
+        // returns read items too so the dropdown can show history.
+        $unreadCount = $rows->whereNull('read_at')->count();
 
         return response()->json([
-            'items' => $items,
-            'count' => $items->count(),
+            'items'         => $items,
+            'count'         => $unreadCount,
+            'total'         => $items->count(),
         ]);
     }
 

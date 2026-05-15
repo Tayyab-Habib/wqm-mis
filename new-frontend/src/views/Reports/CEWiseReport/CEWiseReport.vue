@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
+import { useRbac } from '../../../composables/useRbac.js'
 import { reportService }   from '../../../services/reportService.js'
 import { dropdownService } from '../../../services/dropdownService.js'
 import { exportToXLSX }    from '../../../utils/exportHelpers.js'
@@ -25,22 +26,13 @@ const filters = ref({
   district_id: '',
 })
 
-// Cascaded dropdowns per DB-truth:
-//   divisions.region_id is NULL in this DB → can't filter Division directly by Region.
-//   Use the indirect path: Region → Circles → Districts → Divisions.
-const filteredDivisions = computed(() => {
-  if (!filters.value.region_id) return divisions.value
-  const regId       = String(filters.value.region_id)
-  const circleIds   = new Set(
-    circles.value.filter(c => String(c.region_id) === regId).map(c => String(c.id))
-  )
-  const divisionIds = new Set(
-    districts.value
-      .filter(d => circleIds.has(String(d.circle_id)))
-      .map(d => String(d.division_id))
-  )
-  return divisions.value.filter(d => divisionIds.has(String(d.id)))
-})
+// Cascaded dropdowns. divisions.region_id is properly backfilled per the
+// xlsx hierarchy now, so Division filters directly off d.region_id.
+const filteredDivisions = computed(() =>
+  filters.value.region_id
+    ? divisions.value.filter(d => String(d.region_id) === String(filters.value.region_id))
+    : divisions.value
+)
 
 const filteredDistricts = computed(() =>
   filters.value.division_id
@@ -242,8 +234,18 @@ watch(filters, () => {
   filterTimer = setTimeout(generateReport, 350)
 }, { deep: true })
 
+// RBAC: pre-select + lock filters at the user's hierarchy scope.
+// CE-Wise only has region/division/district selectors.
+const rbac = useRbac()
+function applyRbacLocks() {
+  if (rbac.regionId.value) filters.value.region_id = String(rbac.regionId.value)
+  // No circle_id field on this form; SE just sees their region-level data
+  // (circle scoping still happens at the backend via AuthScope).
+}
+
 onMounted(async () => {
   await loadDropdowns()
+  applyRbacLocks()
   await generateReport()
 })
 </script>
@@ -257,7 +259,7 @@ onMounted(async () => {
 
       <div class="fg">
         <label>CE Zone</label>
-        <select v-model="filters.region_id" @change="filters.division_id='';filters.district_id=''">
+        <select v-model="filters.region_id" :disabled="!!rbac.regionId.value" @change="filters.division_id='';filters.district_id=''">
           <option value="">All CE Zones</option>
           <option v-for="r in regions" :key="r.id" :value="r.id">{{ r.name }}</option>
         </select>

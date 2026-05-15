@@ -16,11 +16,13 @@ use App\Http\Requests\WaterSample\StoreWaterSampleRequest;
 use App\Http\Requests\WaterSample\UpdateWaterSampleRequest;
 use App\Http\Requests\WaterSample\ViewWaterSampleRequest;
 use App\Models\Client;
+use App\Models\Laboratories\Laboratory;
 use App\Models\Scopes\LatestScope;
 use App\Models\Test;
 use App\Models\User;
 use App\Models\WaterSamples\WaterSample;
 use App\Models\WaterSamples\WaterSampleDetail;
+use App\Services\AuthScope;
 use App\Services\GenerateWaterSampleInvoice;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -71,14 +73,21 @@ class WaterSampleController extends Controller
                 'waterSampleInvoice:id,water_sample_id,price,paid,balance'
             ]);
 
+        // laboratory-assistant + junior-clerk see only their own creations
+        // (orthogonal to scope — keeps the "I only see what I registered" semantics).
         if ($authUser->hasAnyRole(['laboratory-assistant', 'junior-clerk'])) {
             $query->where('created_by', '=', $authUser->id);
         }
 
-        if (!$authUser->hasAnyRole(['system-administrator', 'laboratory-assistant'])) {
-            $laboratoryId = $authUser->laboratoryUser->id;
-            $query->where('laboratory_id', '=', $laboratoryId);
-        }
+        // Role-driven scoping (handled centrally by AuthScope):
+        //   SA/manager/view-only/general-view → no filter (UNSCOPED_ROLES)
+        //   chief-engineer                    → region_id
+        //   superintending-engineer           → circle_id
+        //   xen                               → phed_division_id
+        //   lab-incharge/junior-clerk         → laboratory_id IN userLabIds()
+        //   laboratory-assistant              → laboratory_id IN userLabIds()
+        //                                       (created_by self-filter above keeps it tight)
+        AuthScope::waterSamples($query, $authUser);
 
         $waterSamples = $query->paginate(20);
 
@@ -88,10 +97,7 @@ class WaterSampleController extends Controller
             $query2->where('created_by', '=', $authUser->id);
         }
 
-        if (!$authUser->hasAnyRole(['system-administrator', 'laboratory-assistant'])) {
-            $laboratoryId = $authUser->laboratoryUser->id;
-            $query2->where('laboratory_id', '=', $laboratoryId);
-        }
+        AuthScope::waterSamples($query2, $authUser);
 
 
         $counts = [
@@ -134,11 +140,27 @@ class WaterSampleController extends Controller
             $collectableType = User::class;
             $collectableId = auth()->id();
             $user = auth()->user();
-            $laboratoryId = $user->laboratoryUser?->id;
+
+            // Lab routing per PHE hierarchy: each district maps to exactly one
+            // PHE Circle, which has exactly one HUB Lab. A Bajaur sample MUST
+            // go to Batkhela Lab, not whichever lab the registering user is
+            // attached to. Derive `laboratory_id` from the selected district
+            // via the chain districts → circles → laboratory_id.
+            $laboratoryId = DB::table('districts')
+                ->join('circles', 'districts.circle_id', '=', 'circles.id')
+                ->where('districts.id', $validatedData['district_id'])
+                ->value('circles.laboratory_id');
+
+            // Fallback: if the district's circle doesn't map to a lab (data
+            // gap in production), prefer the registering user's pivot lab so
+            // the sample at least lands somewhere reviewable.
+            if (!$laboratoryId) {
+                $laboratoryId = $user->laboratoryUser?->id ?? Laboratory::query()->value('id');
+            }
 
             if (!$laboratoryId) {
                 return response()->json([
-                    'message' => 'Error creating water sample, add laboratory to user first',
+                    'message' => 'Error creating water sample, no lab is configured for this district',
                     'data' => null,
                 ], SymfonyResponse::HTTP_FORBIDDEN);
             }
@@ -379,17 +401,29 @@ class WaterSampleController extends Controller
     {
         $authUser = auth()->user();
 
-        if ($authUser->hasRole('system-administrator')) {
+        if ($authUser->isUnscoped()) {
             return false;
         }
 
-        if (!$authUser->hasAnyRole(['system-administrator', 'laboratory-assistant'])
-            && (int)$waterSample->laboratory_id === (int)$authUser->laboratoryUser->id) {
-            return false;
+        $sampleLabId = (int) $waterSample->laboratory_id;
+        $userLabId   = (int) ($authUser->laboratoryUser?->id ?? 0);
+
+        // Junior clerk: sees only samples they personally registered.
+        if ($authUser->hasRole('junior-clerk')) {
+            return (int) $waterSample->created_by !== (int) $authUser->id;
         }
 
-        if ($authUser->hasAnyRole(['laboratory-assistant', 'junior_clerk'])
-            && (int)$waterSample->created_by === $authUser->id) {
+        // Lab assistant: sees every sample that landed at their lab so they
+        // can analyse clerk-registered samples. Previously this method
+        // restricted them to own creations only, which broke the two-person
+        // register-then-analyse workflow.
+        if ($authUser->hasRole('laboratory-assistant')) {
+            return !($userLabId !== 0 && $sampleLabId === $userLabId);
+        }
+
+        // Other scoped roles (lab-incharge, hierarchy users with a lab pivot):
+        // allowed when the sample lab matches the user's pivoted lab.
+        if ($userLabId !== 0 && $sampleLabId === $userLabId) {
             return false;
         }
 

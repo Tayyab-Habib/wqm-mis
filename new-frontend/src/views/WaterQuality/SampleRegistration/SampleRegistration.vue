@@ -689,7 +689,7 @@ async function savePT() {
       </div>
 
       <div style="display:flex;gap:8px;align-items:center">
-        <button class="btn btn-pri" @click="savePhe" :disabled="saveLoading">
+        <button v-write class="btn btn-pri" @click="savePhe" :disabled="saveLoading">
           {{ saveLoading ? '⏳ Saving…' : '💾 Save & Print Label' }}
         </button>
         <button class="btn btn-sec">🖨 Print Barcode Label</button>
@@ -841,7 +841,7 @@ async function savePT() {
       </div>
 
       <div style="display:flex;gap:8px;align-items:center;margin-top:14px">
-        <button class="btn btn-pri" @click="savePvt" :disabled="saveLoading">
+        <button v-write class="btn btn-pri" @click="savePvt" :disabled="saveLoading">
           {{ saveLoading ? '⏳ Saving…' : '💾 Save & Generate Invoice' }}
         </button>
         <button class="btn btn-sec">🖨 Print Barcode Label</button>
@@ -941,7 +941,7 @@ async function savePT() {
       </div>
 
       <div style="display:flex;gap:8px;align-items:center;padding-top:10px;border-top:1px solid var(--border)">
-        <button class="btn btn-pri" @click="savePT" :disabled="saveLoading">
+        <button v-write class="btn btn-pri" @click="savePT" :disabled="saveLoading">
           {{ saveLoading ? '⏳ Saving…' : '💾 Save & Assign to Queue' }}
         </button>
         <button class="btn btn-sec">🖨 Save &amp; Print Label</button>

@@ -172,7 +172,10 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 
 Route::post('login', [AuthController::class, 'login']);
 
-Route::middleware('auth:sanctum')->group(callback: function () {
+// ── Public WQ results portal (SRS §1.2 "Public" role, no auth) ──
+Route::post('public/results', [\App\Http\Controllers\Public\PublicResultsController::class, 'search']);
+
+Route::middleware(['auth:sanctum', 'dummy.account', 'view.only'])->group(callback: function () {
     Route::post('dashboard', DashboardController::class);
     Route::post('dashboard/district-heatmap', [DashboardController::class, 'districtHeatmap']);
     Route::post('dashboard/lab-kpis', [DashboardController::class, 'labKpis']);

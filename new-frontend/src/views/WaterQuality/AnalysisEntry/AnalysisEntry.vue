@@ -647,10 +647,10 @@ onMounted(loadQueue)
 
             <!-- Actions -->
             <div style="display:flex;gap:8px;border-top:1px solid var(--border);padding-top:12px;align-items:center;flex-wrap:wrap">
-              <button class="btn btn-pri" @click="saveAnalysis" :disabled="saveLoading">
+              <button v-write class="btn btn-pri" @click="saveAnalysis" :disabled="saveLoading">
                 {{ saveLoading ? '⏳ Saving…' : '💾 Save & Run QC Check' }}
               </button>
-              <button class="btn btn-sec" @click="saveDraft" :disabled="saveLoading" style="font-size:11.5px">
+              <button v-write class="btn btn-sec" @click="saveDraft" :disabled="saveLoading" style="font-size:11.5px">
                 📋 Save as Draft
               </button>
               <button class="btn btn-sec" @click="showModal = false">✕ Cancel</button>
@@ -696,7 +696,7 @@ onMounted(loadQueue)
                 @click="overrideAndAccept" :disabled="saveLoading">
                 ⚠ Override &amp; Accept
               </button>
-              <button v-if="qc.pass.value" class="btn" style="background:#16a34a;color:#fff;border-color:#16a34a;font-weight:700"
+              <button v-if="qc.pass.value" v-write class="btn" style="background:#16a34a;color:#fff;border-color:#16a34a;font-weight:700"
                 @click="submitResults" :disabled="saveLoading">
                 {{ saveLoading ? '⏳ Saving…' : '✅ Accept & Submit' }}
               </button>

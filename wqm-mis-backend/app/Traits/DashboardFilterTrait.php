@@ -5,6 +5,7 @@ namespace App\Traits;
 use App\Enums\DurationEnum;
 use App\Models\User;
 use App\Models\WaterSamples\WaterSample;
+use App\Services\AuthScope;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
@@ -15,6 +16,12 @@ trait DashboardFilterTrait
     public function scopeApplyDashboardFilters(Builder $query, $request, string $tableAlias, string $column = 'created_at')
     {
         return $query
+            // RBAC: apply role-driven scope on water_samples queries.
+            // No-op for unscoped roles (SA/manager/view-only/general-view);
+            // filters by region/circle/phed_division/lab for everyone else.
+            ->when($tableAlias === (new WaterSample)->getTable(), function ($q) {
+                return AuthScope::waterSamples($q, auth()->user());
+            })
             // Sample type lives on collectable_type, not in the slug string.
             // PHE = collectable_type is App\Models\User; Private = anything else.
             ->when($tableAlias === (new WaterSample)->getTable() && isset($request->type), function ($query) use ($request) {

@@ -21,7 +21,7 @@ class ClientListController extends Controller
 
         $clients = Client::query()
             ->whereHas('waterSamples', function ($query) use ($authUser) {
-                $query->when(!$authUser->hasRole('system-administrator'), fn($query) => $query->where('created_by', '=', $authUser->id));
+                $query->when(!$authUser->isUnscoped(), fn($query) => $query->where('created_by', '=', $authUser->id));
             })
             ->get();
 

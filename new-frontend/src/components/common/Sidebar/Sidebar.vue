@@ -1,9 +1,21 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useUiStore } from '../../../stores/useUiStore.js'
+import { useUserStore } from '../../../stores/useUserStore.js'
 import { api } from '../../../services/api.js'
 
-const store = useUiStore()
+const store     = useUiStore()
+const userStore = useUserStore()
+
+// RBAC role groups for sidebar gating.
+// SA + view-only-admin + general-view-account can see virtually everything
+// (writes are blocked elsewhere for view-only/general-view).
+const ALL_ADMINS   = ['system-administrator', 'system-manager', 'view-only-admin', 'general-view-account']
+const LAB_ROLES    = ['lab-incharge', 'junior-clerk', 'laboratory-assistant']
+const READ_ANY     = [...ALL_ADMINS, 'lab-incharge']
+const WRITE_LAB    = ['system-administrator', 'system-manager', 'lab-incharge']
+const DATA_ENTRY   = ['system-administrator', 'system-manager', 'lab-incharge', 'junior-clerk']
+const SAMPLE_ENTRY = [...DATA_ENTRY, 'laboratory-assistant']
 
 // ── Dynamic badge counts ──────────────────────────────────────────────
 const unfitCount = ref(0)
@@ -33,33 +45,67 @@ onMounted(() => {
 })
 onUnmounted(() => clearInterval(refreshTimer))
 
+// Each item gets a `roles` array → only members of those roles see it.
+// Section headers also have `roles` → entire section vanishes if user has none of them.
+// Sections with no `roles` are visible to all authenticated users.
 const navItems = [
   { label: 'Dashboard',           icon: '🏠', route: '/dashboard' },
-  { section: 'Water Quality' },
-  { label: 'Sample Registration', icon: '🧪', route: '/water-quality/sample-registration' },
-  { label: 'Analysis Entry',      icon: '⚗️', route: '/water-quality/analysis-entry' },
-  { label: 'Unfit Sample Trail',  icon: '⚠️', route: '/water-quality/unfit-sample-trail', badgeKey: 'unfit' },
-  { section: 'Reports' },
-  { label: 'Individual Sample Report', icon: '🧪', route: '/reports/individual-sample' },
-  { label: 'GAR (Abstract)',      icon: '📄', route: '/reports/gar' },
-  { label: 'GSR (Summary)',       icon: '📋', route: '/reports/gsr' },
-  { label: 'ASR (Analysis Summary)', icon: '📊', route: '/reports/asr' },
-  { label: 'CE-Wise Report',      icon: '🗺️', route: '/reports/ce-wise' },
-  { label: 'PWR (Parameter-wise)', icon: '🔬', route: '/reports/pwr' },
-  { label: 'WSS Map',             icon: '🗾', route: '/reports/wss-map' },
-  { section: 'Finance' },
-  { label: 'Invoices / Revenue',  icon: '🧾', route: '/finance/invoices' },
-  { label: 'SBP Submissions',     icon: '🏦', route: '/finance/sbp-submissions' },
-  { section: 'Asset Management' },
-  { label: 'Stock / Inventory',   icon: '📦', route: '/assets/stock-inventory' },
-  { label: 'Equipment Register',  icon: '🔧', route: '/assets/equipment-register' },
-  { label: 'Demand & Issuance',   icon: '🔄', route: '/assets/demand-issuance' },
-  { section: 'Admin' },
-  { label: 'Users / HR',          icon: '👥', route: '/admin/users-hr' },
-  { label: 'KPI Framework',       icon: '📊', route: '/admin/kpi-framework' },
-  { label: 'Diaries / Dispatches', icon: '📝', route: '/admin/diaries-dispatches' },
-  { label: 'Water Scheme Details', icon: '💧', route: '/wss-details' },
+  { section: 'Water Quality',                                                                          roles: [...ALL_ADMINS, ...LAB_ROLES] },
+  { label: 'Sample Registration', icon: '🧪', route: '/water-quality/sample-registration',             roles: SAMPLE_ENTRY },
+  { label: 'Analysis Entry',      icon: '⚗️', route: '/water-quality/analysis-entry',                  roles: SAMPLE_ENTRY.filter(r => r !== 'junior-clerk') },
+  { label: 'Unfit Sample Trail',  icon: '⚠️', route: '/water-quality/unfit-sample-trail', badgeKey: 'unfit', roles: READ_ANY },
+  { section: 'Reports',                                                                                roles: READ_ANY },
+  { label: 'Individual Sample Report', icon: '🧪', route: '/reports/individual-sample',                roles: READ_ANY },
+  { label: 'GAR (Abstract)',      icon: '📄', route: '/reports/gar',                                   roles: READ_ANY },
+  { label: 'GSR (Summary)',       icon: '📋', route: '/reports/gsr',                                   roles: READ_ANY },
+  { label: 'ASR (Analysis Summary)', icon: '📊', route: '/reports/asr',                                roles: READ_ANY },
+  { label: 'CE-Wise Report',      icon: '🗺️', route: '/reports/ce-wise',                              roles: READ_ANY },
+  { label: 'PWR (Parameter-wise)', icon: '🔬', route: '/reports/pwr',                                  roles: READ_ANY },
+  { label: 'WSS Map',             icon: '🗾', route: '/reports/wss-map',                               roles: READ_ANY },
+  { section: 'Finance',                                                                                roles: DATA_ENTRY },
+  { label: 'Invoices / Revenue',  icon: '🧾', route: '/finance/invoices',                              roles: DATA_ENTRY },
+  { label: 'SBP Submissions',     icon: '🏦', route: '/finance/sbp-submissions',                       roles: ['system-administrator', 'system-manager'] },
+  { section: 'Asset Management',                                                                       roles: WRITE_LAB },
+  { label: 'Stock / Inventory',   icon: '📦', route: '/assets/stock-inventory',                        roles: WRITE_LAB },
+  { label: 'Equipment Register',  icon: '🔧', route: '/assets/equipment-register',                     roles: WRITE_LAB },
+  { label: 'Demand & Issuance',   icon: '🔄', route: '/assets/demand-issuance',                        roles: WRITE_LAB },
+  { section: 'Admin',                                                                                  roles: ['system-administrator', 'system-manager', 'view-only-admin'] },
+  { label: 'Users / HR',          icon: '👥', route: '/admin/users-hr',                                roles: ['system-administrator'] },
+  { label: 'KPI Framework',       icon: '📊', route: '/admin/kpi-framework',                           roles: ['system-administrator', 'system-manager', 'view-only-admin'] },
+  { label: 'Diaries / Dispatches', icon: '📝', route: '/admin/diaries-dispatches',                     roles: DATA_ENTRY },
+  { label: 'Water Scheme Details', icon: '💧', route: '/wss-details',                                  roles: READ_ANY },
 ]
+
+// Filter the nav items based on the current user's role.
+// SA always sees everything (extra defensive). Items without `roles` are universal.
+function canSeeItem(item) {
+  if (!item.roles || item.roles.length === 0) return true
+  if (userStore.isSuperAdmin) return true
+  return item.roles.some(r => userStore.hasRole(r))
+}
+
+const visibleNavItems = computed(() => {
+  // Two passes: first filter individual items by role, then drop section
+  // headers that have no remaining items beneath them.
+  const filtered = navItems.filter(canSeeItem)
+  const out = []
+  for (let i = 0; i < filtered.length; i++) {
+    const item = filtered[i]
+    if (item.section) {
+      // Look ahead for at least one non-section item before the next section.
+      let hasChild = false
+      for (let j = i + 1; j < filtered.length; j++) {
+        if (filtered[j].section) break
+        hasChild = true
+        break
+      }
+      if (hasChild) out.push(item)
+    } else {
+      out.push(item)
+    }
+  }
+  return out
+})
 
 function getBadge(item) {
   if (item.badgeKey === 'unfit') return unfitCount.value || null
@@ -78,7 +124,7 @@ function getBadge(item) {
 
     <!-- Nav -->
     <nav>
-      <template v-for="item in navItems" :key="item.label || item.section">
+      <template v-for="item in visibleNavItems" :key="item.label || item.section">
         <!-- Section header -->
         <div v-if="item.section" class="sb-sec">{{ item.section }}</div>
 

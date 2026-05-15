@@ -1,5 +1,6 @@
 ﻿<script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useRbac } from '../../../composables/useRbac.js'
 import { api } from '../../../services/api.js'
 import { sampleService } from '../../../services/sampleService.js'
 import { exportToXLSX } from '../../../utils/exportHelpers.js'
@@ -284,7 +285,12 @@ function exportData() {
   })), 'Unfit_Sample_Trail')
 }
 
-onMounted(loadData)
+// RBAC: lab roles get their labFilter pre-set + locked.
+const rbac = useRbac()
+onMounted(async () => {
+  if (rbac.laboratoryId.value) labFilter.value = String(rbac.laboratoryId.value)
+  await loadData()
+})
 </script>
 <template>
   <div>
@@ -416,7 +422,7 @@ onMounted(loadData)
     <!-- Toolbar -->
     <div class="toolbar" style="margin-bottom:10px">
       <input type="text" v-model="searchText" placeholder="🔍 Sample ID, WSS, District…" style="min-width:200px">
-      <select v-model="labFilter" style="border:1px solid var(--input-border);border-radius:4px;padding:6px 8px;font-size:12px;font-family:inherit">
+      <select v-model="labFilter" :disabled="!!rbac.laboratoryId.value" style="border:1px solid var(--input-border);border-radius:4px;padding:6px 8px;font-size:12px;font-family:inherit">
         <option value="">All Labs</option>
         <option v-for="l in allLabs" :key="l.id" :value="l.id">{{ l.name }}</option>
       </select>
@@ -493,11 +499,11 @@ onMounted(loadData)
               </td>
               <td style="white-space:nowrap">
                 <template v-if="row.actionStatus === 'Fate Decision Req.'">
-                  <button class="btn btn-xs" style="background:#9d174d;color:#fff;border:none;font-size:11px;margin-right:4px" @click="openFate(row)">📋 Decide WSS Fate</button>
+                  <button v-write class="btn btn-xs" style="background:#9d174d;color:#fff;border:none;font-size:11px;margin-right:4px" @click="openFate(row)">📋 Decide WSS Fate</button>
                   <button class="btn btn-sec btn-xs" style="font-size:11px" @click="openTrail(row)">Trail</button>
                 </template>
                 <template v-else-if="row.actionStatus !== 'Resolved'">
-                  <button class="btn btn-pri btn-xs" style="font-size:11px;margin-right:4px" @click="openRetest(row)">▶ Register Retest</button>
+                  <button v-write class="btn btn-pri btn-xs" style="font-size:11px;margin-right:4px" @click="openRetest(row)">▶ Register Retest</button>
                   <button class="btn btn-sec btn-xs" style="font-size:11px" @click="openTrail(row)">Trail</button>
                 </template>
                 <template v-else>
@@ -563,7 +569,7 @@ onMounted(loadData)
           </div>
           <div style="padding:12px 24px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px;background:#fafbfc">
             <button class="btn btn-sec" @click="showRetestModal = false">Cancel</button>
-            <button class="btn btn-pri" @click="submitRetest" :disabled="retestLoading">{{ retestLoading ? '⏳ Registering…' : '▶ Register Retest' }}</button>
+            <button v-write class="btn btn-pri" @click="submitRetest" :disabled="retestLoading">{{ retestLoading ? '⏳ Registering…' : '▶ Register Retest' }}</button>
           </div>
         </div>
       </div>
@@ -660,7 +666,7 @@ onMounted(loadData)
               </div>
               <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
                 <button class="btn btn-sec" @click="showFateModal = false">Cancel</button>
-                <button class="btn" style="background:#9d174d;color:#fff;border:none" @click="submitFate" :disabled="fateLoading">{{ fateLoading ? '⏳ Saving…' : '✔ Record Decision' }}</button>
+                <button v-write class="btn" style="background:#9d174d;color:#fff;border:none" @click="submitFate" :disabled="fateLoading">{{ fateLoading ? '⏳ Saving…' : '✔ Record Decision' }}</button>
               </div>
             </div>
             <div v-else style="text-align:center;padding:20px 0">

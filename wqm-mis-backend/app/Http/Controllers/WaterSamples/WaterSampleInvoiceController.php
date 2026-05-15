@@ -28,7 +28,7 @@ class WaterSampleInvoiceController extends Controller
     {
         $authUser = auth()->user();
         $waterSampleInvoices = WaterSampleInvoice::query()
-            ->when(!$authUser->hasRole('system-administrator'), fn($query) => $query->where('created_by', '=', $authUser->id))
+            ->when(!$authUser->isUnscoped(), fn($query) => $query->where('created_by', '=', $authUser->id))
             ->has('waterSample')
             ->with([
                 'waterSample:id,slug' => [

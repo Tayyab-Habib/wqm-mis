@@ -27,7 +27,7 @@ class FolderController extends Controller
 
         $folders = Folder::query()
             ->with(['laboratory:id,name'])
-            ->when(!$authUser->hasRole('system-administrator'), fn(Builder $query) => $query->where('laboratory_id', '=', $laboratory->id))
+            ->when(!$authUser->isUnscoped(), fn(Builder $query) => $query->where('laboratory_id', '=', $laboratory->id))
             ->get();
 
         if ($folders->isEmpty()) {
@@ -149,7 +149,7 @@ class FolderController extends Controller
 
         $authUser = auth()->user();
         $laboratory = $authUser->laboratoryUser;
-        if ($authUser->hasRole('system-administrator')) {
+        if ($authUser->isUnscoped()) {
             return false;
         }
         return (int)$folder->laboratory_id !== $laboratory->id;

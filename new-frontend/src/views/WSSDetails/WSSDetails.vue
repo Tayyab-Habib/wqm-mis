@@ -108,12 +108,14 @@ function mapWss(w) {
     schedStatus: w.next_scheduled_at ? 'scheduled' : (w.last_sampled_at ? 'overdue' : 'none'),
     latitude: w.latitude,
     longitude: w.longitude,
-    // IDs for cascade filtering
-    regionId:      w.division?.region_id   || w.region_id        || null,
-    divisionId:    w.division_id           || null,
-    circleId:      w.circle_id             || null,
-    districtId:    w.district_id           || null,
-    phedDivisionId: w.phed_division_id     || null,
+    // IDs for cascade filtering — derive circle/region from the loaded
+    // district→circle relationship since water_schemes has no direct
+    // circle_id or region_id column.
+    regionId:      w.division?.region_id || w.district?.circle?.region_id || null,
+    divisionId:    w.division_id  || null,
+    circleId:      w.district?.circle_id || w.district?.circle?.id || w.circle_id || null,
+    districtId:    w.district_id  || null,
+    phedDivisionId: w.phed_division_id || null,
   }
 }
 
@@ -136,6 +138,22 @@ async function loadWss() {
 const searchText  = ref('')
 const wqFilter    = ref('')
 const schedFilter = ref('')
+
+function clearFilters() {
+  searchText.value     = ''
+  regionFilter.value   = ''
+  divisionFilter.value = ''
+  circleFilter.value   = ''
+  districtFilter.value = ''
+  phedDivFilter.value  = ''
+  wqFilter.value       = ''
+  schedFilter.value    = ''
+}
+
+const hasActiveFilters = computed(() =>
+  !!(searchText.value || regionFilter.value || divisionFilter.value || circleFilter.value
+     || districtFilter.value || phedDivFilter.value || wqFilter.value || schedFilter.value)
+)
 
 const filtered = computed(() => wssData.value.filter(w => {
   const matchSearch    = !searchText.value || w.name.toLowerCase().includes(searchText.value.toLowerCase()) || w.code.toLowerCase().includes(searchText.value.toLowerCase()) || w.district.toLowerCase().includes(searchText.value.toLowerCase())
@@ -481,19 +499,35 @@ function closeAddModal() {
         <option value="none">Not Yet Scheduled</option>
       </select>
 
+      <button class="btn btn-sec btn-sm" :disabled="!hasActiveFilters" @click="clearFilters"
+              :title="hasActiveFilters ? 'Reset all filters' : 'No filters active'">
+        ✕ Clear Filters
+      </button>
+
       <div class="tsp"></div>
       <button class="btn btn-sec btn-sm" @click="exportWss">⬇ Export</button>
-      <button class="btn btn-pri btn-sm" @click="openAddModal">+ Add WSS</button>
+      <button v-write class="btn btn-pri btn-sm" @click="openAddModal">+ Add WSS</button>
     </div>
 
     <!-- Row 2 removed — Add WSS is now in the toolbar -->
 
     <!-- Table -->
     <div class="tbl-wrap">
-      <!-- Loading state -->
-      <div v-if="loading" style="text-align:center;padding:32px;color:var(--muted);font-size:13px">
-        ⏳ Loading water schemes…
-      </div>
+      <!-- Skeleton loading state — 6 placeholder rows -->
+      <table v-if="loading" style="font-size:11.5px" class="wss-skel">
+        <thead>
+          <tr>
+            <th>WSS Code</th><th>WSS Name</th><th>PHE Div.</th><th>Source Type</th><th>Solar?</th>
+            <th>Op. Status</th><th style="text-align:center">Tested</th><th style="text-align:center">Last WQ</th>
+            <th>Last Sampled</th><th>Next Scheduled</th><th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="i in 6" :key="`skel-${i}`" :class="i%2===0?'alt':''">
+            <td v-for="j in 11" :key="`skel-${i}-${j}`"><span class="skel-bar" :style="`width:${50+((i*j*7)%50)}%`"></span></td>
+          </tr>
+        </tbody>
+      </table>
       <!-- Error state -->
       <div v-else-if="errorMsg" style="text-align:center;padding:24px;color:var(--red);font-size:13px">
         ⚠ {{ errorMsg }}
@@ -571,7 +605,7 @@ function closeAddModal() {
             </div>
             <div style="display:flex;justify-content:flex-end;gap:10px">
               <button class="btn btn-sec" @click="showSchedModal = false">Cancel</button>
-              <button class="btn btn-pri" @click="saveSchedule">💾 Save Schedule</button>
+              <button v-write class="btn btn-pri" @click="saveSchedule">💾 Save Schedule</button>
             </div>
           </div>
         </div>
@@ -812,8 +846,8 @@ function closeAddModal() {
 
             <!-- Footer actions -->
             <div style="display:flex;justify-content:flex-end;gap:10px;padding-top:6px;border-top:1px solid var(--border)">
-              <button class="btn btn-sec" @click="closeAddModal" :disabled="addLoading">Cancel</button>
-              <button class="btn btn-pri" @click="submitAddWss" :disabled="addLoading">
+              <button v-write class="btn btn-sec" @click="closeAddModal" :disabled="addLoading">Cancel</button>
+              <button v-write class="btn btn-pri" @click="submitAddWss" :disabled="addLoading">
                 <span v-if="addLoading">⏳ Saving…</span>
                 <span v-else>💾 Create Water Scheme</span>
               </button>
@@ -836,5 +870,20 @@ function closeAddModal() {
 .toast-slide-leave-to {
   opacity: 0;
   transform: translateX(60px);
+}
+
+/* Skeleton loading rows for the WSS table */
+.wss-skel td { padding: 9px 8px; }
+.skel-bar {
+  display: inline-block;
+  height: 11px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #e9eef5 25%, #f4f7fb 50%, #e9eef5 75%);
+  background-size: 200% 100%;
+  animation: skel-shimmer 1.2s ease-in-out infinite;
+}
+@keyframes skel-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 </style>

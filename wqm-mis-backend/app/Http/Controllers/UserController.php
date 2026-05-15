@@ -44,7 +44,7 @@ class UserController extends Controller
                 'created_at',
             ])
             ->when(
-                !$authUser->hasRole(['system-administrator']),
+                !$authUser->isUnscoped(),
                 fn($query) => $query->whereHas(
                     'laboratoryUser',
                     fn($query) => $query->where('laboratories.id', $authUser->laboratoryUser->id)

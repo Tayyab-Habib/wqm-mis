@@ -22,7 +22,7 @@ class SearchClientController extends Controller
         $authUser = auth()->user();
         $validatedData = $request->validated();
         $query = Client::query()
-            ->when(!$authUser->hasRole('system-administrator'), function ($query) use ($authUser) {
+            ->when(!$authUser->isUnscoped(), function ($query) use ($authUser) {
                 $query->whereHas('waterSamples', function ($query) use ($authUser) {
                     $query->where('created_by', '=', $authUser->id);
                 });
@@ -57,7 +57,7 @@ class SearchClientController extends Controller
         $authUser = auth()->user();
         $organizations = Client::query()
             ->select('organization_name')
-            ->when(!$authUser->hasRole('system-administrator'), function ($query) use ($authUser) {
+            ->when(!$authUser->isUnscoped(), function ($query) use ($authUser) {
                 $query->whereHas('waterSamples', function ($query) use ($authUser) {
                     $query->where('created_by', '=', $authUser->id);
                 });

@@ -39,7 +39,7 @@ class HandingTakingController extends Controller
 
         $authUser = auth()->user();
         $handingTakings = HandingTaking::query()
-            ->when(!$authUser->hasRole('system-administrator'), fn(Builder $query) => $query->where('created_by', '=', $authUser->id))
+            ->when(!$authUser->isUnscoped(), fn(Builder $query) => $query->where('created_by', '=', $authUser->id))
             ->with([
                 'laboratory:id,name',
                 'createdByUser:id,name',
@@ -239,7 +239,7 @@ class HandingTakingController extends Controller
     {
         $authUser = auth()->user();
 
-        if (!$authUser->hasRole('system-administrator') && (int)$handingTaking->created_by !== auth()->id()) {
+        if (!$authUser->isUnscoped() && (int)$handingTaking->created_by !== auth()->id()) {
             return response()->json([
                 'message' => 'You are not authorized to access this resource',
                 'data' => null,

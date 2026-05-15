@@ -34,6 +34,9 @@ class DashboardController extends Controller
     private $authUser;
 
 
+    // Renamed semantic: this is now "true for any role that bypasses
+    // data scoping" (SA + system-manager + view-only-admin + general-view-account).
+    // The legacy property name is kept for callers/blame churn.
     private bool $isSystemAdministrator;
 
     public function __construct()
@@ -41,7 +44,7 @@ class DashboardController extends Controller
         $this->index = 0;
         $this->middleware(function ($request, $next) {
             $this->authUser = auth()->user();
-            $this->isSystemAdministrator = $this->authUser->hasRole('system-administrator');
+            $this->isSystemAdministrator = $this->authUser->isUnscoped();
             return $next($request);
         });
     }
@@ -102,7 +105,7 @@ class DashboardController extends Controller
         // (some items issued, rest still waiting). Also fixed: comparison now
         // uses ->value so the string match is reliable across Laravel versions.
         $totalPendingInventoryRequests = Inventory::query()
-            ->when(!$this->isSystemAdministrator, fn(Builder $query) => $query->where('laboratory_id', '=', $this->authUser?->laboratoryUser->id))
+            ->when(!$this->isSystemAdministrator, fn(Builder $query) => $query->where('laboratory_id', '=', $this->authUser?->laboratoryUser?->id))
             ->whereIn('status', [
                 InventoryStatusEnum::PENDING->value,
                 InventoryStatusEnum::PARTIALLY_APPROVED->value,

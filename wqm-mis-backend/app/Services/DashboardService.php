@@ -102,7 +102,6 @@ class DashboardService
         $authUser = auth()->user();
 
         $query = WaterSample::query()
-            ->when(!$authUser->hasRole('system-administrator'), fn($query) => $query->where('district_id', '=', $authUser->district_id))
             ->when(isset($this->request->laboratory_id), function ($query) {
                 return $query->where('laboratory_id', $this->request->laboratory_id);
             })
@@ -138,7 +137,6 @@ class DashboardService
         $authUser = auth()->user();
 
         $query = WaterSample::query()
-            ->when(!$authUser->hasRole('system-administrator'), fn($query) => $query->where('district_id', '=', $authUser->district_id))
             ->when(isset($this->request->laboratory_id), function ($query) {
                 return $query->where('laboratory_id', $this->request->laboratory_id);
             })
@@ -177,7 +175,6 @@ class DashboardService
         $authUser = auth()->user();
 
         $query = WaterSample::query()
-            ->when(!$authUser->hasRole('system-administrator'), fn($query) => $query->where('district_id', '=', $authUser->district_id))
             ->when(isset($this->request->laboratory_id), function ($query) {
                 return $query->where('laboratory_id', $this->request->laboratory_id);
             })
@@ -216,7 +213,6 @@ class DashboardService
         $authUser = auth()->user();
 
         $query = WaterSample::query()
-            ->when(!$authUser->hasRole('system-administrator'), fn($query) => $query->where('district_id', '=', $authUser->district_id))
             ->when(isset($this->request->laboratory_id), function ($query) {
                 return $query->where('laboratory_id', $this->request->laboratory_id);
             })
@@ -255,7 +251,6 @@ class DashboardService
         $authUser = auth()->user();
 
         $query = WaterSample::query()
-            ->when(!$authUser->hasRole('system-administrator'), fn($query) => $query->where('district_id', '=', $authUser->district_id))
             ->when(isset($this->request->laboratory_id), function ($query) {
                 return $query->where('laboratory_id', $this->request->laboratory_id);
             })
@@ -294,7 +289,6 @@ class DashboardService
         $authUser = auth()->user();
 
         $query = WaterSample::query()
-            ->when(!$authUser->hasRole('system-administrator'), fn($query) => $query->where('district_id', '=', $authUser->district_id))
             ->when(isset($this->request->laboratory_id), function ($query) {
                 return $query->where('laboratory_id', $this->request->laboratory_id);
             })

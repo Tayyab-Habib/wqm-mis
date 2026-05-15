@@ -16,7 +16,7 @@ const emit = defineEmits(['update:modelValue', 'save'])
     </div>
     <template #footer>
       <button class="analysis-modal__btn analysis-modal__btn--cancel" @click="emit('update:modelValue', false)">Cancel</button>
-      <button class="analysis-modal__btn analysis-modal__btn--save" @click="emit('save')">Save</button>
+      <button v-write class="analysis-modal__btn analysis-modal__btn--save" @click="emit('save')">Save</button>
     </template>
   </Modal>
 </template>

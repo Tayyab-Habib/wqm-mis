@@ -13,7 +13,7 @@ class ActivityLogRequest extends FormRequest
      */
     public function authorize()
     {
-        return auth()->user()->hasRole('system-administrator');
+        return auth()->user()->isUnscoped();
     }
 
     /**

@@ -18,6 +18,23 @@ class UserResource extends JsonResource
         $this->loadMissing(['phedDivision', 'district', 'circle', 'region']);
         $primaryRoleName = $this->roles[0]->name ?? 'viewer';
 
+        // Plain list of permission slugs the user can perform (via roles + direct grants).
+        // The legacy 'permissions' field stays encrypted for backwards compatibility;
+        // 'permission_names' is the new plain-text array for frontend RBAC gating.
+        //
+        // AuthController mutates $user->permissions in-place to a Collection of strings
+        // BEFORE UserResource runs (legacy decryption flow). If we call getAllPermissions()
+        // again here, Spatie's HasPermissions::merge() tries to call getKey() on those
+        // strings and crashes with "Call to a member function getKey() on string".
+        // So: if $this->permissions is already a flat string collection, just use it.
+        // Otherwise pluck names off the Permission models normally.
+        $permRaw = $this->permissions;
+        $permissionNames = collect($permRaw)
+            ->map(fn ($p) => is_string($p) ? $p : ($p->name ?? null))
+            ->filter()
+            ->values()
+            ->all();
+
         return [
             'id' => $this->id,
             'name' => $this->name,
@@ -39,6 +56,11 @@ class UserResource extends JsonResource
             'region' => $this->region ? ['id' => $this->region->id, 'name' => $this->region->name] : null,
             'laboratory' => $this->laboratories->first() ? ['id' => $this->laboratories->first()->id, 'name' => $this->laboratories->first()->name] : null,
             'permissions' => Crypt::encryptString(json_encode($this->permissions)),
+            // ── RBAC plain-text plumbing ──
+            'permission_names' => $permissionNames,
+            'is_view_only'     => (bool) $this->is_view_only,
+            'is_dummy'         => (bool) $this->is_dummy,
+            'allowed_modules'  => $this->allowed_modules,
         ];
     }
 }
