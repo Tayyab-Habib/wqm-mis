@@ -1,48 +1,93 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { financeService } from '../services/financeService.js'
 
+/**
+ * D-06 — Mock data removed.
+ *
+ * Previously this store carried six hard-coded invoice rows plus mock SBP
+ * submissions and ledger entries, while parallel views (Invoices.vue) were
+ * already calling the live API. Risk: any view that imported the store
+ * would silently show stale demo data in production.
+ *
+ * Now the store is the single source of truth and pulls from the Finance
+ * Module API. Views may import it instead of calling financeService
+ * directly.
+ */
 export const useInvoiceStore = defineStore('invoices', () => {
-  const invoices = ref([
-    { id:'26/PWR/PHE/5001', client:'Khan Brothers Pvt.',  lab:'Central Lab', date:'08-Mar-26', samples:3,  total:5400,  received:5400,  balance:0,     status:'Paid',    type:'individual' },
-    { id:'26/PWR/PHE/5002', client:'WAPDA Colony',        lab:'Central Lab', date:'07-Mar-26', samples:5,  total:9000,  received:4500,  balance:4500,  status:'Partial', type:'individual' },
-    { id:'26/PWR/PHE/5003', client:'Al-Noor Hospital',    lab:'Central Lab', date:'06-Mar-26', samples:8,  total:14400, received:0,     balance:14400, status:'Unpaid',  type:'individual' },
-    { id:'C/26/PWR/C0012',  client:'NESPAK Ltd.',         lab:'Central Lab', date:'05-Mar-26', samples:14, total:25200, received:25200, balance:0,     status:'Paid',    type:'clubbed'    },
-    { id:'26/PWR/PHE/5004', client:'NHA Office',          lab:'Central Lab', date:'04-Mar-26', samples:6,  total:10800, received:0,     balance:10800, status:'Unpaid',  type:'individual' },
-    { id:'26/MRD/PHE/1091', client:'Mardan PHE WSS',      lab:'Mardan',      date:'03-Mar-26', samples:4,  total:7200,  received:7200,  balance:0,     status:'Paid',    type:'individual' },
-  ])
-
-  const sbpSubmissions = ref([
-    { id:'SBP/26/CLB/0042', date:'09-Mar-26', challan:'Pending',          amount:600000,  lab:'Central Lab', by:'S.M. Adeel', invoices:5,  status:'Pending Verification' },
-    { id:'SBP/26/CLB/0041', date:'08-Mar-26', challan:'SBP-2026-04471',   amount:1800000, lab:'Central Lab', by:'S.M. Adeel', invoices:12, status:'Verified' },
-    { id:'SBP/26/CLB/0040', date:'28-Feb-26', challan:'SBP-2026-03912',   amount:2100000, lab:'Central Lab', by:'S.M. Adeel', invoices:18, status:'Verified' },
-  ])
-
-  const ledger = ref([
-    { date:'13-Jan-26', txId:'INV/26/CLB/0041', type:'Invoice',  client:'WAPDA Colony',      lab:'Central Lab', debit:72000,   credit:0,       note:'PCM test x 40 samples' },
-    { date:'15-Jan-26', txId:'PMT/26/CLB/0031', type:'Payment',  client:'WAPDA Colony',      lab:'Central Lab', debit:0,       credit:72000,   note:'Bank Transfer — CHQ-0041' },
-    { date:'20-Jan-26', txId:'INV/26/CLB/0042', type:'Invoice',  client:'NESPAK Ltd.',       lab:'Central Lab', debit:120000,  credit:0,       note:'PCM+Chemical x 60 samples' },
-    { date:'28-Jan-26', txId:'PMT/26/CLB/0032', type:'Payment',  client:'NESPAK Ltd.',       lab:'Central Lab', debit:0,       credit:120000,  note:'Online EFT' },
-    { date:'05-Feb-26', txId:'INV/26/CLB/0043', type:'Invoice',  client:'Al-Noor Hospital',  lab:'Central Lab', debit:86400,   credit:0,       note:'Microbial only x 48 samples' },
-    { date:'08-Mar-26', txId:'SBP/26/CLB/0041', type:'SBP',      client:'State Bank',        lab:'Central Lab', debit:0,       credit:1800000, note:'SBP Challan SBP-2026-04471' },
-  ])
+  const invoices = ref([])
+  const sbpSubmissions = ref([])
+  const ledger = ref([])
+  const summary = ref({
+    total_invoiced: 0,
+    total_collected: 0,
+    total_outstanding: 0,
+    submitted_to_sbp: 0,
+    pending_sbp: 0,
+  })
+  const loading = ref(false)
+  const error = ref(null)
 
   const totals = computed(() => ({
-    invoiced:  invoices.value.reduce((s, i) => s + i.total, 0),
-    collected: invoices.value.reduce((s, i) => s + i.received, 0),
-    outstanding: invoices.value.reduce((s, i) => s + i.balance, 0),
+    invoiced:    summary.value.total_invoiced,
+    collected:   summary.value.total_collected,
+    outstanding: summary.value.total_outstanding,
   }))
 
-  function recordPayment(invoiceId, amount) {
-    const inv = invoices.value.find(i => i.id === invoiceId)
-    if (!inv) return
-    inv.received = Math.min(inv.total, inv.received + amount)
-    inv.balance  = inv.total - inv.received
-    inv.status   = inv.balance === 0 ? 'Paid' : 'Partial'
+  async function fetchInvoices(params = {}) {
+    loading.value = true
+    error.value = null
+    try {
+      const res = await financeService.getFinanceInvoices(params)
+      invoices.value = res?.data?.invoices ?? []
+      // F-05 summary uses revenue-summary when available, else light summary.
+      try {
+        const sum = await financeService.getRevenueSummary(params)
+        summary.value = sum?.data ?? summary.value
+      } catch (_) {
+        summary.value = { ...summary.value, ...(res?.data?.summary ?? {}) }
+      }
+    } catch (e) {
+      error.value = e?.message ?? 'Failed to load invoices'
+    } finally {
+      loading.value = false
+    }
   }
 
-  function addSbpSubmission(sub) {
-    sbpSubmissions.value.unshift(sub)
+  async function fetchLedger() {
+    loading.value = true
+    try {
+      const res = await financeService.getFinanceLedger()
+      ledger.value = res?.data ?? []
+    } finally {
+      loading.value = false
+    }
   }
 
-  return { invoices, sbpSubmissions, ledger, totals, recordPayment, addSbpSubmission }
+  async function fetchSbp() {
+    loading.value = true
+    try {
+      const res = await financeService.getSbpSubmissions()
+      sbpSubmissions.value = res?.data ?? res ?? []
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function recordPayment(invoiceId, payload) {
+    await financeService.recordPayment(invoiceId, payload)
+    await fetchInvoices()
+  }
+
+  async function createClubbedInvoice(payload) {
+    const res = await financeService.createClubbedInvoice(payload)
+    await fetchInvoices()
+    return res
+  }
+
+  return {
+    invoices, sbpSubmissions, ledger, summary, totals, loading, error,
+    fetchInvoices, fetchLedger, fetchSbp,
+    recordPayment, createClubbedInvoice,
+  }
 })

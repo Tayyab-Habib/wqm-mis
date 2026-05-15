@@ -214,6 +214,10 @@ class DashboardController extends Controller
                 'microbial_water_samples' => $microBialWaterSamples,
                 'percentage_water_schemes_fit_unit' => $percentageWaterSchemesFitUnit,
                 'laboratory_wise_revenue' => $laboratoryWiseRevenue,
+                // F-07 / F-06 — surface the Total Revenue and Pending Revenue
+                // cards directly so the dashboard doesn't need to recompute.
+                'total_revenue'           => $dashboardService->getTotalRevenue(),
+                'pending_revenue'         => $dashboardService->getPendingRevenue(),
                 'laboratory_wise_inventory_requests' => $laboratoryWiseInventoryRequests,
                 'laboratories_water_sample_results' => $laboratoriesWaterSampleResults,
                 'laboratory_wise_total_tested_water_samples' => $laboratoryWiseTotalTestedWaterSamples,

@@ -86,6 +86,9 @@ use App\Http\Controllers\Inventory\InventoryLogController;
 use App\Http\Controllers\Inventory\InventoryReceivedController;
 use App\Http\Controllers\Inventory\UpdateInventoryApproveStatusController;
 use App\Http\Controllers\Inventory\UpdateInventoryIssueStatusController;
+use App\Http\Controllers\Finance\FinanceInvoiceController;
+use App\Http\Controllers\Finance\FinanceExportController;
+use App\Http\Controllers\Finance\DiscountSettingController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\Issues\AssignIssueController;
 use App\Http\Controllers\Issues\IssueController;
@@ -373,6 +376,41 @@ Route::middleware(['auth:sanctum', 'dummy.account', 'view.only'])->group(callbac
     //End Reports
     Route::middleware(['update_modified_user'])->group(function () {
         Route::apiResource('invoices', InvoiceController::class);
+    });
+
+    // ── Finance Module Routes ────────────────────────────────────────────
+    Route::prefix('finance')->group(function () {
+        Route::get('invoices',         [FinanceInvoiceController::class, 'index']);          // F-01
+        Route::get('ledger',           [FinanceInvoiceController::class, 'ledger']);
+        Route::get('dues',             [FinanceInvoiceController::class, 'dues']);
+        Route::get('revenue-summary',  [FinanceInvoiceController::class, 'revenueSummary']); // F-05
+        Route::get('dashboard-card',   [FinanceInvoiceController::class, 'dashboardCard']);  // F-06 / F-07
+
+        // F-08 — wizard step 1 (clients) and step 3 (their unbilled invoices)
+        Route::get('clients-with-unbilled',            [FinanceInvoiceController::class, 'clientsWithUnbilled']);
+        Route::get('unbilled-by-client/{client_id}',   [FinanceInvoiceController::class, 'unbilledByClient']);
+
+        Route::post('record-payment/{waterSampleInvoice}', [FinanceInvoiceController::class, 'recordPayment']);  // F-03
+        Route::post('clubbed-invoice',                     [FinanceInvoiceController::class, 'storeClubbedInvoice']); // F-13, F-15
+
+        // F-18 — xlsx export of the current revenue register
+        Route::get('invoices/export', [\App\Http\Controllers\Finance\FinanceExportController::class, 'invoicesXlsx']);
+
+        // SBP Submission Routes
+        Route::get('sbp-submissions',                 [\App\Http\Controllers\Finance\SbpSubmissionController::class, 'index']);
+        Route::get('sbp-submissions/pending',         [\App\Http\Controllers\Finance\SbpSubmissionController::class, 'pending']);   // D-02
+        Route::post('sbp-submissions',                [\App\Http\Controllers\Finance\SbpSubmissionController::class, 'store']);
+        Route::post('sbp-submissions/{id}/verify',    [\App\Http\Controllers\Finance\SbpSubmissionController::class, 'verify']);   // D-05
+
+        // F-17 — Discount admin (Super Admin only). Read by everyone with finance access.
+        Route::get('discount',  [\App\Http\Controllers\Finance\DiscountSettingController::class, 'show']);
+        Route::put('discount',  [\App\Http\Controllers\Finance\DiscountSettingController::class, 'update'])
+            ->middleware('role:system-administrator');
+
+        // F-10 / F-12 — clubbed-invoice PDF (kept inside finance prefix for grouping;
+        // also exposed via web.php for download outside of API auth flow).
+        Route::get('clubbed-invoices/{waterSampleInvoice}/pdf',
+            [FinanceInvoiceController::class, 'clubbedPdf'])->name('finance.clubbed.pdf');
     });
     //start payment management routes
     Route::apiResource('payments', PaymentController::class)->middleware('update_modified_user');

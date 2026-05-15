@@ -90,62 +90,82 @@ class WaterSampleInvoiceController extends Controller
     }
 
     /**
-     * Update the specified resource in storage.
+     * D-09 — fixed partial-payment math.
      *
-     * @param UpdateWaterSampleInvoiceRequest $request
-     * @param WaterSampleInvoice $waterSampleInvoice
-     * @return JsonResponse
+     * Previously:
+     *   1. `$validatedData['paid'] + $waterSampleInvoice->net_amount ?? 0`
+     *      had wrong operator precedence (`??` lowest priority), so the
+     *      `?? 0` applied to the whole subtraction, never the net_amount.
+     *   2. `'paid' => $validatedData['paid']` OVERWROTE the cumulative
+     *      paid total instead of advancing it — partial payments dropped
+     *      history.
+     *
+     * Now:
+     *   • `paid` accumulates: new_paid = current_paid + amount_received.
+     *   • Inputs over the outstanding balance are rejected.
+     *   • Status is derived from the new balance, not the delta.
+     *   • Log entry carries both delta (`paid`) and running balance.
+     *
+     * NOTE: New SPA flows use FinanceInvoiceController::recordPayment, which
+     * also validates payment_mode / receipt_no per F-03. This legacy method
+     * is kept for backwards-compat with `PUT /api/water-sample-invoices/{id}`
+     * but is functionally aligned.
      */
     public function update(UpdateWaterSampleInvoiceRequest $request, WaterSampleInvoice $waterSampleInvoice)
     {
         $validatedData = $request->validated();
 
-        $difference = $waterSampleInvoice->price - ($validatedData['paid'] + $waterSampleInvoice->net_amount ?? 0);
+        $amount  = round((float) $validatedData['paid'], 2);
+        $newPaid = round((float) $waterSampleInvoice->paid + $amount, 2);
+        $newBal  = round(max(0, (float) $waterSampleInvoice->net_amount - $newPaid), 2);
 
-        if ($difference > 0) {
-            $status = WaterSampleInvoiceStatusEnum::PARTIAL->value;
-        } elseif ($difference < 0) {
-            info($difference);
+        if ($amount <= 0) {
             return response()->json([
                 'message' => 'Invalid paid amount',
-                'errors' => [
-                    'paid' => ['Invalid paid amount']
-                ]
+                'errors'  => ['paid' => ['Amount must be greater than zero.']],
             ], SymfonyResponse::HTTP_UNPROCESSABLE_ENTITY);
-        } else {
-            $status = WaterSampleInvoiceStatusEnum::PAID->value;
         }
 
+        if ($newPaid > (float) $waterSampleInvoice->net_amount + 0.001) {
+            return response()->json([
+                'message' => 'Paid amount exceeds remaining balance',
+                'errors'  => ['paid' => ['Payment would exceed outstanding balance.']],
+            ], SymfonyResponse::HTTP_UNPROCESSABLE_ENTITY);
+        }
+
+        $status = $newBal <= 0
+            ? WaterSampleInvoiceStatusEnum::PAID->value
+            : WaterSampleInvoiceStatusEnum::PARTIAL->value;
+
         DB::beginTransaction();
-        $waterSampleInvoice->waterSampleInvoiceLogs()
-            ->create([
-                'user_id' => auth()->id(),
-                'paid' => $validatedData['paid'],
-                'balance' => $difference
+        try {
+            $waterSampleInvoice->waterSampleInvoiceLogs()->create([
+                'user_id'          => auth()->id(),
+                'paid'             => $amount,
+                'balance'          => $newBal,
+                'payment_mode'     => $validatedData['payment_mode']     ?? null,
+                'receipt_no'       => $validatedData['receipt_no']       ?? null,
+                'payment_date'     => $validatedData['payment_date']     ?? now()->toDateString(),
+                'received_by_name' => $validatedData['received_by']      ?? auth()->user()?->name,
+                'note'             => $validatedData['remarks']          ?? null,
             ]);
 
-        $netAmount = $waterSampleInvoice->waterSampleInvoiceLogs()
-            ->sum('paid');
+            $waterSampleInvoice->update([
+                'paid'    => $newPaid,
+                'balance' => $newBal,
+                'status'  => $status,
+            ]);
 
-        $waterSampleInvoice->update([
-            'paid' => $validatedData['paid'],
-            'balance' => $difference,
-            'status' => $status,
-            'net_amount' => $netAmount,
-        ]);
-
-        DB::commit();
-
-        if ($waterSampleInvoice->wasChanged()) {
-            return response()->json([
-                'message' => 'Success updating water sample invoice',
-                'data' => $waterSampleInvoice
-            ], SymfonyResponse::HTTP_OK);
+            DB::commit();
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Error updating water sample invoice'], SymfonyResponse::HTTP_INTERNAL_SERVER_ERROR);
         }
 
         return response()->json([
-            'message' => 'Error updating water sample invoice'
-        ], SymfonyResponse::HTTP_BAD_REQUEST);
+            'message' => 'Success updating water sample invoice',
+            'data'    => $waterSampleInvoice->fresh(),
+        ], SymfonyResponse::HTTP_OK);
     }
 
     public function generatePdf(WaterSampleInvoice $waterSampleInvoice)
