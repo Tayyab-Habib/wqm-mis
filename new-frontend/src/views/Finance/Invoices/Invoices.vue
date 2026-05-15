@@ -1497,40 +1497,43 @@ onMounted(() => {
 
 /* Modals & Forms */
 .payment-modal {
-  width: 580px;
+  width: 520px;
   padding: 0;
-  overflow: hidden;
   border-radius: 8px;
+  // overflow: auto + max-height keeps the modal scrollable as a safety net
+  // if the viewport is shorter than the (now compact) content.
+  overflow-y: auto;
+  max-height: 92vh;
 
   .modal-header {
     background: #1f2937;
     color: #fff;
-    padding: 18px 24px;
+    padding: 12px 18px;
     position: relative;
 
     .header-top {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      
-      h2 { color: #fff; margin: 0; font-size: 18px; display: flex; align-items: center; }
+
+      h2 { color: #fff; margin: 0; font-size: 15px; display: flex; align-items: center; }
     }
-    .modal-subtitle { font-size: 13px; color: #9ca3af; margin-top: 6px; }
-    
+    .modal-subtitle { font-size: 12px; color: #9ca3af; margin-top: 3px; }
+
     .btn-close-modal {
       background: #374151;
       color: #fff;
       border: 1px solid #4b5563;
-      padding: 4px 10px;
+      padding: 3px 9px;
       border-radius: 4px;
-      font-size: 13px;
+      font-size: 12px;
       cursor: pointer;
       &:hover { background: #4b5563; }
     }
   }
 
   .modal-body {
-    padding: 24px;
+    padding: 14px 18px;
     background: #fff;
   }
 
@@ -1540,16 +1543,16 @@ onMounted(() => {
     background: #f8fafc;
     border: 1px solid #e2e8f0;
     border-radius: 6px;
-    padding: 16px 20px;
-    margin-bottom: 24px;
+    padding: 10px 14px;
+    margin-bottom: 12px;
 
     .info-col {
       display: flex;
       flex-direction: column;
       align-items: center;
-      
-      .info-label { font-size: 12px; color: #64748b; margin-bottom: 6px; }
-      .info-value { font-size: 16px; font-weight: 700; }
+
+      .info-label { font-size: 11px; color: #64748b; margin-bottom: 3px; }
+      .info-value { font-size: 14px; font-weight: 700; }
     }
   }
 
@@ -1557,21 +1560,21 @@ onMounted(() => {
     &.c2 {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 16px 24px;
+      gap: 10px 14px;
     }
     label {
       display: block;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 600;
       color: #475569;
-      margin-bottom: 6px;
+      margin-bottom: 4px;
     }
     .form-input {
       width: 100%;
-      padding: 8px 12px;
+      padding: 6px 9px;
       border: 1px solid #cbd5e1;
       border-radius: 4px;
-      font-size: 14px;
+      font-size: 13px;
       color: #0f172a;
       outline: none;
       &:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1); }
@@ -1582,33 +1585,41 @@ onMounted(() => {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 12px 16px;
+    padding: 8px 12px;
     border-radius: 6px;
     border: 1px solid #e2e8f0;
-    
+
     &.bg-green-light { background: #f0fdf4; border-color: #bbf7d0; }
     &.bg-gray-light { background: #f8fafc; }
 
-    .remaining-label { font-size: 13px; color: #475569; }
-    .remaining-value { font-size: 16px; font-weight: 700; }
-    
+    .remaining-label { font-size: 12px; color: #475569; }
+    .remaining-value { font-size: 14px; font-weight: 700; }
+
     .badge-paid {
       background: #bbf7d0;
       color: #166534;
-      padding: 4px 10px;
+      padding: 2px 8px;
       border-radius: 20px;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
     }
   }
 
+  // Tighten the .mt-3 / .mt-4 spacing used inside the Record Payment modal
+  // (the global utility classes apply to all modals — scoping it here
+  // keeps other modals untouched).
+  .mt-3 { margin-top: 8px; }
+  .mt-4 { margin-top: 10px; }
+
+  textarea.form-input { min-height: 52px; resize: vertical; }
+
   .modal-footer {
-    padding: 16px 24px;
+    padding: 10px 18px;
     background: #fff;
     border-top: none;
     display: flex;
-    justify-content: flex-start; /* Changed from right aligned */
-    gap: 12px;
+    justify-content: flex-start;
+    gap: 10px;
   }
 }
 

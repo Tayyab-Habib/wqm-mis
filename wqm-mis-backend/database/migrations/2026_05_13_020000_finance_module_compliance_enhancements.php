@@ -39,6 +39,14 @@ return new class extends Migration
         });
 
         // ── laboratories: per-lab clubbed + SBP counters (F-09, D-04) ───────
+        // The `code` column is normally added by a separate migration on other
+        // branches; add it here as a fallback so this migration is self-
+        // sufficient on branches where that migration isn't present.
+        Schema::table('laboratories', function (Blueprint $table) {
+            if (!Schema::hasColumn('laboratories', 'code')) {
+                $table->string('code', 16)->nullable()->after('name');
+            }
+        });
         Schema::table('laboratories', function (Blueprint $table) {
             if (!Schema::hasColumn('laboratories', 'next_clubbed_seq')) {
                 $table->unsignedInteger('next_clubbed_seq')->default(0)->after('code');
