@@ -40,6 +40,14 @@ class DiscountSettingController extends Controller
 
     public function update(Request $request): JsonResponse
     {
+        // Discount % drives every invoice's net_amount calc — restrict to
+        // admin-tier so a lab-incharge can't quietly change it.
+        if (!auth()->user()?->isUnscoped()) {
+            return response()->json([
+                'message' => 'Only admin-tier users may change the discount setting.',
+            ], Http::HTTP_FORBIDDEN);
+        }
+
         $data = $request->validate([
             'value'       => ['required', 'numeric', 'min:0', 'max:100'],
             'description' => ['nullable', 'string', 'max:500'],

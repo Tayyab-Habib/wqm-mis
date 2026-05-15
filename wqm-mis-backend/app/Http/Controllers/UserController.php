@@ -115,7 +115,21 @@ class UserController extends Controller
                     ]);
             }
 
-            $user->assignRole($validatedData['role']);
+            // RBAC: support multi-role (roles[]) and single-role (role) input.
+            // syncRoles() replaces the user's role set so re-saves are idempotent.
+            $roleList = !empty($validatedData['roles']) && is_array($validatedData['roles'])
+                ? $validatedData['roles']
+                : (isset($validatedData['role']) ? [$validatedData['role']] : []);
+            if (!empty($roleList)) {
+                $user->syncRoles($roleList);
+            }
+
+            // Direct per-user permission grants on top of role-derived perms.
+            // Admin can use this to give a specific user extra capability
+            // without creating a custom role for one person.
+            if (!empty($validatedData['extra_permissions']) && is_array($validatedData['extra_permissions'])) {
+                $user->syncPermissions($validatedData['extra_permissions']);
+            }
 
             DB::commit();
 
@@ -206,7 +220,19 @@ class UserController extends Controller
                     ]);
             }
 
-            $user->syncRoles($request->role);
+            // RBAC: same dual-input handling as store()
+            $roleList = !empty($validatedData['roles']) && is_array($validatedData['roles'])
+                ? $validatedData['roles']
+                : (isset($validatedData['role']) ? [$validatedData['role']] : []);
+            if (!empty($roleList)) {
+                $user->syncRoles($roleList);
+            }
+
+            // Direct per-user permission grants. Sending an empty array clears
+            // them (sync semantics); omitting the field leaves existing alone.
+            if ($request->has('extra_permissions')) {
+                $user->syncPermissions($request->input('extra_permissions', []));
+            }
 
             DB::commit();
 

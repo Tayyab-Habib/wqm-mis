@@ -20,7 +20,11 @@ class RecordPaymentRequest extends FormRequest
 
     public function authorize(): bool
     {
-        return $this->user() !== null;
+        // Recording a payment is a finance write — gate on add_payments so a
+        // custom role granted that perm via the admin UI can record without
+        // a code change. Without this check, any authenticated user could
+        // record arbitrary payments.
+        return $this->user()?->can('add_payments') ?? false;
     }
 
     public function rules(): array

@@ -73,29 +73,25 @@ class WaterSampleController extends Controller
                 'waterSampleInvoice:id,water_sample_id,price,paid,balance'
             ]);
 
-        // laboratory-assistant + junior-clerk see only their own creations
-        // (orthogonal to scope — keeps the "I only see what I registered" semantics).
-        if ($authUser->hasAnyRole(['laboratory-assistant', 'junior-clerk'])) {
-            $query->where('created_by', '=', $authUser->id);
-        }
+        // RBAC: permission-driven own-only filter for the index list.
+        // Custom roles granted view_own_samples_only see ONLY samples they
+        // registered. Lab-assistants and other lab-scoped roles see the full
+        // lab queue; isUnscoped admin roles see everything.
+        $applyOwnFilter = function ($q) use ($authUser) {
+            if (!$authUser->isUnscoped() && $authUser->can('view_own_samples_only')) {
+                $q->where('created_by', '=', $authUser->id);
+            }
+        };
+        $applyOwnFilter($query);
 
-        // Role-driven scoping (handled centrally by AuthScope):
-        //   SA/manager/view-only/general-view → no filter (UNSCOPED_ROLES)
-        //   chief-engineer                    → region_id
-        //   superintending-engineer           → circle_id
-        //   xen                               → phed_division_id
-        //   lab-incharge/junior-clerk         → laboratory_id IN userLabIds()
-        //   laboratory-assistant              → laboratory_id IN userLabIds()
-        //                                       (created_by self-filter above keeps it tight)
+        // Role-driven scoping handled centrally by AuthScope (region / circle /
+        // phed_division / laboratory_id). UNSCOPED_ROLES bypass.
         AuthScope::waterSamples($query, $authUser);
 
         $waterSamples = $query->paginate(20);
 
         $query2 = WaterSample::query()->select('id');
-
-        if ($authUser->hasAnyRole(['laboratory-assistant', 'junior-clerk'])) {
-            $query2->where('created_by', '=', $authUser->id);
-        }
+        $applyOwnFilter($query2);
 
         AuthScope::waterSamples($query2, $authUser);
 
@@ -408,21 +404,20 @@ class WaterSampleController extends Controller
         $sampleLabId = (int) $waterSample->laboratory_id;
         $userLabId   = (int) ($authUser->laboratoryUser?->id ?? 0);
 
-        // Junior clerk: sees only samples they personally registered.
-        if ($authUser->hasRole('junior-clerk')) {
+        // RBAC: permission-driven visibility.
+        //   view_own_samples_only → blocks unless user created the sample
+        //   view_all_lab_samples  → allows when sample lab matches user lab
+        // Custom roles granted these perms via the admin UI inherit the
+        // behaviour. Default mappings live in RbacRolePermissionsSeeder.
+        if ($authUser->can('view_own_samples_only')) {
             return (int) $waterSample->created_by !== (int) $authUser->id;
         }
-
-        // Lab assistant: sees every sample that landed at their lab so they
-        // can analyse clerk-registered samples. Previously this method
-        // restricted them to own creations only, which broke the two-person
-        // register-then-analyse workflow.
-        if ($authUser->hasRole('laboratory-assistant')) {
+        if ($authUser->can('view_all_lab_samples')) {
             return !($userLabId !== 0 && $sampleLabId === $userLabId);
         }
 
-        // Other scoped roles (lab-incharge, hierarchy users with a lab pivot):
-        // allowed when the sample lab matches the user's pivoted lab.
+        // Fallback for hierarchy roles (lab-incharge, CE/SE/XEN with a lab
+        // pivot): allow when the sample lab matches the user's pivoted lab.
         if ($userLabId !== 0 && $sampleLabId === $userLabId) {
             return false;
         }

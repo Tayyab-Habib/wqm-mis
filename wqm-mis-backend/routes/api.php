@@ -179,6 +179,18 @@ Route::post('login', [AuthController::class, 'login']);
 Route::post('public/results', [\App\Http\Controllers\Public\PublicResultsController::class, 'search']);
 
 Route::middleware(['auth:sanctum', 'dummy.account', 'view.only'])->group(callback: function () {
+    // RBAC: GET /api/me — returns the current user's fresh roles, permissions,
+    // and identity payload. Used by the frontend after an admin updates a
+    // role or per-user permission, so the UI can reflect the change without
+    // requiring re-login. Returns the same UserResource shape as login.
+    Route::get('me', function () {
+        $user = auth()->user()?->load(['roles', 'permissions', 'phedDivision', 'district', 'circle', 'region', 'laboratories']);
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated'], 401);
+        }
+        return new \App\Http\Resources\UserResource($user);
+    });
+
     Route::post('dashboard', DashboardController::class);
     Route::post('dashboard/district-heatmap', [DashboardController::class, 'districtHeatmap']);
     Route::post('dashboard/lab-kpis', [DashboardController::class, 'labKpis']);
@@ -495,7 +507,10 @@ Route::middleware(['auth:sanctum', 'dummy.account', 'view.only'])->group(callbac
 
 });
 
-include('newapis.php');
+// newapis.php declared /api/v1/* routes via App\Http\Controllers\Apis\IndexController
+// — but that controller file doesn't exist in this branch. The frontend never
+// calls /api/v1 anyway. Re-enable when the controller stub is committed.
+// include('newapis.php');
 
 // ── Client Portal ─────────────────────────────────────────────────────
 Route::prefix('client-portal')->group(function () {

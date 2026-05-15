@@ -65,6 +65,9 @@ class RoleController extends Controller
      */
     public function show(ShowRoleRequest $request, Role $role): JsonResponse
     {
+        // Eager-load permissions so the admin Roles & Permissions matrix
+        // can prefill toggle states on open. Returns just id + name on each.
+        $role->load(['permissions:id,name']);
         return response()->json([
             'message' => 'Success fetching role',
             'data' => $role

@@ -10,6 +10,7 @@ use App\Models\Client;
 use App\Models\WaterSamples\WaterSampleInvoice;
 use App\Models\WaterSamples\WaterSampleInvoiceLog;
 use App\Notifications\ClubbedInvoiceGenerated;
+use App\Services\AuthScope;
 use App\Services\FinanceSlugService;
 use App\Services\SmsService;
 use Carbon\Carbon;
@@ -49,6 +50,11 @@ class FinanceInvoiceController extends Controller
                 'waterSampleInvoiceLogs' => fn ($q) => $q->latest('id')->limit(1),
                 'waterSampleInvoiceLogs.user:id,name',
             ]);
+
+        // RBAC: scope invoices through the underlying water_sample's lab.
+        // Unscoped roles see everything; scoped roles see only invoices
+        // whose sample landed at one of their visible labs.
+        AuthScope::waterSampleInvoices($query, auth()->user());
 
         if ($request->filled('status')) {
             // Accept either the SRS label ("Partially Paid") or the enum value ("partial")
@@ -133,18 +139,24 @@ class FinanceInvoiceController extends Controller
      * ===================================================================== */
     public function ledger(Request $request): JsonResponse
     {
-        $invoices = WaterSampleInvoice::with([
+        $user = auth()->user();
+
+        $invoicesQ = WaterSampleInvoice::with([
             'waterSample.laboratory:id,name,code',
             'invoiceable',
             'childInvoices.waterSample.laboratory:id,name,code',
-        ])->orderByDesc('created_at')->get();
+        ])->orderByDesc('created_at');
+        AuthScope::waterSampleInvoices($invoicesQ, $user);
+        $invoices = $invoicesQ->get();
 
-        $logs = WaterSampleInvoiceLog::with([
+        $logsQ = WaterSampleInvoiceLog::with([
             'waterSampleInvoice.waterSample.laboratory:id,name,code',
             'waterSampleInvoice.invoiceable',
             'waterSampleInvoice.childInvoices.waterSample.laboratory:id,name,code',
             'user:id,name',
-        ])->orderByDesc('created_at')->get();
+        ])->orderByDesc('created_at');
+        AuthScope::waterSampleInvoiceLogs($logsQ, $user);
+        $logs = $logsQ->get();
 
         $rows = collect();
 
@@ -210,14 +222,15 @@ class FinanceInvoiceController extends Controller
      * ===================================================================== */
     public function dues(Request $request): JsonResponse
     {
-        $dues = WaterSampleInvoice::where('balance', '>', 0)
+        $duesQ = WaterSampleInvoice::where('balance', '>', 0)
             ->with([
                 'waterSample.laboratory:id,name,code',
                 'invoiceable',
                 'childInvoices.waterSample.laboratory:id,name,code',
             ])
-            ->orderByDesc('id')
-            ->get()
+            ->orderByDesc('id');
+        AuthScope::waterSampleInvoices($duesQ, auth()->user());
+        $dues = $duesQ->get()
             ->map(function (WaterSampleInvoice $inv) {
                 return [
                     'id'      => $inv->id,
@@ -285,11 +298,20 @@ class FinanceInvoiceController extends Controller
     {
         $from = $request->filled('date_from') ? Carbon::parse($request->date_from) : Carbon::now()->startOfMonth();
         $to   = $request->filled('date_to')   ? Carbon::parse($request->date_to)   : Carbon::now()->endOfDay();
+        $user = auth()->user();
 
-        $totalRevenue = (float) WaterSampleInvoiceLog::sum('paid');                  // F-07 — all-time total
-        $periodRevenue = (float) WaterSampleInvoiceLog::whereBetween('created_at', [$from, $to])->sum('paid');
+        $totalRevenueQ  = WaterSampleInvoiceLog::query();
+        AuthScope::waterSampleInvoiceLogs($totalRevenueQ, $user);
+        $totalRevenue   = (float) $totalRevenueQ->sum('paid');                       // F-07 — all-time total
+
+        $periodRevenueQ = WaterSampleInvoiceLog::whereBetween('created_at', [$from, $to]);
+        AuthScope::waterSampleInvoiceLogs($periodRevenueQ, $user);
+        $periodRevenue  = (float) $periodRevenueQ->sum('paid');
+
         // F-06 — Pending is sum of ALL open balances regardless of period
-        $pendingRevenue = (float) WaterSampleInvoice::where('balance', '>', 0)->sum('balance');
+        $pendingRevenueQ = WaterSampleInvoice::where('balance', '>', 0);
+        AuthScope::waterSampleInvoices($pendingRevenueQ, $user);
+        $pendingRevenue  = (float) $pendingRevenueQ->sum('balance');
 
         return response()->json([
             'message' => 'Success',
@@ -314,7 +336,7 @@ class FinanceInvoiceController extends Controller
         $from = $request->date_from;
         $to   = $request->date_to;
 
-        $rows = WaterSampleInvoice::query()
+        $rowsQ = WaterSampleInvoice::query()
             ->where('invoiceable_id', $clientId)
             ->where('invoiceable_type', $type)
             ->where('is_clubbed', false)
@@ -326,8 +348,9 @@ class FinanceInvoiceController extends Controller
                 'waterSample.laboratory:id,name,code',
                 'waterSample.waterSampleDetails.test',
             ])
-            ->orderBy('id')
-            ->get();
+            ->orderBy('id');
+        AuthScope::waterSampleInvoices($rowsQ, auth()->user());
+        $rows = $rowsQ->get();
 
         $data = $rows->map(fn (WaterSampleInvoice $inv) => [
             'id'         => $inv->id,
@@ -360,13 +383,14 @@ class FinanceInvoiceController extends Controller
      * ===================================================================== */
     public function clientsWithUnbilled(Request $request): JsonResponse
     {
-        $rows = WaterSampleInvoice::query()
+        $rowsQ = WaterSampleInvoice::query()
             ->where('is_clubbed', false)
             ->whereNull('clubbed_invoice_id')
             ->selectRaw('invoiceable_id, invoiceable_type, COUNT(*) AS n')
             ->groupBy('invoiceable_id', 'invoiceable_type')
-            ->having('n', '>=', 2)
-            ->get();
+            ->having('n', '>=', 2);
+        AuthScope::waterSampleInvoices($rowsQ, auth()->user());
+        $rows = $rowsQ->get();
 
         $data = $rows->map(function ($r) {
             $client = ($r->invoiceable_type)::find($r->invoiceable_id);
@@ -583,6 +607,12 @@ class FinanceInvoiceController extends Controller
     {
         $invoiceQuery = WaterSampleInvoice::query();
         $logQuery     = WaterSampleInvoiceLog::query();
+
+        // RBAC: scope by user's visible labs before applying request filters.
+        // This means revenueSummary aggregates respect role scope as well.
+        $user = auth()->user();
+        AuthScope::waterSampleInvoices($invoiceQuery, $user);
+        AuthScope::waterSampleInvoiceLogs($logQuery, $user);
 
         if ($request->filled('lab_id')) {
             $labId = (int) $request->lab_id;

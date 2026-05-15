@@ -19,7 +19,9 @@ class StoreClubbedInvoiceRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user() !== null;
+        // Clubbed-invoice creation is an invoice write — gate on add_invoices
+        // so an admin can grant the perm to custom finance roles via the UI.
+        return $this->user()?->can('add_invoices') ?? false;
     }
 
     public function rules(): array

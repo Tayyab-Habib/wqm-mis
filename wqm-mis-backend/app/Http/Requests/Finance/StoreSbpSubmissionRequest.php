@@ -19,7 +19,11 @@ class StoreSbpSubmissionRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user() !== null;
+        // SBP submissions are a regulatory finance write — gate on a
+        // dedicated permission that the SBP seeder creates and grants to
+        // admin-tier roles. Any role granted submit_sbp_submissions via
+        // the admin UI can also submit.
+        return $this->user()?->can('submit_sbp_submissions') ?? false;
     }
 
     public function rules(): array

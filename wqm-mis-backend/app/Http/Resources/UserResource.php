@@ -22,18 +22,30 @@ class UserResource extends JsonResource
         // The legacy 'permissions' field stays encrypted for backwards compatibility;
         // 'permission_names' is the new plain-text array for frontend RBAC gating.
         //
-        // AuthController mutates $user->permissions in-place to a Collection of strings
-        // BEFORE UserResource runs (legacy decryption flow). If we call getAllPermissions()
-        // again here, Spatie's HasPermissions::merge() tries to call getKey() on those
-        // strings and crashes with "Call to a member function getKey() on string".
-        // So: if $this->permissions is already a flat string collection, just use it.
-        // Otherwise pluck names off the Permission models normally.
-        $permRaw = $this->permissions;
-        $permissionNames = collect($permRaw)
-            ->map(fn ($p) => is_string($p) ? $p : ($p->name ?? null))
-            ->filter()
-            ->values()
-            ->all();
+        // Three call paths to handle:
+        //   1. AuthController mutates $user->permissions in-place to a Collection
+        //      of strings before serialising. Use as-is.
+        //   2. Permission models attached via the direct ($user->permissions)
+        //      relation. Pluck name.
+        //   3. Anywhere else (e.g. /api/me) — direct permissions list is empty
+        //      because all perms come through the role. Use getAllPermissions()
+        //      which returns role-derived + direct unioned.
+        $permRaw = $this->resource->permissions ?? collect();
+        if ($permRaw instanceof \Illuminate\Support\Collection && $permRaw->isNotEmpty() && is_string($permRaw->first())) {
+            // Case 1 — already strings, use as-is
+            $permissionNames = $permRaw->values()->all();
+        } else {
+            // Cases 2 + 3 — union role + direct perms; pluck names
+            $all = method_exists($this->resource, 'getAllPermissions')
+                ? $this->resource->getAllPermissions()
+                : collect($permRaw);
+            $permissionNames = collect($all)
+                ->map(fn ($p) => is_string($p) ? $p : ($p->name ?? null))
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+        }
 
         return [
             'id' => $this->id,

@@ -19,9 +19,17 @@ export const useUserStore = defineStore('user', () => {
   const isClient      = computed(() => currentUser.value?.user_type === 'client')
 
   // ── RBAC extensions ──────────────────────────────────────────────────
-  // Permissions are an array of permission slugs ("view_water_samples" etc.)
-  // attached by the backend login response. Default to [] so .includes() works.
-  const permissions = computed(() => currentUser.value?.permissions || [])
+  // Permission slugs ("view_water_samples" etc.) attached by the backend
+  // login response. UserResource emits them as plaintext `permission_names`;
+  // the legacy `permissions` field is encrypted and not usable client-side.
+  const permissions = computed(() => {
+    const u = currentUser.value
+    if (!u) return []
+    if (Array.isArray(u.permission_names)) return u.permission_names
+    // Backwards-compat: some older payloads stored an array directly under `permissions`
+    if (Array.isArray(u.permissions)) return u.permissions
+    return []
+  })
   const isViewOnly  = computed(() => !!currentUser.value?.is_view_only || normRole.value === 'view-only-admin')
   const isDummy     = computed(() => !!currentUser.value?.is_dummy)
   const allowedModules = computed(() => currentUser.value?.allowed_modules || null)

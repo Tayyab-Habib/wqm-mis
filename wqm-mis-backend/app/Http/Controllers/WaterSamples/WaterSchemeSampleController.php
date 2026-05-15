@@ -32,7 +32,8 @@ class WaterSchemeSampleController extends Controller
             ])
             ->whereNotNull('water_scheme_id');
 
-        if ($authUser->hasAnyRole(['laboratory-assistant', 'junior-clerk'])) {
+        // RBAC: permission-driven own-only filter so custom roles can opt in.
+        if (!$authUser->isUnscoped() && $authUser->can('view_own_samples_only')) {
             $query->where('created_by', '=', $authUser->id);
         }
 

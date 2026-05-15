@@ -461,6 +461,59 @@ class AuthScope
         return self::laboratoryScoped($query, $user, 'payments');
     }
 
+    /**
+     * Scope water_sample_invoices through the underlying water_sample's lab.
+     * Used by the Finance module (FinanceInvoiceController, etc).
+     * Unscoped roles see everything; scoped roles see only invoices whose
+     * water_sample.laboratory_id is in their visible-lab set.
+     */
+    public static function waterSampleInvoices($query, ?User $user)
+    {
+        $role = self::primaryRole($user);
+        if (!$user || !$role || in_array($role, self::UNSCOPED_ROLES, true)) {
+            return $query;
+        }
+        $labIds = self::visibleLabIds($user);
+        if (empty($labIds)) {
+            return $query->whereRaw('1 = 0');
+        }
+        return $query->whereHas('waterSample', fn ($q) => $q->whereIn('laboratory_id', $labIds));
+    }
+
+    /**
+     * Scope water_sample_invoice_logs through the parent invoice's water_sample lab.
+     */
+    public static function waterSampleInvoiceLogs($query, ?User $user)
+    {
+        $role = self::primaryRole($user);
+        if (!$user || !$role || in_array($role, self::UNSCOPED_ROLES, true)) {
+            return $query;
+        }
+        $labIds = self::visibleLabIds($user);
+        if (empty($labIds)) {
+            return $query->whereRaw('1 = 0');
+        }
+        return $query->whereHas('waterSampleInvoice.waterSample', fn ($q) => $q->whereIn('laboratory_id', $labIds));
+    }
+
+    /**
+     * Scope SBP submissions by lab_id directly (the sbp_submissions table has
+     * its own lab_id column, no relation join needed).
+     */
+    public static function sbpSubmissions($query, ?User $user)
+    {
+        $role = self::primaryRole($user);
+        if (!$user || !$role || in_array($role, self::UNSCOPED_ROLES, true)) {
+            return $query;
+        }
+        $labIds = self::visibleLabIds($user);
+        if (empty($labIds)) {
+            return $query->whereRaw('1 = 0');
+        }
+        $table = self::tableFor($query, 'sbp_submissions');
+        return $query->whereIn("{$table}.lab_id", $labIds);
+    }
+
     public static function complaints($query, ?User $user)
     {
         return self::laboratoryScoped($query, $user, 'complaints');

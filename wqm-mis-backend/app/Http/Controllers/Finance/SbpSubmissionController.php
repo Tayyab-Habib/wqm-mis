@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Finance\StoreSbpSubmissionRequest;
 use App\Models\SbpSubmission;
 use App\Models\WaterSamples\WaterSampleInvoiceLog;
+use App\Services\AuthScope;
 use App\Services\FinanceSlugService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -24,15 +25,18 @@ class SbpSubmissionController extends Controller
 
     public function index(): JsonResponse
     {
-        $rows = SbpSubmission::query()
+        $query = SbpSubmission::query()
             ->with([
                 'laboratory:id,name,code',
                 'submittedBy:id,name',
                 'verifiedBy:id,name',
             ])
             ->withCount('invoiceLogs')
-            ->orderByDesc('created_at')
-            ->get();
+            ->orderByDesc('created_at');
+
+        // RBAC: scope to user's visible labs via sbp_submissions.lab_id.
+        AuthScope::sbpSubmissions($query, auth()->user());
+        $rows = $query->get();
 
         return response()->json([
             'message' => 'Success',
@@ -55,7 +59,7 @@ class SbpSubmissionController extends Controller
      */
     public function pending(): JsonResponse
     {
-        $logs = WaterSampleInvoiceLog::query()
+        $query = WaterSampleInvoiceLog::query()
             ->whereNull('sbp_submission_id')
             ->whereIn('payment_mode', ['Cash', 'Cheque'])
             ->with([
@@ -65,8 +69,12 @@ class SbpSubmissionController extends Controller
                 'waterSampleInvoice.waterSample.laboratory:id,name,code',
                 'user:id,name',
             ])
-            ->orderBy('created_at', 'asc')
-            ->get([
+            ->orderBy('created_at', 'asc');
+
+        // RBAC: scope through invoice's water_sample lab.
+        AuthScope::waterSampleInvoiceLogs($query, auth()->user());
+
+        $logs = $query->get([
                 'id',
                 'water_sample_invoice_id',
                 'user_id',
@@ -152,12 +160,14 @@ class SbpSubmissionController extends Controller
             return response()->json(['message' => 'Unauthenticated'], Http::HTTP_UNAUTHORIZED);
         }
 
-        $hasRole = method_exists($user, 'hasAnyRole')
-            ? $user->hasAnyRole(['system-administrator', 'finance-verifier'])
-            : false;
-        if (!$hasRole) {
+        // SBP verification is an admin-tier action. isUnscoped() covers
+        // system-administrator + system-manager + view-only-admin (the audit
+        // role); finance-verifier doesn't exist in our roles table so the
+        // legacy hasAnyRole(['system-administrator', 'finance-verifier'])
+        // would 403 every non-SA user that should be allowed.
+        if (!$user->isUnscoped()) {
             return response()->json([
-                'message' => 'Only system-administrator or finance-verifier may verify SBP submissions.',
+                'message' => 'Only admin-tier users may verify SBP submissions.',
             ], Http::HTTP_FORBIDDEN);
         }
 

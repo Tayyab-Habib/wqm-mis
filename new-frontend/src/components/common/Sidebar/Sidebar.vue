@@ -7,15 +7,17 @@ import { api } from '../../../services/api.js'
 const store     = useUiStore()
 const userStore = useUserStore()
 
-// RBAC role groups for sidebar gating.
-// SA + view-only-admin + general-view-account can see virtually everything
-// (writes are blocked elsewhere for view-only/general-view).
-const ALL_ADMINS   = ['system-administrator', 'system-manager', 'view-only-admin', 'general-view-account']
-const LAB_ROLES    = ['lab-incharge', 'junior-clerk', 'laboratory-assistant']
-const READ_ANY     = [...ALL_ADMINS, 'lab-incharge']
-const WRITE_LAB    = ['system-administrator', 'system-manager', 'lab-incharge']
-const DATA_ENTRY   = ['system-administrator', 'system-manager', 'lab-incharge', 'junior-clerk']
-const SAMPLE_ENTRY = [...DATA_ENTRY, 'laboratory-assistant']
+// RBAC: sidebar items are gated by PERMISSION, not by role name.
+// This means any custom role granted the right permission via the admin UI
+// gets the corresponding menu without a code change. Roles are no longer
+// hardcoded here.
+//
+// Helpers — accept a permission name (string) or array of permission names.
+// Item is visible if user has ANY of the listed permissions, OR if the user
+// is unscoped (SA / system-manager / view-only-admin / general-view-account),
+// since unscoped roles see everything by definition.
+const UNSCOPED_ROLES = ['system-administrator', 'system-manager', 'view-only-admin', 'general-view-account']
+const isUnscoped = computed(() => UNSCOPED_ROLES.some(r => userStore.hasRole(r)))
 
 // ── Dynamic badge counts ──────────────────────────────────────────────
 const unfitCount = ref(0)
@@ -45,43 +47,49 @@ onMounted(() => {
 })
 onUnmounted(() => clearInterval(refreshTimer))
 
-// Each item gets a `roles` array → only members of those roles see it.
-// Section headers also have `roles` → entire section vanishes if user has none of them.
-// Sections with no `roles` are visible to all authenticated users.
+// Each item declares `permissions: ['perm_name', ...]`. The item is visible
+// when the user has ANY of those permissions, OR when the user is unscoped.
+// Items / sections with no `permissions` key are visible to all authenticated
+// users (e.g. Dashboard).
+//
+// `adminOnly: true` is an escape hatch for routes that are SA-tier without a
+// natural permission (e.g. the Users/HR admin page) — only unscoped roles see
+// them, regardless of fine-grained perms. Use sparingly.
 const navItems = [
   { label: 'Dashboard',           icon: '🏠', route: '/dashboard' },
-  { section: 'Water Quality',                                                                          roles: [...ALL_ADMINS, ...LAB_ROLES] },
-  { label: 'Sample Registration', icon: '🧪', route: '/water-quality/sample-registration',             roles: SAMPLE_ENTRY },
-  { label: 'Analysis Entry',      icon: '⚗️', route: '/water-quality/analysis-entry',                  roles: SAMPLE_ENTRY.filter(r => r !== 'junior-clerk') },
-  { label: 'Unfit Sample Trail',  icon: '⚠️', route: '/water-quality/unfit-sample-trail', badgeKey: 'unfit', roles: READ_ANY },
-  { section: 'Reports',                                                                                roles: READ_ANY },
-  { label: 'Individual Sample Report', icon: '🧪', route: '/reports/individual-sample',                roles: READ_ANY },
-  { label: 'GAR (Abstract)',      icon: '📄', route: '/reports/gar',                                   roles: READ_ANY },
-  { label: 'GSR (Summary)',       icon: '📋', route: '/reports/gsr',                                   roles: READ_ANY },
-  { label: 'ASR (Analysis Summary)', icon: '📊', route: '/reports/asr',                                roles: READ_ANY },
-  { label: 'CE-Wise Report',      icon: '🗺️', route: '/reports/ce-wise',                              roles: READ_ANY },
-  { label: 'PWR (Parameter-wise)', icon: '🔬', route: '/reports/pwr',                                  roles: READ_ANY },
-  { label: 'WSS Map',             icon: '🗾', route: '/reports/wss-map',                               roles: READ_ANY },
-  { section: 'Finance',                                                                                roles: DATA_ENTRY },
-  { label: 'Invoices / Revenue',  icon: '🧾', route: '/finance/invoices',                              roles: DATA_ENTRY },
-  { label: 'SBP Submissions',     icon: '🏦', route: '/finance/sbp-submissions',                       roles: ['system-administrator', 'system-manager'] },
-  { section: 'Asset Management',                                                                       roles: WRITE_LAB },
-  { label: 'Stock / Inventory',   icon: '📦', route: '/assets/stock-inventory',                        roles: WRITE_LAB },
-  { label: 'Equipment Register',  icon: '🔧', route: '/assets/equipment-register',                     roles: WRITE_LAB },
-  { label: 'Demand & Issuance',   icon: '🔄', route: '/assets/demand-issuance',                        roles: WRITE_LAB },
-  { section: 'Admin',                                                                                  roles: ['system-administrator', 'system-manager', 'view-only-admin'] },
-  { label: 'Users / HR',          icon: '👥', route: '/admin/users-hr',                                roles: ['system-administrator'] },
-  { label: 'KPI Framework',       icon: '📊', route: '/admin/kpi-framework',                           roles: ['system-administrator', 'system-manager', 'view-only-admin'] },
-  { label: 'Diaries / Dispatches', icon: '📝', route: '/admin/diaries-dispatches',                     roles: DATA_ENTRY },
-  { label: 'Water Scheme Details', icon: '💧', route: '/wss-details',                                  roles: READ_ANY },
+  { section: 'Water Quality',                                                                          permissions: ['view_water_samples', 'add_water_samples', 'add_water_sample_details'] },
+  { label: 'Sample Registration', icon: '🧪', route: '/water-quality/sample-registration',             permissions: ['add_water_samples'] },
+  { label: 'Analysis Entry',      icon: '⚗️', route: '/water-quality/analysis-entry',                  permissions: ['add_water_sample_details', 'edit_water_sample_results'] },
+  { label: 'Unfit Sample Trail',  icon: '⚠️', route: '/water-quality/unfit-sample-trail', badgeKey: 'unfit', permissions: ['view_water_samples'] },
+  { section: 'Reports',                                                                                permissions: ['view_water_samples', 'view_reports'] },
+  { label: 'Individual Sample Report', icon: '🧪', route: '/reports/individual-sample',                permissions: ['view_water_samples'] },
+  { label: 'GAR (Abstract)',      icon: '📄', route: '/reports/gar',                                   permissions: ['view_water_samples', 'view_reports'] },
+  { label: 'GSR (Summary)',       icon: '📋', route: '/reports/gsr',                                   permissions: ['view_water_samples', 'view_reports'] },
+  { label: 'ASR (Analysis Summary)', icon: '📊', route: '/reports/asr',                                permissions: ['view_water_samples', 'view_reports'] },
+  { label: 'CE-Wise Report',      icon: '🗺️', route: '/reports/ce-wise',                              permissions: ['view_water_samples', 'view_reports'] },
+  { label: 'PWR (Parameter-wise)', icon: '🔬', route: '/reports/pwr',                                  permissions: ['view_water_samples', 'view_reports'] },
+  { label: 'WSS Map',             icon: '🗾', route: '/reports/wss-map',                               permissions: ['view_water_schemes'] },
+  { section: 'Finance',                                                                                permissions: ['view_invoices', 'view_payments', 'view_sbp_submissions'] },
+  { label: 'Invoices / Revenue',  icon: '🧾', route: '/finance/invoices',                              permissions: ['view_invoices'] },
+  { label: 'SBP Submissions',     icon: '🏦', route: '/finance/sbp-submissions',                       permissions: ['view_sbp_submissions'] },
+  { section: 'Asset Management',                                                                       permissions: ['view_inventories', 'view_assets', 'view_materials'] },
+  { label: 'Stock / Inventory',   icon: '📦', route: '/assets/stock-inventory',                        permissions: ['view_inventories', 'view_materials'] },
+  { label: 'Equipment Register',  icon: '🔧', route: '/assets/equipment-register',                     permissions: ['view_assets'] },
+  { label: 'Demand & Issuance',   icon: '🔄', route: '/assets/demand-issuance',                        permissions: ['view_inventories'] },
+  { section: 'Admin',                                                                                  adminOnly: true },
+  { label: 'Users / HR',          icon: '👥', route: '/admin/users-hr',                                adminOnly: true },
+  { label: 'Roles & Permissions', icon: '🔐', route: '/admin/roles-permissions',                       adminOnly: true },
+  { label: 'KPI Framework',       icon: '📊', route: '/admin/kpi-framework',                           adminOnly: true },
+  { label: 'Diaries / Dispatches', icon: '📝', route: '/admin/diaries-dispatches',                     permissions: ['view_diaries', 'view_dispatches'] },
+  { label: 'Water Scheme Details', icon: '💧', route: '/wss-details',                                  permissions: ['view_water_schemes'] },
 ]
 
-// Filter the nav items based on the current user's role.
-// SA always sees everything (extra defensive). Items without `roles` are universal.
+// Permission-based visibility. Unscoped admin roles see everything.
 function canSeeItem(item) {
-  if (!item.roles || item.roles.length === 0) return true
-  if (userStore.isSuperAdmin) return true
-  return item.roles.some(r => userStore.hasRole(r))
+  if (item.adminOnly) return isUnscoped.value
+  if (!item.permissions || item.permissions.length === 0) return true
+  if (isUnscoped.value) return true
+  return item.permissions.some(p => userStore.hasPermission(p))
 }
 
 const visibleNavItems = computed(() => {
