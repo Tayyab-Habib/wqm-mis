@@ -13,7 +13,13 @@ class UpdateDiaryDispatchRequest extends FormRequest
      */
     public function authorize()
     {
-        return auth()->user()->can(['edit_diaries', 'edit_dispatches']);
+        // Enum-aware: only require the permission for the resource type being
+        // updated. The original code used can([a, b]) which Laravel evaluates
+        // as "user must have BOTH abilities" — wrong for our case.
+        $enum = $this->route('enum');
+        $enumValue = is_object($enum) ? ($enum->value ?? (string) $enum) : (string) $enum;
+        $ability = $enumValue === 'dispatch' ? 'edit_dispatches' : 'edit_diaries';
+        return auth()->user()?->can($ability) ?? false;
     }
 
     /**
@@ -23,20 +29,38 @@ class UpdateDiaryDispatchRequest extends FormRequest
      */
     public function rules()
     {
+        // All fields nullable to allow partial PATCH-style updates from the UI
+        // (e.g. the "Done" button only sends { action_status: 'Completed' }).
+        // Mirrors StoreDiaryDispatchRequest plus the SRS workflow statuses.
         return [
-            'subject' => ['required', 'string', 'max:255'],
-            'person_name' => ['required', 'string', 'max:255'],
-            'date_on_letter' => ['required', 'date', 'date_format:Y-m-d'],
-//            'receival_date' => ['required', 'date', 'date_format:Y-m-d'],
-            'attachment_name' => ['required', 'string', 'max:255'],
-            'attachment' => [
-                'nullable',
-                'file',
-                'mimetypes:application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,image/jpeg,image/png,image/jpg',
-                'max:2048',
-            ],
-            'designation_id' => ['required', 'integer', 'exists:designations,id'],
-            'folder_id' => ['required', 'integer', 'exists:folders,id'],
+            'subject'              => ['nullable', 'string', 'max:255'],
+            'person_name'          => ['nullable', 'string', 'max:255'],
+            'date_on_letter'       => ['nullable', 'date', 'date_format:Y-m-d'],
+            'attachment_name'      => ['nullable', 'string', 'max:255'],
+            'attachment'           => ['nullable', 'file', 'mimetypes:application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,image/jpeg,image/png,image/jpg', 'max:2048'],
+            'designation_id'       => ['nullable', 'integer', 'exists:designations,id'],
+            'folder_id'            => ['nullable', 'integer', 'exists:folders,id'],
+            // Shared SRS fields
+            'reference_no'         => ['nullable', 'string', 'max:255'],
+            'category'             => ['nullable', 'string', 'max:255'],
+            'priority'             => ['nullable', 'string', 'in:Routine,Urgent,Immediate'],
+            'remarks'              => ['nullable', 'string'],
+            // Diary (Inward) fields
+            'from_sender'          => ['nullable', 'string', 'max:255'],
+            'addressed_to'         => ['nullable', 'string', 'max:255'],
+            'action_required'      => ['nullable', 'boolean'],
+            'action_due_date'      => ['nullable', 'date', 'date_format:Y-m-d'],
+            'action_taken'         => ['nullable', 'string'],
+            // Combined status values: Pending/In Progress/Completed cover Diary,
+            // Draft/Sent cover Dispatch.
+            'action_status'        => ['nullable', 'string', 'in:Pending,In Progress,Completed,Draft,Sent'],
+            // Dispatch (Outward) fields
+            'to_recipient'         => ['nullable', 'string', 'max:255'],
+            'reference_diary_no'   => ['nullable', 'string', 'max:255'],
+            'mode_of_dispatch'     => ['nullable', 'string', 'in:Hand Delivery,Post,Courier,Email,Fax'],
+            'dispatch_reference_no'=> ['nullable', 'string', 'max:255'],
+            'prepared_by'          => ['nullable', 'string', 'max:255'],
+            'dispatched_by'        => ['nullable', 'string', 'max:255'],
         ];
     }
 }

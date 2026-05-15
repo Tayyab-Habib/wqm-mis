@@ -13,7 +13,10 @@ class ViewDiaryDispatchRequest extends FormRequest
      */
     public function authorize()
     {
-        return auth()->user()->can(['view_diaries', 'view_dispatches']);
+        $enum = $this->route('enum');
+        $enumValue = is_object($enum) ? ($enum->value ?? (string) $enum) : (string) $enum;
+        $ability = $enumValue === 'dispatch' ? 'view_dispatches' : 'view_diaries';
+        return auth()->user()?->can($ability) ?? false;
     }
 
     /**

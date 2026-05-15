@@ -164,7 +164,7 @@ function openSchedule(wss) {
 }
 
 async function saveSchedule() {
-  if (!schedDate.value) { alert('Please select a sampling date.'); return }
+  if (!schedDate.value) { showToast('⚠️ Please select a sampling date.', 'error'); return }
   schedSaving.value = true
   try {
     await waterSchemeService.createSchedule({
@@ -179,8 +179,9 @@ async function saveSchedule() {
       wss.schedStatus   = 'scheduled'
     }
     showSchedModal.value = false
+    showToast(`✅ Schedule saved for ${schedTarget.value?.name || 'WSS'} — ${schedDate.value}`, 'success')
   } catch (e) {
-    alert('Failed to save schedule: ' + (e.response?.data?.message || e.message))
+    showToast('❌ Failed to save schedule: ' + (e.response?.data?.message || e.message), 'error')
     console.error('Schedule save error:', e)
   } finally {
     schedSaving.value = false
@@ -221,7 +222,7 @@ function wqClass(wq) {
 
 function exportWss() {
   if (!filtered.value.length) {
-    alert('No data to export.')
+    showToast('⚠️ No data to export.', 'error')
     return
   }
   
