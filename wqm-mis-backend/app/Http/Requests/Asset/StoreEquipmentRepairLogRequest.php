@@ -9,7 +9,8 @@ class StoreEquipmentRepairLogRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return true;
+        $u = auth()->user();
+        return $u && ($u->isUnscoped() || $u->can('add_asset_maintenance_logs'));
     }
 
     public function rules(): array

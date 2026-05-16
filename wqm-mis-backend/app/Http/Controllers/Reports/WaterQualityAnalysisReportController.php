@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Report\ShowWaterQualityAnalysisReportRequest;
 use App\Models\User;
 use App\Models\WaterSamples\WaterSample;
+use App\Services\AuthScope;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Carbon;
 use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
@@ -14,7 +15,12 @@ class WaterQualityAnalysisReportController extends Controller
 {
     public function __invoke(ShowWaterQualityAnalysisReportRequest $request): JsonResponse
     {
-        $waterSamples = WaterSample::query()
+        $query = WaterSample::query();
+        // RBAC: scope by user's role. SA/manager/view-only see all; CE/SE/XEN
+        // filter by region/circle/phed_division; lab roles see only their lab(s).
+        $query = AuthScope::waterSamples($query, $request->user());
+
+        $waterSamples = $query
             ->select([
                 'id', 'slug', 'sample_name', 'water_sample_address',
                 'collected_by', 'collectable_type', 'collectable_id',

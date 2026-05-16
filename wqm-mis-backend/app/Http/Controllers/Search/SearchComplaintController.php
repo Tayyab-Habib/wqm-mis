@@ -21,7 +21,7 @@ class SearchComplaintController extends Controller
     {
         $authUser = auth()->user();
         $query = Complaint::query()
-            ->when(!$authUser->hasRole('system-administrator'), fn($query) => $query->where('user_id', '=', $authUser->id))
+            ->when(!$authUser->isUnscoped(), fn($query) => $query->where('user_id', '=', $authUser->id))
             ->with('complaintType');
 
         if (isset($request->complaint_type_id)) {

@@ -21,7 +21,7 @@ class SearchPurchaseOrderController extends Controller
     {
         $authUser = auth()->user();
         $query = PurchaseOrder::query()
-            ->when(!$authUser->hasRole('system-administrator'), fn($query) => $query->where('user_id', '=', $authUser->id));
+            ->when(!$authUser->isUnscoped(), fn($query) => $query->where('user_id', '=', $authUser->id));
 
 
         if (isset($request->status)) {

@@ -15,6 +15,7 @@ use App\Models\Inventory\Inventory;
 use App\Models\Material\Material;
 use App\Models\User;
 use App\Notifications\GenericNotification;
+use App\Services\AuthScope;
 use Exception;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Http\JsonResponse;
@@ -32,10 +33,11 @@ class InventoryController extends Controller
     public function index(ViewInventoryRequest $request)
     {
         $authUser = auth()->user();
-        $inventories = Inventory::query()
-            ->when(!$authUser->hasRole('system-administrator'), function ($query) use ($authUser) {
-                $query->where('laboratory_id', '=', $authUser->laboratoryUser->id);
-            })
+        // RBAC: SA/manager/view-only see all; lab roles filter via pivot;
+        // CE/SE/XEN see all (hierarchy scope doesn't apply to demands).
+        $invQuery = Inventory::query();
+        $invQuery = AuthScope::inventories($invQuery, $authUser);
+        $inventories = $invQuery
             ->with([
                 'laboratory:id,name',
                 'inventoryDetails:id,inventory_id,inventoryable_id,inventoryable_type,quantity,approved_quantity,unit,status,is_received,received_at' => [
@@ -178,7 +180,7 @@ class InventoryController extends Controller
      */
     public function show(ShowInventoryRequest $request, Inventory $inventory)
     {
-        if (!auth()->user()->hasRole('system-administrator')
+        if (!auth()->user()->isUnscoped()
             && (int)$inventory->created_by !== auth()->id()) {
             return response()->json([
                 'message' => 'You are not authorize to access this inventory request',

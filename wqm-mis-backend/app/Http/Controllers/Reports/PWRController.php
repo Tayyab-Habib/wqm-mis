@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Reports;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\AuthScope;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -33,7 +34,10 @@ class PWRController extends Controller
         // ── Base sample filter ────────────────────────────────────────
         $sampleQuery = DB::table('water_samples')
             ->whereNull('water_samples.deleted_at')
-            ->where('water_samples.is_draft', 0)
+            ->where('water_samples.is_draft', 0);
+        // RBAC: filter by user's hierarchy scope
+        $sampleQuery = AuthScope::waterSamples($sampleQuery, $request->user());
+        $sampleQuery = $sampleQuery
             ->when($request->filled('from_date'),        fn($q) => $q->whereDate('water_samples.sampled_at', '>=', $request->from_date))
             ->when($request->filled('to_date'),          fn($q) => $q->whereDate('water_samples.sampled_at', '<=', $request->to_date))
             ->when($request->filled('region_id'),        fn($q) => $q->where('water_samples.region_id',        $request->region_id))

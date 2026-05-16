@@ -25,7 +25,7 @@ class ComplaintController extends Controller
     {
         $authUser = auth()->user();
         $complaints = Complaint::query()
-            ->when(!$authUser->hasRole('system-administrator'), fn($query) => $query->where('user_id', '=', $authUser->id))
+            ->when(!$authUser->isUnscoped(), fn($query) => $query->where('user_id', '=', $authUser->id))
             ->with(['complaintType', 'user:id,name'])
             ->paginate(20);
 
@@ -85,7 +85,7 @@ class ComplaintController extends Controller
      */
     public function show(ShowComplaintRequest $request, Complaint $complaint)
     {
-        if (auth()->id() !== (int)$complaint->user_id && !auth()->user()->hasRole('system-administrator')) {
+        if (auth()->id() !== (int)$complaint->user_id && !auth()->user()->isUnscoped()) {
             return response()->json([
                 'message' => 'You do not have permission to view this complaint',
                 'data' => null,

@@ -21,7 +21,7 @@ class SearchIssueController extends Controller
         $authUser = auth()->user();
         $validatedData = $request->validated();
         $query = Issue::query()
-            ->when(!$authUser->hasRole('system-administrator'), fn($query) => $query->where('user_id', '=', $authUser->id));
+            ->when(!$authUser->isUnscoped(), fn($query) => $query->where('user_id', '=', $authUser->id));
 
         if (isset($validatedData['issuable_type'])) {
             $query->where('issuable_type', '=', $validatedData['issuable_type']);

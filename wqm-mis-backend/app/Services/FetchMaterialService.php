@@ -48,7 +48,7 @@ class FetchMaterialService
     {
         // Lab scoping: system-administrator sees all labs (admin lab-filter UI
         // depends on this); everyone else only sees stock at their own lab.
-        $isAdmin       = $this->authUser?->hasRole('system-administrator') ?? false;
+        $isAdmin       = $this->authUser?->isUnscoped() ?? false;
         $laboratoryId  = $this->authUser?->laboratoryUser?->id;
 
         return LaboratoryMaterial::query()
@@ -74,7 +74,7 @@ class FetchMaterialService
      */
     public function show(LaboratoryMaterial $laboratoryMaterial): JsonResponse
     {
-        if (!$this->authUser->hasRole('system-administrator') && $this->authUser->laboratoryUser->id !== (int)$laboratoryMaterial->laboratory_id) {
+        if (!$this->authUser->isUnscoped() && $this->authUser->laboratoryUser->id !== (int)$laboratoryMaterial->laboratory_id) {
             return response()->json([
                 'message' => 'You are not authorize to access data',
                 'data' => '',

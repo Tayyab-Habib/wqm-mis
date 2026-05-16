@@ -462,7 +462,7 @@ onMounted(loadEquipment)
 
     <!-- Toolbar: + Add Equipment -->
     <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
-      <button class="btn btn-pri" @click="openAddEquipment">+ Add Equipment</button>
+      <button v-write="'add_assets'" class="btn btn-pri" @click="openAddEquipment">+ Add Equipment</button>
     </div>
 
     <!-- Equipment Table -->
@@ -541,7 +541,7 @@ onMounted(loadEquipment)
               <div style="display:inline-flex;flex-wrap:nowrap;gap:6px">
                 <button class="btn btn-sec btn-xs" @click="openCalib(eq)">📋 Calib.</button>
                 <button class="btn btn-sec btn-xs" @click="openRepair(eq)">🔧 Repair</button>
-                <button class="btn btn-sec btn-xs" @click="openEditEquipment(eq)">✎ Edit</button>
+                <button v-write="'edit_assets'" class="btn btn-sec btn-xs" @click="openEditEquipment(eq)">✎ Edit</button>
               </div>
             </td>
           </tr>
@@ -668,7 +668,7 @@ onMounted(loadEquipment)
 
           <div v-if="calibTab === 'new'" style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
             <button class="btn btn-sec" @click="showCalibModal = false">Cancel</button>
-            <button class="btn btn-pri" @click="saveCalib" :disabled="calibSaving">
+            <button v-write="'add_asset_logs'" class="btn btn-pri" @click="saveCalib" :disabled="calibSaving">
               {{ calibSaving ? '⏳ Saving…' : '💾 Save' }}
             </button>
           </div>
@@ -793,7 +793,7 @@ onMounted(loadEquipment)
 
           <div v-if="repairTab === 'new'" style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
             <button class="btn btn-sec" @click="showRepairModal = false">Cancel</button>
-            <button class="btn btn-pri" @click="saveRepair" :disabled="repairSaving">
+            <button v-write="'add_asset_maintenance_logs'" class="btn btn-pri" @click="saveRepair" :disabled="repairSaving">
               {{ repairSaving ? '⏳ Saving…' : '💾 Save' }}
             </button>
           </div>
@@ -882,8 +882,8 @@ onMounted(loadEquipment)
           </div>
 
           <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
-            <button class="btn btn-sec" @click="showAddEquipmentModal = false" :disabled="addEquipmentSaving">Cancel</button>
-            <button class="btn btn-pri" @click="saveEquipment" :disabled="addEquipmentSaving">
+            <button v-write class="btn btn-sec" @click="showAddEquipmentModal = false" :disabled="addEquipmentSaving">Cancel</button>
+            <button v-write="'add_assets'" class="btn btn-pri" @click="saveEquipment" :disabled="addEquipmentSaving">
               {{ addEquipmentSaving ? '⏳ Saving…' : '💾 Save Equipment' }}
             </button>
           </div>
@@ -982,8 +982,8 @@ onMounted(loadEquipment)
           </div>
 
           <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
-            <button class="btn btn-sec" @click="showEditEquipmentModal = false" :disabled="editEquipmentSaving">Cancel</button>
-            <button class="btn btn-pri" @click="saveEditEquipment" :disabled="editEquipmentSaving">
+            <button v-write class="btn btn-sec" @click="showEditEquipmentModal = false" :disabled="editEquipmentSaving">Cancel</button>
+            <button v-write class="btn btn-pri" @click="saveEditEquipment" :disabled="editEquipmentSaving">
               {{ editEquipmentSaving ? '⏳ Saving…' : '💾 Save Changes' }}
             </button>
           </div>

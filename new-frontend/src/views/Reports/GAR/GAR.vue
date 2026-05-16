@@ -4,8 +4,10 @@ import { useRouter } from 'vue-router'
 import { reportService } from '../../../services/reportService.js'
 import { dropdownService } from '../../../services/dropdownService.js'
 import { exportToXLSX } from '../../../utils/exportHelpers.js'
+import { useRbac } from '../../../composables/useRbac.js'
 
 const router = useRouter()
+const rbac   = useRbac()
 
 // Drill-down: open the GSR pre-filtered for a specific district (and optionally lab)
 function openGSR(districtId, labId = null) {
@@ -23,7 +25,11 @@ function openGSR(districtId, labId = null) {
   router.push({ name: 'GSR', query })
 }
 
-const loading    = ref(false)
+// Start true so the skeleton renders immediately on mount. Without this
+// the page paints with empty KPI cards + table for ~1s while loadDropdowns()
+// runs, and only after that does generateReport() flip loading on — looking
+// like the empty report appears first and the skeleton appears late.
+const loading    = ref(true)
 const errorMsg   = ref('')
 const divisions  = ref([])
 const laboratories = ref([])
@@ -69,11 +75,23 @@ const filteredPhedDivs = computed(() => {
   if (filters.value.circle_id)   list = list.filter(p => p.circle_id == filters.value.circle_id)
   return list
 })
+// Lab dropdown derives via circles.laboratory_id — a lab serves whole PHE
+// circles (catchment), so filtering by lab.district_id (the lab's HQ) would
+// hide labs that serve other districts in the same admin division.
 const filteredLaboratories = computed(() => {
-  let list = laboratories.value
-  if (filters.value.district_id) list = list.filter(l => l.district_id == filters.value.district_id)
-  if (filters.value.division_id) list = list.filter(l => l.division_id == filters.value.division_id)
-  return list
+  let labIds = null
+  if (filters.value.circle_id) {
+    const c = circles.value.find(c => String(c.id) === String(filters.value.circle_id))
+    labIds = c?.laboratory_id ? [c.laboratory_id] : []
+  } else if (filters.value.region_id) {
+    labIds = circles.value
+      .filter(c => String(c.region_id) === String(filters.value.region_id))
+      .map(c => c.laboratory_id)
+      .filter(Boolean)
+  }
+  if (labIds === null) return laboratories.value
+  const set = new Set(labIds.map(String))
+  return laboratories.value.filter(l => set.has(String(l.id)))
 })
 
 // ── Load dropdowns ────────────────────────────────────────────────────
@@ -403,8 +421,18 @@ watch(filters, () => {
   filterTimer = setTimeout(generateReport, 350)
 }, { deep: true })
 
+// RBAC: pre-select + lock the filter at the user's scope level.
+// SA/manager/view-only see no locks; CE/SE/XEN/lab roles get locked to their scope.
+function applyRbacLocks() {
+  if (rbac.regionId.value)         filters.value.region_id        = String(rbac.regionId.value)
+  if (rbac.circleId.value)         filters.value.circle_id        = String(rbac.circleId.value)
+  if (rbac.phedDivisionId.value)   filters.value.phed_division_id = String(rbac.phedDivisionId.value)
+  if (rbac.laboratoryId.value)     filters.value.laboratory_id    = String(rbac.laboratoryId.value)
+}
+
 onMounted(async () => {
   await loadDropdowns()
+  applyRbacLocks()
   await generateReport()  // auto-generate with current month on load
 })
 </script>
@@ -417,7 +445,8 @@ onMounted(async () => {
       <div class="fg"><label>To</label><input type="date" v-model="filters.to_date"></div>
       <div class="fg">
         <label>CE Region</label>
-        <select v-model="filters.region_id" @change="filters.circle_id='';filters.division_id='';filters.district_id='';filters.phed_division_id='';filters.laboratory_id=''">
+        <select v-model="filters.region_id" :disabled="!!rbac.regionId.value"
+                @change="filters.circle_id='';filters.division_id='';filters.district_id='';filters.phed_division_id='';filters.laboratory_id=''">
           <option value="">All CE Regions</option>
           <option v-for="r in regions" :key="r.id" :value="r.id">{{ r.name }}</option>
         </select>
@@ -431,7 +460,8 @@ onMounted(async () => {
       </div>
       <div class="fg">
         <label>PHE Circle</label>
-        <select v-model="filters.circle_id" @change="filters.district_id='';filters.phed_division_id='';filters.laboratory_id=''">
+        <select v-model="filters.circle_id" :disabled="!!rbac.circleId.value"
+                @change="filters.district_id='';filters.phed_division_id='';filters.laboratory_id=''">
           <option value="">All Circles</option>
           <option v-for="c in filteredCircles" :key="c.id" :value="c.id">{{ c.name }}</option>
         </select>
@@ -445,14 +475,14 @@ onMounted(async () => {
       </div>
       <div class="fg">
         <label>PHE Division</label>
-        <select v-model="filters.phed_division_id">
+        <select v-model="filters.phed_division_id" :disabled="!!rbac.phedDivisionId.value">
           <option value="">All PHE Divisions</option>
           <option v-for="p in filteredPhedDivs" :key="p.id" :value="p.id">{{ p.name }}</option>
         </select>
       </div>
       <div class="fg">
         <label>Lab</label>
-        <select v-model="filters.laboratory_id">
+        <select v-model="filters.laboratory_id" :disabled="!!rbac.laboratoryId.value">
           <option value="">All Labs</option>
           <option v-for="l in filteredLaboratories" :key="l.id" :value="l.id">{{ l.name }}</option>
         </select>
@@ -482,35 +512,51 @@ onMounted(async () => {
       {{ errorMsg }}
     </div>
 
-    <div class="abar green" style="margin-bottom:12px">
-      General Abstract Report (GAR) | {{ bannerSummary }} | Annexure-1
-    </div>
+    <!-- Banner + KPI cards: hidden during initial load. The skeleton block
+         below mirrors this section so the page doesn't render empty zeros
+         before generateReport() flips loading off. -->
+    <template v-if="!loading">
+      <div class="abar green" style="margin-bottom:12px">
+        General Abstract Report (GAR) | {{ bannerSummary }} | Annexure-1
+      </div>
 
-    <!-- KP-Level Summary Cards -->
-    <div class="cards" style="grid-template-columns:repeat(6,1fr);margin-bottom:14px">
-      <div class="card">
-        <div class="c-lbl">Total Tested</div>
-        <div class="c-val">{{ totals.tested.toLocaleString() }}</div>
+      <!-- KP-Level Summary Cards -->
+      <div class="cards" style="grid-template-columns:repeat(6,1fr);margin-bottom:14px">
+        <div class="card">
+          <div class="c-lbl">Total Tested</div>
+          <div class="c-val">{{ totals.tested.toLocaleString() }}</div>
+        </div>
+        <div class="card c-green">
+          <div class="c-lbl">Fit</div>
+          <div class="c-val">{{ totals.fit.toLocaleString() }}</div>
+        </div>
+        <div class="card c-red">
+          <div class="c-lbl">Unfit</div>
+          <div class="c-val">{{ totals.unfit.toLocaleString() }}</div>
+        </div>
+        <div class="card c-amber">
+          <div class="c-lbl">% Unfit</div>
+          <div class="c-val">{{ totals.tested > 0 ? ((totals.unfit/totals.tested)*100).toFixed(1) + '%' : '—' }}</div>
+        </div>
+        <div class="card">
+          <div class="c-lbl">Labs Reporting</div>
+          <div class="c-val">{{ totals.labs }}</div>
+        </div>
+        <div class="card">
+          <div class="c-lbl" :title="'Distinct districts that submitted at least one sample in this period'">Districts with Samples</div>
+          <div class="c-val">{{ totals.districtsCovered }}</div>
+        </div>
       </div>
-      <div class="card c-green">
-        <div class="c-lbl">Fit</div>
-        <div class="c-val">{{ totals.fit.toLocaleString() }}</div>
-      </div>
-      <div class="card c-red">
-        <div class="c-lbl">Unfit</div>
-        <div class="c-val">{{ totals.unfit.toLocaleString() }}</div>
-      </div>
-      <div class="card c-amber">
-        <div class="c-lbl">% Unfit</div>
-        <div class="c-val">{{ totals.tested > 0 ? ((totals.unfit/totals.tested)*100).toFixed(1) + '%' : '—' }}</div>
-      </div>
-      <div class="card">
-        <div class="c-lbl">Labs Reporting</div>
-        <div class="c-val">{{ totals.labs }}</div>
-      </div>
-      <div class="card">
-        <div class="c-lbl" :title="'Distinct districts that submitted at least one sample in this period'">Districts with Samples</div>
-        <div class="c-val">{{ totals.districtsCovered }}</div>
+    </template>
+
+    <!-- Skeleton banner + cards while the report loads -->
+    <div v-if="loading" class="gar-sk" style="margin-bottom:14px">
+      <div class="sk sk-banner" style="margin-bottom:12px"></div>
+      <div class="sk-cards" style="grid-template-columns:repeat(6,1fr)">
+        <div class="sk-card" v-for="i in 6" :key="'gar-sc'+i">
+          <div class="sk sk-lbl"></div>
+          <div class="sk sk-val"></div>
+        </div>
       </div>
     </div>
 
@@ -849,6 +895,22 @@ onMounted(async () => {
 .gar-page .gar-sk .sk-tbl-row + .sk-tbl-row { border-top: 1px solid #f3f4f6; }
 .gar-page .gar-sk .sk-th,
 .gar-page .gar-sk .sk-td { height: 12px; }
+
+/* Banner + KPI card skeletons — sized to match the real banner and the
+   six-card grid the report renders once loading completes. */
+.gar-page .gar-sk .sk-banner { width: 100%; height: 32px; border-radius: 6px; }
+.gar-page .gar-sk .sk-cards  { display: grid; gap: 10px; }
+.gar-page .gar-sk .sk-card   {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.gar-page .gar-sk .sk-lbl    { width: 70%; height: 11px; }
+.gar-page .gar-sk .sk-val    { width: 50%; height: 22px; }
 
 /* ── Print rules (A3 landscape; preserve background colors for RAG/headers) */
 @page {

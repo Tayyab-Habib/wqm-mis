@@ -10,6 +10,7 @@ use App\Http\Requests\Role\UpdateRoleRequest;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Spatie\Permission\Models\Role;
+use Spatie\Permission\PermissionRegistrar;
 use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 class RoleController extends Controller
@@ -21,20 +22,18 @@ class RoleController extends Controller
      */
     public function index(IndexRoleRequest $request): JsonResponse
     {
+        // Always return data as an array — never null — so the admin matrix
+        // UI can render an empty list without special-casing. The previous
+        // "No data to show" branch returned data:null which broke the
+        // frontend's optimistic-append after the first create.
         $roles = Role::query()
             ->select(['id', 'name'])
+            ->orderBy('id')
             ->get();
 
-        if (0 === $roles->count()) {
-            return response()->json([
-                'message' => 'No data to show',
-                'data' => null,
-            ], SymfonyResponse::HTTP_OK);
-        }
-
         return response()->json([
-            'message' => 'Success retrieved roles with permissions',
-            'data' => $roles,
+            'message' => $roles->count() > 0 ? 'Success retrieving roles' : 'No data to show',
+            'data'    => $roles,
         ], SymfonyResponse::HTTP_OK);
     }
 
@@ -51,6 +50,11 @@ class RoleController extends Controller
         $role = Role::query()
             ->create($validatedData);
 
+        // Spatie caches role/permission lookups per request — invalidate so
+        // the next GET /roles call from the same admin session sees this
+        // role immediately instead of a stale list.
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
+
         return response()->json([
             'message' => 'Success creating role',
             'data' => $role,
@@ -65,6 +69,9 @@ class RoleController extends Controller
      */
     public function show(ShowRoleRequest $request, Role $role): JsonResponse
     {
+        // Eager-load permissions so the admin Roles & Permissions matrix
+        // can prefill toggle states on open. Returns just id + name on each.
+        $role->load(['permissions:id,name']);
         return response()->json([
             'message' => 'Success fetching role',
             'data' => $role
@@ -80,17 +87,26 @@ class RoleController extends Controller
      */
     public function update(UpdateRoleRequest $request, Role $role): JsonResponse
     {
-        $role->update($request->validated());
-
-        if ($role->wasChanged()) {
-            return response()->json([
-                'message' => 'Success updating role',
-                'data' => $role
-            ]);
+        // UpdateRoleRequest has no rules() — accept name from the request
+        // body directly. Validate uniqueness inline.
+        $data = $request->only(['name']);
+        if (!empty($data['name']) && $data['name'] !== $role->name) {
+            $exists = Role::query()
+                ->where('name', $data['name'])
+                ->where('id', '!=', $role->id)
+                ->exists();
+            if ($exists) {
+                return response()->json([
+                    'message' => 'A role with that name already exists.',
+                ], SymfonyResponse::HTTP_UNPROCESSABLE_ENTITY);
+            }
         }
+        $role->update($data);
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
         return response()->json([
-            'message' => 'Error updating role'
-        ], SymfonyResponse::HTTP_BAD_REQUEST);
+            'message' => 'Success updating role',
+            'data'    => $role,
+        ]);
     }
 
     /**
@@ -102,7 +118,7 @@ class RoleController extends Controller
     public function destroy(DeleteRoleRequest $request, Role $role): JsonResponse
     {
         $role->delete();
-
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
         return response()->json([
             'message' => 'Success deleting role',
             'data' => null

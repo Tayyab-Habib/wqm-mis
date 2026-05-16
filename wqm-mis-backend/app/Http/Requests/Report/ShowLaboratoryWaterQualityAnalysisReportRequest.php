@@ -13,7 +13,8 @@ class ShowLaboratoryWaterQualityAnalysisReportRequest extends FormRequest
      */
     public function authorize()
     {
-        return true;
+        $u = auth()->user();
+        return $u && ($u->isUnscoped() || $u->can('laboratory_analysis_report') || $u->can('view_reports'));
     }
 
     /**

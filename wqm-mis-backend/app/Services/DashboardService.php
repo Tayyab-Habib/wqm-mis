@@ -102,7 +102,6 @@ class DashboardService
         $authUser = auth()->user();
 
         $query = WaterSample::query()
-            ->when(!$authUser->hasRole('system-administrator'), fn($query) => $query->where('district_id', '=', $authUser->district_id))
             ->when(isset($this->request->laboratory_id), function ($query) {
                 return $query->where('laboratory_id', $this->request->laboratory_id);
             })
@@ -138,7 +137,6 @@ class DashboardService
         $authUser = auth()->user();
 
         $query = WaterSample::query()
-            ->when(!$authUser->hasRole('system-administrator'), fn($query) => $query->where('district_id', '=', $authUser->district_id))
             ->when(isset($this->request->laboratory_id), function ($query) {
                 return $query->where('laboratory_id', $this->request->laboratory_id);
             })
@@ -177,7 +175,6 @@ class DashboardService
         $authUser = auth()->user();
 
         $query = WaterSample::query()
-            ->when(!$authUser->hasRole('system-administrator'), fn($query) => $query->where('district_id', '=', $authUser->district_id))
             ->when(isset($this->request->laboratory_id), function ($query) {
                 return $query->where('laboratory_id', $this->request->laboratory_id);
             })
@@ -216,7 +213,6 @@ class DashboardService
         $authUser = auth()->user();
 
         $query = WaterSample::query()
-            ->when(!$authUser->hasRole('system-administrator'), fn($query) => $query->where('district_id', '=', $authUser->district_id))
             ->when(isset($this->request->laboratory_id), function ($query) {
                 return $query->where('laboratory_id', $this->request->laboratory_id);
             })
@@ -255,7 +251,6 @@ class DashboardService
         $authUser = auth()->user();
 
         $query = WaterSample::query()
-            ->when(!$authUser->hasRole('system-administrator'), fn($query) => $query->where('district_id', '=', $authUser->district_id))
             ->when(isset($this->request->laboratory_id), function ($query) {
                 return $query->where('laboratory_id', $this->request->laboratory_id);
             })
@@ -294,7 +289,6 @@ class DashboardService
         $authUser = auth()->user();
 
         $query = WaterSample::query()
-            ->when(!$authUser->hasRole('system-administrator'), fn($query) => $query->where('district_id', '=', $authUser->district_id))
             ->when(isset($this->request->laboratory_id), function ($query) {
                 return $query->where('laboratory_id', $this->request->laboratory_id);
             })
@@ -524,34 +518,66 @@ class DashboardService
         ];
     }
 
+    /**
+     * F-06 / F-07 — Lab-wise revenue must reflect water-sample invoice
+     * collections, NOT the legacy `payments` table (which records purchase-
+     * order payments). The old query joined `payments` and silently produced
+     * a Total Revenue card that did not relate to invoiced water samples at
+     * all.
+     *
+     * Now we sum `water_sample_invoice_logs.paid` grouped by
+     * `water_samples.laboratory_id`, optionally filtered by the dashboard
+     * date range supplied on the request.
+     */
     public function getLaboratoryWiseRevenue(): array
     {
-        $laboratories = Laboratory::query()->select('name')->pluck('name')->toArray();
-        $laboratories = array_fill_keys($laboratories, 0);
+        $labs = Laboratory::query()
+            ->select(['id', 'name'])
+            ->get();
 
-        $laboratoryRevenue = collect($laboratories)->merge(Laboratory::query()
-            ->select(['laboratories.id', 'laboratories.name'])
-            ->selectRaw('SUM(payments.total) as total_payment')
-            ->applyDashboardFilters($this->request, 'laboratories', 'payments.created_at')
-            ->leftJoin('payments', 'laboratories.id', '=', 'payments.laboratory_id')
-            ->groupBy('payments.laboratory_id')
-            ->get()
-            ->mapWithKeys(function ($revenue) {
-                return [
-                    $revenue->name => (float)$revenue->total_payment ?? 0
-                ];
-            }))
-            ->toArray();
+        // Period filter (defaults: current month → today)
+        $from = $this->request->date_from ?? \Carbon\Carbon::now()->startOfMonth()->toDateString();
+        $to   = $this->request->date_to   ?? \Carbon\Carbon::now()->endOfDay()->toDateString();
+
+        $totals = \Illuminate\Support\Facades\DB::table('water_sample_invoice_logs as l')
+            ->join('water_sample_invoices as i', 'i.id', '=', 'l.water_sample_invoice_id')
+            ->join('water_samples as ws', 'ws.id', '=', 'i.water_sample_id')
+            ->whereDate('l.created_at', '>=', $from)
+            ->whereDate('l.created_at', '<=', $to)
+            ->groupBy('ws.laboratory_id')
+            ->selectRaw('ws.laboratory_id, SUM(l.paid) as total_payment')
+            ->pluck('total_payment', 'laboratory_id');
+
+        $categories = [];
+        $values     = [];
+        foreach ($labs as $lab) {
+            $categories[] = $lab->name;
+            $values[]     = (float) ($totals[$lab->id] ?? 0);
+        }
 
         return [
-            'categories' => array_keys($laboratoryRevenue),
-            'series' => [
-                [
-                    'name' => 'Laboratories wise Revenue',
-                    'data' => array_values($laboratoryRevenue),
-                ],
-            ]
+            'categories' => $categories,
+            'series'     => [[
+                'name' => 'Laboratories wise Revenue',
+                'data' => $values,
+            ]],
         ];
+    }
+
+    /**
+     * F-07 — All-time total revenue across all labs.
+     */
+    public function getTotalRevenue(): float
+    {
+        return (float) \App\Models\WaterSamples\WaterSampleInvoiceLog::sum('paid');
+    }
+
+    /**
+     * F-06 — Pending = ALL outstanding balances, not just current period.
+     */
+    public function getPendingRevenue(): float
+    {
+        return (float) \App\Models\WaterSamples\WaterSampleInvoice::where('balance', '>', 0)->sum('balance');
     }
 
     public function getDistrictWiseContaminantsCount(): array

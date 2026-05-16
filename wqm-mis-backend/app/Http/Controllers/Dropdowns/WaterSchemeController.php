@@ -22,7 +22,7 @@ class WaterSchemeController extends Controller
         $waterSchemes = WaterScheme::query()
             ->select(['id', 'name', 'latitude', 'longitude', 'district_id', 'tehsil_id'])
             ->isActive()
-            ->when(!$authUser->hasRole('system-administrator'), fn($query) => $query->where('district_id', '=', $authUser->district_id))
+            ->when(!$authUser->isUnscoped(), fn($query) => $query->where('district_id', '=', $authUser->district_id))
             ->get();
 
         return response()->json([

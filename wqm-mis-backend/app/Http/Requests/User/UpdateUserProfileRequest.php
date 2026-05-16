@@ -17,7 +17,8 @@ class UpdateUserProfileRequest extends FormRequest
      */
     public function authorize()
     {
-        return true;
+        // Own profile — anyone authenticated can update their own data.
+        return auth()->check();
     }
 
     /**

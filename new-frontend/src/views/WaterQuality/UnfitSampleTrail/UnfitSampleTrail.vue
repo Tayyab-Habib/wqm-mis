@@ -1,5 +1,6 @@
 ﻿<script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useRbac } from '../../../composables/useRbac.js'
 import { api } from '../../../services/api.js'
 import { sampleService } from '../../../services/sampleService.js'
 import { exportToXLSX } from '../../../utils/exportHelpers.js'
@@ -12,6 +13,15 @@ const searchText   = ref('')
 const labFilter    = ref('')
 const statusFilter = ref('')
 const allLabs      = ref([])
+
+// ── Toast (matches the pattern in Topbar.vue / UsersHR.vue) ───────────
+const toast = ref({ show: false, message: '', type: 'success' })
+let toastTimer = null
+function showToast(message, type = 'success') {
+  clearTimeout(toastTimer)
+  toast.value = { show: true, message, type }
+  toastTimer = setTimeout(() => { toast.value.show = false }, 4000)
+}
 
 // â”€â”€ Status map (current_status integer â†’ label) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const STATUS = { 1:'Pending', 2:'Fit', 3:'Unfit', 4:'In Progress', 5:'Closed' }
@@ -178,7 +188,7 @@ function openRetest(row) {
 }
 
 async function submitRetest() {
-  if (!retestForm.value.date) { alert('Please enter a collection date.'); return }
+  if (!retestForm.value.date) { showToast('⚠️ Please enter a collection date.', 'error'); return }
   retestLoading.value = true
   try {
     const now = new Date()
@@ -201,8 +211,9 @@ async function submitRetest() {
     })
     showRetestModal.value = false
     await loadData()
+    showToast(`✅ Retest registered for ${retestTarget.value?.id}`, 'success')
   } catch (e) {
-    alert('Failed to register retest: ' + (e.response?.data?.message || e.message))
+    showToast('❌ Failed to register retest: ' + (e.response?.data?.message || e.message), 'error')
     console.error(e)
   } finally {
     retestLoading.value = false
@@ -247,8 +258,8 @@ function openFate(row) {
 }
 
 async function submitFate() {
-  if (!fateDecision.value) { alert('Please select a decision.'); return }
-  if (!fateForm.value.remarks) { alert('Remarks are required.'); return }
+  if (!fateDecision.value) { showToast('⚠️ Please select a decision.', 'error'); return }
+  if (!fateForm.value.remarks) { showToast('⚠️ Remarks are required.', 'error'); return }
   fateLoading.value = true
   try {
     await api.patch(`/water-samples/${fateTarget.value.backendId}/fate`, {
@@ -260,8 +271,9 @@ async function submitFate() {
     })
     fateSuccess.value = true
     await loadData()
+    showToast(`✅ Fate decision recorded — ${fateDecision.value}`, 'success')
   } catch (e) {
-    alert('Failed to record decision: ' + (e.response?.data?.message || e.message))
+    showToast('❌ Failed to record decision: ' + (e.response?.data?.message || e.message), 'error')
   } finally {
     fateLoading.value = false
   }
@@ -269,7 +281,7 @@ async function submitFate() {
 
 // â”€â”€ Export â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function exportData() {
-  if (!filteredRows.value.length) { alert('No data to export.'); return }
+  if (!filteredRows.value.length) { showToast('⚠️ No data to export.', 'error'); return }
   exportToXLSX(filteredRows.value.map(r => ({
     'Sample ID':      r.id,
     'WSS Name':       r.wss,
@@ -284,10 +296,31 @@ function exportData() {
   })), 'Unfit_Sample_Trail')
 }
 
-onMounted(loadData)
+// RBAC: lab roles get their labFilter pre-set + locked.
+const rbac = useRbac()
+onMounted(async () => {
+  if (rbac.laboratoryId.value) labFilter.value = String(rbac.laboratoryId.value)
+  await loadData()
+})
 </script>
 <template>
   <div>
+    <!-- ── Toast notification ── -->
+    <Teleport to="body">
+      <Transition name="toast-slide">
+        <div v-if="toast.show"
+             :style="`position:fixed;top:22px;right:24px;z-index:9999;min-width:300px;max-width:460px;
+                      background:${toast.type === 'success' ? '#065f46' : '#991b1b'};
+                      color:#fff;border-radius:8px;padding:14px 18px;
+                      box-shadow:0 6px 32px rgba(0,0,0,.28);font-size:13px;display:flex;align-items:flex-start;gap:10px`">
+          <span style="flex:1;line-height:1.5">{{ toast.message }}</span>
+          <button @click="toast.show = false"
+                  style="background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:4px;
+                         padding:2px 8px;cursor:pointer;font-size:13px;margin-left:4px">✕</button>
+        </div>
+      </Transition>
+    </Teleport>
+
     <!-- Auto-notification banner -->
     <div class="abar blue" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px;font-size:12px">
       <span>🔔 <b>Auto-Notification:</b> XEN of the relevant PHE Division is automatically notified via MIS Dashboard alert &amp; official email within 15 minutes of an unfit result being recorded. No manual action is required.</span>
@@ -416,7 +449,7 @@ onMounted(loadData)
     <!-- Toolbar -->
     <div class="toolbar" style="margin-bottom:10px">
       <input type="text" v-model="searchText" placeholder="🔍 Sample ID, WSS, District…" style="min-width:200px">
-      <select v-model="labFilter" style="border:1px solid var(--input-border);border-radius:4px;padding:6px 8px;font-size:12px;font-family:inherit">
+      <select v-model="labFilter" :disabled="!!rbac.laboratoryId.value" style="border:1px solid var(--input-border);border-radius:4px;padding:6px 8px;font-size:12px;font-family:inherit">
         <option value="">All Labs</option>
         <option v-for="l in allLabs" :key="l.id" :value="l.id">{{ l.name }}</option>
       </select>
@@ -440,8 +473,7 @@ onMounted(loadData)
 
     <!-- Main table grouped by district -->
     <div class="tbl-wrap">
-      <div v-if="loading" style="text-align:center;padding:32px;color:var(--muted)">⏳ Loading unfit samples…</div>
-      <table v-else style="font-size:12px">
+      <table style="font-size:12px">
         <thead>
           <tr style="background:var(--navy);color:#fff">
             <th style="color:#fff">Sample ID</th>
@@ -458,12 +490,30 @@ onMounted(loadData)
           </tr>
         </thead>
         <tbody>
-          <tr v-if="!filteredRows.length">
+          <!-- Skeleton shimmer rows while data is loading. 6 rows feels like
+               enough to communicate "this is a table" without taking over
+               the page. -->
+          <template v-if="loading">
+            <tr v-for="n in 6" :key="'ust-sk-' + n" class="ust-sk-row">
+              <td><div class="ust-sk" style="width:70px"></div></td>
+              <td><div class="ust-sk" style="width:140px"></div></td>
+              <td><div class="ust-sk" style="width:90px"></div></td>
+              <td><div class="ust-sk" style="width:70px"></div></td>
+              <td><div class="ust-sk" style="width:90px"></div></td>
+              <td><div class="ust-sk" style="width:80px"></div></td>
+              <td><div class="ust-sk ust-sk-pill"></div></td>
+              <td style="text-align:center"><div class="ust-sk" style="width:30px;margin:0 auto"></div></td>
+              <td style="text-align:center"><div class="ust-sk ust-sk-pill" style="margin:0 auto"></div></td>
+              <td style="text-align:center"><div class="ust-sk ust-sk-circle" style="margin:0 auto"></div></td>
+              <td><div class="ust-sk" style="width:130px"></div></td>
+            </tr>
+          </template>
+          <tr v-else-if="!filteredRows.length">
             <td colspan="11" style="text-align:center;padding:32px;color:var(--muted)">
-              {{ loading ? '' : 'No unfit samples found.' }}
+              No unfit samples found.
             </td>
           </tr>
-          <template v-for="(rows, district) in groupedRows" :key="district">
+          <template v-if="!loading" v-for="(rows, district) in groupedRows" :key="district">
             <tr style="background:#f0f4ff;border-top:2px solid var(--sky)">
               <td colspan="11" style="font-size:11px;font-weight:700;color:var(--navy2);padding:6px 12px;text-transform:uppercase;letter-spacing:.05em">
                 📍 {{ district }} District
@@ -493,11 +543,11 @@ onMounted(loadData)
               </td>
               <td style="white-space:nowrap">
                 <template v-if="row.actionStatus === 'Fate Decision Req.'">
-                  <button class="btn btn-xs" style="background:#9d174d;color:#fff;border:none;font-size:11px;margin-right:4px" @click="openFate(row)">📋 Decide WSS Fate</button>
+                  <button v-write="'edit_water_samples'" class="btn btn-xs" style="background:#9d174d;color:#fff;border:none;font-size:11px;margin-right:4px" @click="openFate(row)">📋 Decide WSS Fate</button>
                   <button class="btn btn-sec btn-xs" style="font-size:11px" @click="openTrail(row)">Trail</button>
                 </template>
                 <template v-else-if="row.actionStatus !== 'Resolved'">
-                  <button class="btn btn-pri btn-xs" style="font-size:11px;margin-right:4px" @click="openRetest(row)">▶ Register Retest</button>
+                  <button v-write="'add_water_samples'" class="btn btn-pri btn-xs" style="font-size:11px;margin-right:4px" @click="openRetest(row)">▶ Register Retest</button>
                   <button class="btn btn-sec btn-xs" style="font-size:11px" @click="openTrail(row)">Trail</button>
                 </template>
                 <template v-else>
@@ -563,7 +613,7 @@ onMounted(loadData)
           </div>
           <div style="padding:12px 24px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px;background:#fafbfc">
             <button class="btn btn-sec" @click="showRetestModal = false">Cancel</button>
-            <button class="btn btn-pri" @click="submitRetest" :disabled="retestLoading">{{ retestLoading ? '⏳ Registering…' : '▶ Register Retest' }}</button>
+            <button v-write="'add_water_samples'" class="btn btn-pri" @click="submitRetest" :disabled="retestLoading">{{ retestLoading ? '⏳ Registering…' : '▶ Register Retest' }}</button>
           </div>
         </div>
       </div>
@@ -582,7 +632,29 @@ onMounted(loadData)
             <button @click="showTrailModal = false" style="background:rgba(255,255,255,.15);border:none;color:#fff;border-radius:5px;padding:5px 12px;cursor:pointer">✕</button>
           </div>
           <div style="padding:20px 24px">
-            <div v-if="trailLoading" style="text-align:center;padding:24px;color:var(--muted)">⏳ Loading trail…</div>
+            <!-- Skeleton trail rows while sample detail is fetching -->
+            <div v-if="trailLoading" class="tbl-wrap">
+              <table style="font-size:11.5px">
+                <thead>
+                  <tr style="background:var(--navy);color:#fff">
+                    <th style="color:#fff">Round</th>
+                    <th style="color:#fff">Sampled At</th>
+                    <th style="color:#fff">Analyzed At</th>
+                    <th style="color:#fff;text-align:center">Status</th>
+                    <th style="color:#fff;text-align:center">Result</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="n in 3" :key="'ust-trail-sk-' + n" class="ust-sk-row">
+                    <td><div class="ust-sk" style="width:30px"></div></td>
+                    <td><div class="ust-sk" style="width:120px"></div></td>
+                    <td><div class="ust-sk" style="width:120px"></div></td>
+                    <td style="text-align:center"><div class="ust-sk ust-sk-pill" style="margin:0 auto"></div></td>
+                    <td style="text-align:center"><div class="ust-sk ust-sk-pill" style="margin:0 auto"></div></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
             <template v-else-if="trailDetail">
               <div class="tbl-wrap">
                 <table style="font-size:11.5px">
@@ -660,7 +732,7 @@ onMounted(loadData)
               </div>
               <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
                 <button class="btn btn-sec" @click="showFateModal = false">Cancel</button>
-                <button class="btn" style="background:#9d174d;color:#fff;border:none" @click="submitFate" :disabled="fateLoading">{{ fateLoading ? '⏳ Saving…' : '✔ Record Decision' }}</button>
+                <button v-write="'edit_water_samples'" class="btn" style="background:#9d174d;color:#fff;border:none" @click="submitFate" :disabled="fateLoading">{{ fateLoading ? '⏳ Saving…' : '✔ Record Decision' }}</button>
               </div>
             </div>
             <div v-else style="text-align:center;padding:20px 0">
@@ -675,3 +747,32 @@ onMounted(loadData)
     </Teleport>
   </div>
 </template>
+
+<style>
+/* Global so the toast in <Teleport to="body"> picks up the transition */
+.toast-slide-enter-active,
+.toast-slide-leave-active { transition: all 0.3s ease; }
+.toast-slide-enter-from,
+.toast-slide-leave-to     { opacity: 0; transform: translateX(60px); }
+
+/* ── Skeleton loaders for the main table and the trail modal ──────────
+   Matches the look used in Invoices.vue / SBPSubmissions.vue so the
+   project's "loading" feel stays consistent across modules. */
+.ust-sk-row { background: transparent !important; }
+.ust-sk-row:hover { background: transparent !important; }
+.ust-sk {
+  display: inline-block;
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #eef2f7 0%, #f7fafc 50%, #eef2f7 100%);
+  background-size: 200% 100%;
+  animation: ust-shimmer 1.4s infinite ease-in-out;
+}
+.ust-sk-pill   { width: 70px; height: 16px; border-radius: 10px; }
+.ust-sk-circle { width: 14px; height: 14px; border-radius: 50%; }
+
+@keyframes ust-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+</style>

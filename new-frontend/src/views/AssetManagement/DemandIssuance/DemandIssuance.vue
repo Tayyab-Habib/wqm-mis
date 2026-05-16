@@ -307,7 +307,7 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
             <td><span class="rag" :class="statusClass(d.detailStatus)">{{ prettyStatus(d.detailStatus) }}</span></td>
             <td>
               <template v-if="String(d.detailStatus).toLowerCase() === 'pending'">
-                <button class="btn btn-green btn-xs" :disabled="savingId === d.id" @click="approveDemand(d)">✓ Approve</button>
+                <button v-write="'edit_inventory_approve_status'" class="btn btn-green btn-xs" :disabled="savingId === d.id" @click="approveDemand(d)">✓ Approve</button>
                 <button class="btn btn-red btn-xs" :disabled="savingId === d.id" @click="openReject(d)">✗ Reject</button>
               </template>
               <template v-else-if="String(d.detailStatus).toLowerCase() === 'approved'">
@@ -373,7 +373,7 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
             </div>
           </div>
           <div class="modal-footer">
-            <button class="btn btn-pri" type="button" :disabled="demandSaving" @click="saveDemand">
+            <button v-write="'add_inventories'" class="btn btn-pri" type="button" :disabled="demandSaving" @click="saveDemand">
               <span class="btn-icon">📤</span> {{ demandSaving ? 'Submitting…' : 'Submit Demand' }}
             </button>
             <button class="btn btn-sec outline" type="button" :disabled="demandSaving" @click="showDemandModal = false">Cancel</button>
@@ -388,7 +388,7 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
         <div class="modal-content" style="max-width:480px">
           <div class="modal-header">
             <h3>📦 Issue Stock</h3>
-            <button class="close-btn" type="button" @click="issueModal.open = false">✕</button>
+            <button v-write class="close-btn" type="button" @click="issueModal.open = false">✕</button>
           </div>
           <div class="modal-body">
             <p class="modal-desc">This will deduct from your lab's stock and auto-credit the receiving lab. Expired batches are excluded from the Available total.</p>
@@ -425,7 +425,7 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
             <button class="btn btn-pri" type="button" @click="confirmIssue">
               <span class="btn-icon">📦</span> Confirm Issue
             </button>
-            <button class="btn btn-sec outline" type="button" @click="issueModal.open = false">Cancel</button>
+            <button v-write class="btn btn-sec outline" type="button" @click="issueModal.open = false">Cancel</button>
           </div>
         </div>
       </div>
@@ -437,7 +437,7 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
         <div class="modal-content" style="max-width:480px">
           <div class="modal-header">
             <h3>✗ Reject Demand</h3>
-            <button class="close-btn" type="button" @click="rejectModal.open = false">✕</button>
+            <button v-write class="close-btn" type="button" @click="rejectModal.open = false">✕</button>
           </div>
           <div class="modal-body">
             <p class="modal-desc">The field lab will be notified that this demand was rejected.</p>
@@ -453,7 +453,7 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
             <button class="btn btn-red" type="button" :disabled="!rejectModal.reason?.trim()" @click="confirmReject">
               <span class="btn-icon">✗</span> Confirm Reject
             </button>
-            <button class="btn btn-sec outline" type="button" @click="rejectModal.open = false">Cancel</button>
+            <button v-write class="btn btn-sec outline" type="button" @click="rejectModal.open = false">Cancel</button>
           </div>
         </div>
       </div>

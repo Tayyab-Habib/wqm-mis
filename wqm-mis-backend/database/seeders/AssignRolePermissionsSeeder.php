@@ -321,6 +321,16 @@ class AssignRolePermissionsSeeder extends Seeder
                 ->where('name', 'junior-clerk')
                 ->first();
 
+            // SRS §1.2 role split:
+            //   junior-clerk         → sample REGISTRATION + diary/dispatch
+            //   laboratory-assistant → ANALYSIS (test execution + result entry)
+            //
+            // Analysis-side perms (add/edit/delete water_sample_details,
+            // edit_water_sample_results, edit_test_report) are deliberately
+            // omitted here so the Analysis Entry menu / endpoints stay hidden
+            // from clerks. Read-side (show_water_sample_details, show_test_report,
+            // view_sample_analysis) is kept so clerks can see status / results
+            // for samples they registered.
             $permissions = [
                 'add_tests',
                 'edit_tests',
@@ -332,14 +342,9 @@ class AssignRolePermissionsSeeder extends Seeder
                 'show_water_samples',
                 'view_water_samples',
                 'delete_water_samples',
-                'add_water_sample_details',
-                'edit_water_sample_details',
                 'show_water_sample_details',
-                'delete_water_sample_details',
                 'edit_water_sample_invoices',
-                'edit_test_report',
                 'show_test_report',
-                'edit_water_sample_results',
                 'show_water_sample_invoices',
                 'show_water_sample_sop',
                 'view_sample_analysis',

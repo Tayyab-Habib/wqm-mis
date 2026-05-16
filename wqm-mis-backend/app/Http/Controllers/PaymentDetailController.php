@@ -95,7 +95,7 @@ class PaymentDetailController extends Controller
     {
         $authUser = auth()->user();
 
-        if ($authUser->hasRole('system-administrator')) {
+        if ($authUser->isUnscoped()) {
             return false;
         }
 

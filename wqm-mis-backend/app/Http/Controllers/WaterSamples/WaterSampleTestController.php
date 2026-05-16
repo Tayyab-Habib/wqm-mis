@@ -270,8 +270,15 @@ class WaterSampleTestController extends Controller
                                 'status' => 'UNFIT',
                                 'round' => $activeTest->round,
                             ]),
-                            'created_at' => now(),
-                            'updated_at' => now(),
+                            'water_sample_id' => $waterSample->id,
+                            'type_key'        => 'SAMPLE_UNFIT',
+                            'role'            => 'xen',
+                            'round'           => $activeTest->round,
+                            'status'          => WaterSampleCurrentStatusEnum::UNFIT->value,
+                            'notified_at'     => now(),
+                            'due_at'          => now()->addDays(7),
+                            'created_at'      => now(),
+                            'updated_at'      => now(),
                         ]);
                     }
                 } catch (\Exception $notifException) {

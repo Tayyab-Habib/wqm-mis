@@ -30,9 +30,9 @@ class PaymentController extends Controller
         $query = Payment::query()
             ->with('createdByUser:id,name');
 
-        if (!$authUser->hasRole('system-administrator')) {
-            $query->where('laboratory_id', '=', $authUser->laboratoryUser->id);
-        }
+        // Hierarchy scoping: CE/SE/XEN see payments at any lab in their hierarchy;
+        // lab roles see only their lab's payments; unscoped roles see all.
+        \App\Services\AuthScope::payments($query, $authUser);
 
         $payments = $query->paginate(20);
         if (0 === $payments->total()) {
@@ -205,7 +205,7 @@ class PaymentController extends Controller
     {
         $authUser = auth()->user();
 
-        if ($authUser->hasRole('system-administrator')) {
+        if ($authUser->isUnscoped()) {
             return false;
         }
 

@@ -99,5 +99,8 @@ class Kernel extends HttpKernel
         'api-login-log' => ApiLoginLogMiddleware::class,
         'api-request-log' => ApiRequestLogMiddleware::class,
         'client.portal' => \App\Http\Middleware\AuthenticateClientPortal::class,
+        // RBAC enforcement
+        'dummy.account' => \App\Http\Middleware\DummyAccountMiddleware::class,
+        'view.only'     => \App\Http\Middleware\EnforceViewOnlyMiddleware::class,
     ];
 }

@@ -8,6 +8,15 @@ const activeTab = ref(0)
 const diaryEntries = ref([])
 const dispatches   = ref([])
 
+// ── Toast (matches the pattern in Topbar.vue / UsersHR.vue) ───────────
+const toast = ref({ show: false, message: '', type: 'success' })
+let toastTimer = null
+function showToast(message, type = 'success') {
+  clearTimeout(toastTimer)
+  toast.value = { show: true, message, type }
+  toastTimer = setTimeout(() => { toast.value.show = false }, 4000)
+}
+
 function mapDiary(d) {
   return {
     id:            d.id,
@@ -75,7 +84,7 @@ const diaryForm = ref({
 function onDiaryFile(e) { diaryForm.value.attachment = e.target.files[0] || null }
 
 async function saveDiary() {
-  if (!diaryForm.value.subject) { alert('Subject is required.'); return }
+  if (!diaryForm.value.subject) { showToast('⚠️ Subject is required.', 'error'); return }
   try {
     const fd = new FormData()
     const fields = ['from_sender','reference_no','date_on_letter','subject','category',
@@ -87,8 +96,9 @@ async function saveDiary() {
     await diaryService.createDiary(fd)
     await loadData()
     showDiaryModal.value = false
+    showToast('✅ Diary entry saved successfully', 'success')
   } catch (e) {
-    alert('Failed to save: ' + (e?.response?.data?.message || e?.message || 'Error'))
+    showToast('❌ Failed to save: ' + (e?.response?.data?.message || e?.message || 'Error'), 'error')
   }
 }
 
@@ -104,7 +114,7 @@ const dispForm = ref({
 function onDispatchFile(e) { dispForm.value.attachment = e.target.files[0] || null }
 
 async function saveDispatch() {
-  if (!dispForm.value.subject || !dispForm.value.to_recipient) { alert('Subject and To are required.'); return }
+  if (!dispForm.value.subject || !dispForm.value.to_recipient) { showToast('⚠️ Subject and To are required.', 'error'); return }
   try {
     const fd = new FormData()
     const fields = ['to_recipient','reference_no','reference_diary_no','date_on_letter','subject',
@@ -115,8 +125,9 @@ async function saveDispatch() {
     await diaryService.createDispatch(fd)
     await loadData()
     showDispatchModal.value = false
+    showToast('✅ Dispatch saved successfully', 'success')
   } catch (e) {
-    alert('Failed to save: ' + (e?.response?.data?.message || e?.message || 'Error'))
+    showToast('❌ Failed to save: ' + (e?.response?.data?.message || e?.message || 'Error'), 'error')
   }
 }
 
@@ -125,7 +136,15 @@ async function markDone(id, type) {
     if (type === 'diary') await diaryService.updateDiary(id, { action_status: 'Completed' })
     else await diaryService.updateDispatch(id, { action_status: 'Sent' })
     await loadData()
-  } catch (e) { console.error('Mark done error:', e) }
+    showToast(type === 'diary' ? '✅ Marked as completed' : '✅ Marked as sent', 'success')
+  } catch (e) {
+    console.error('Mark done error:', e)
+    const errs = e?.response?.data?.errors
+    const msg = errs
+      ? Object.values(errs).flat().join(' | ')
+      : (e?.response?.data?.message || e?.message || 'Unknown error')
+    showToast('❌ Failed to mark as done: ' + msg, 'error')
+  }
 }
 
 const diarySearch  = ref('')
@@ -159,6 +178,22 @@ onMounted(loadData)
 
 <template>
   <div>
+    <!-- ── Toast notification ── -->
+    <Teleport to="body">
+      <Transition name="toast-slide">
+        <div v-if="toast.show"
+             :style="`position:fixed;top:22px;right:24px;z-index:9999;min-width:300px;max-width:460px;
+                      background:${toast.type === 'success' ? '#065f46' : '#991b1b'};
+                      color:#fff;border-radius:8px;padding:14px 18px;
+                      box-shadow:0 6px 32px rgba(0,0,0,.28);font-size:13px;display:flex;align-items:flex-start;gap:10px`">
+          <span style="flex:1;line-height:1.5">{{ toast.message }}</span>
+          <button @click="toast.show = false"
+                  style="background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:4px;
+                         padding:2px 8px;cursor:pointer;font-size:13px;margin-left:4px">✕</button>
+        </div>
+      </Transition>
+    </Teleport>
+
     <div class="tabs" style="margin-bottom:0">
       <div v-for="(t, i) in ['Diary (Inward)', 'Dispatch (Outward)', 'Pending Actions']" :key="i"
            class="tab" :class="{ active: activeTab === i }" @click="activeTab = i">{{ t }}</div>
@@ -186,8 +221,7 @@ onMounted(loadData)
         <button class="btn btn-pri btn-sm" @click="showDiaryModal = true">+ New Diary Entry</button>
       </div>
       <div class="tbl-wrap">
-        <div v-if="loading" style="text-align:center;padding:24px;color:var(--muted)">Loading...</div>
-        <table v-else style="font-size:11.5px">
+        <table style="font-size:11.5px">
           <thead>
             <tr style="background:var(--navy);color:#fff">
               <th style="color:#fff">Diary No.</th>
@@ -203,10 +237,24 @@ onMounted(loadData)
             </tr>
           </thead>
           <tbody>
-            <tr v-if="!filteredDiary.length">
+            <template v-if="loading">
+              <tr v-for="n in 6" :key="'sk-d-' + n" class="skel-row">
+                <td><span class="skel" style="width:90px"></span></td>
+                <td><span class="skel" style="width:70px"></span></td>
+                <td><span class="skel" style="width:120px"></span></td>
+                <td><span class="skel" style="width:180px"></span></td>
+                <td><span class="skel" style="width:80px"></span></td>
+                <td><span class="skel" style="width:80px"></span></td>
+                <td><span class="skel pill" style="width:55px"></span></td>
+                <td><span class="skel" style="width:70px"></span></td>
+                <td><span class="skel pill" style="width:65px"></span></td>
+                <td><span class="skel btn" style="width:55px"></span></td>
+              </tr>
+            </template>
+            <tr v-else-if="!filteredDiary.length">
               <td colspan="10" style="text-align:center;padding:24px;color:var(--muted)">No diary entries found.</td>
             </tr>
-            <tr v-for="(d, i) in filteredDiary" :key="d.id"
+            <tr v-else v-for="(d, i) in filteredDiary" :key="d.id"
                 :class="i%2===1?'alt':''"
                 :style="d.status !== 'Completed' && d.due && d.due < new Date().toISOString().split('T')[0] ? 'background:#fff3f3' : ''">
               <td class="mono" style="font-size:11px">{{ d.diaryNo }}</td>
@@ -236,8 +284,7 @@ onMounted(loadData)
         <button class="btn btn-pri btn-sm" @click="showDispatchModal = true">+ New Dispatch</button>
       </div>
       <div class="tbl-wrap">
-        <div v-if="loading" style="text-align:center;padding:24px;color:var(--muted)">Loading...</div>
-        <table v-else style="font-size:11.5px">
+        <table style="font-size:11.5px">
           <thead>
             <tr style="background:var(--navy);color:#fff">
               <th style="color:#fff">Dispatch No.</th>
@@ -253,10 +300,24 @@ onMounted(loadData)
             </tr>
           </thead>
           <tbody>
-            <tr v-if="!filteredDisp.length">
+            <template v-if="loading">
+              <tr v-for="n in 6" :key="'sk-x-' + n" class="skel-row">
+                <td><span class="skel" style="width:90px"></span></td>
+                <td><span class="skel" style="width:70px"></span></td>
+                <td><span class="skel" style="width:120px"></span></td>
+                <td><span class="skel" style="width:180px"></span></td>
+                <td><span class="skel" style="width:90px"></span></td>
+                <td><span class="skel" style="width:80px"></span></td>
+                <td><span class="skel" style="width:70px"></span></td>
+                <td><span class="skel" style="width:90px"></span></td>
+                <td><span class="skel pill" style="width:55px"></span></td>
+                <td><span class="skel btn" style="width:40px"></span></td>
+              </tr>
+            </template>
+            <tr v-else-if="!filteredDisp.length">
               <td colspan="10" style="text-align:center;padding:24px;color:var(--muted)">No dispatches found.</td>
             </tr>
-            <tr v-for="(d, i) in filteredDisp" :key="d.id" :class="i%2===1?'alt':''">
+            <tr v-else v-for="(d, i) in filteredDisp" :key="d.id" :class="i%2===1?'alt':''">
               <td class="mono" style="font-size:11px">{{ d.dispatchNo }}</td>
               <td>{{ d.date }}</td>
               <td>{{ d.to }}</td>
@@ -278,7 +339,10 @@ onMounted(loadData)
 
     <!-- PENDING ACTIONS -->
     <div v-if="activeTab === 2">
-      <div v-if="pendingActions.length === 0" class="abar green">No pending actions.</div>
+      <div v-if="loading" class="abar amber" style="padding:9px 13px">
+        <span class="skel" style="width:220px;height:13px"></span>
+      </div>
+      <div v-else-if="pendingActions.length === 0" class="abar green">No pending actions.</div>
       <div v-else class="abar amber">{{ pendingActions.length }} pending action(s) require attention. Overdue entries highlighted red.</div>
       <div class="tbl-wrap">
         <table style="font-size:11.5px">
@@ -296,10 +360,23 @@ onMounted(loadData)
             </tr>
           </thead>
           <tbody>
-            <tr v-if="!pendingActions.length">
+            <template v-if="loading">
+              <tr v-for="n in 5" :key="'sk-p-' + n" class="skel-row">
+                <td><span class="skel" style="width:90px"></span></td>
+                <td><span class="skel pill" style="width:55px"></span></td>
+                <td><span class="skel" style="width:70px"></span></td>
+                <td><span class="skel" style="width:110px"></span></td>
+                <td><span class="skel" style="width:170px"></span></td>
+                <td><span class="skel pill" style="width:55px"></span></td>
+                <td><span class="skel" style="width:70px"></span></td>
+                <td><span class="skel pill" style="width:65px"></span></td>
+                <td><span class="skel btn" style="width:55px"></span></td>
+              </tr>
+            </template>
+            <tr v-else-if="!pendingActions.length">
               <td colspan="9" style="text-align:center;padding:24px;color:var(--muted)">No pending actions.</td>
             </tr>
-            <tr v-for="(d, i) in pendingActions" :key="d.id"
+            <tr v-else v-for="(d, i) in pendingActions" :key="d.id"
                 :class="i%2===1?'alt':''"
                 :style="d.due && d.due < new Date().toISOString().split('T')[0] ? 'background:#fff3f3' : ''">
               <td class="mono" style="font-size:11px">{{ d.diaryNo || d.dispatchNo }}</td>
@@ -374,7 +451,7 @@ onMounted(loadData)
           </div>
           <div style="padding:14px 24px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px;background:#fafbfc">
             <button class="btn btn-sec" @click="showDiaryModal = false">Cancel</button>
-            <button class="btn btn-pri" @click="saveDiary">Save Diary Entry</button>
+            <button v-write="['add_diaries','edit_diaries']" class="btn btn-pri" @click="saveDiary">Save Diary Entry</button>
           </div>
         </div>
       </div>
@@ -430,10 +507,52 @@ onMounted(loadData)
           </div>
           <div style="padding:14px 24px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px;background:#fafbfc">
             <button class="btn btn-sec" @click="showDispatchModal = false">Cancel</button>
-            <button class="btn btn-pri" @click="saveDispatch">Save Dispatch</button>
+            <button v-write="['add_dispatches','edit_dispatches']" class="btn btn-pri" @click="saveDispatch">Save Dispatch</button>
           </div>
         </div>
       </div>
     </Teleport>
   </div>
 </template>
+
+<style scoped lang="scss">
+@keyframes dd-shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position:  400px 0; }
+}
+
+.skel-row {
+  background: transparent !important;
+  cursor: default;
+  &:hover { background: transparent !important; }
+}
+
+.skel {
+  display: inline-block;
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #eef1f6 0%, #f8fafc 50%, #eef1f6 100%);
+  background-size: 800px 100%;
+  animation: dd-shimmer 1.2s linear infinite;
+  vertical-align: middle;
+
+  &.pill { height: 16px; border-radius: 11px; }
+  &.btn  { height: 22px; border-radius: 4px; }
+}
+
+// Alert bar containing a skeleton — keep its padding/height stable so the
+// row count chip doesn't shift in/out as the data loads.
+.abar .skel {
+  height: 13px;
+  background: linear-gradient(90deg, rgba(0,0,0,.08) 0%, rgba(0,0,0,.04) 50%, rgba(0,0,0,.08) 100%);
+  background-size: 800px 100%;
+}
+</style>
+
+<style>
+/* Global so the toast in <Teleport to="body"> picks it up */
+.toast-slide-enter-active,
+.toast-slide-leave-active { transition: all 0.3s ease; }
+.toast-slide-enter-from,
+.toast-slide-leave-to     { opacity: 0; transform: translateX(60px); }
+</style>

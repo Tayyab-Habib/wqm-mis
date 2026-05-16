@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
+import { useRbac } from '../../../composables/useRbac.js'
 import { reportService } from '../../../services/reportService.js'
 import { dropdownService } from '../../../services/dropdownService.js'
 import { exportToExcel } from '../../../utils/exportHelpers.js'
@@ -65,11 +66,21 @@ const filteredPhedDivs = computed(() => {
   if (filters.value.circle_id)   list = list.filter(p => String(p.circle_id)   === String(filters.value.circle_id))
   return list
 })
+// Lab dropdown derives via circles.laboratory_id — see GAR for rationale.
 const filteredLaboratories = computed(() => {
-  let list = laboratories.value
-  if (filters.value.district_id) list = list.filter(l => String(l.district_id) === String(filters.value.district_id))
-  if (filters.value.division_id) list = list.filter(l => String(l.division_id) === String(filters.value.division_id))
-  return list
+  let labIds = null
+  if (filters.value.circle_id) {
+    const c = circles.value.find(c => String(c.id) === String(filters.value.circle_id))
+    labIds = c?.laboratory_id ? [c.laboratory_id] : []
+  } else if (filters.value.region_id) {
+    labIds = circles.value
+      .filter(c => String(c.region_id) === String(filters.value.region_id))
+      .map(c => c.laboratory_id)
+      .filter(Boolean)
+  }
+  if (labIds === null) return laboratories.value
+  const set = new Set(labIds.map(String))
+  return laboratories.value.filter(l => set.has(String(l.id)))
 })
 
 // Active parameters = columns rendered in the table.
@@ -355,8 +366,18 @@ watch(filters, () => {
   filterDebounce = setTimeout(() => { generateReport() }, 350)
 }, { deep: true })
 
+// RBAC: pre-select + lock filters at the user's hierarchy scope
+const rbac = useRbac()
+function applyRbacLocks() {
+  if (rbac.regionId.value)       filters.value.region_id        = String(rbac.regionId.value)
+  if (rbac.circleId.value)       filters.value.circle_id        = String(rbac.circleId.value)
+  if (rbac.phedDivisionId.value) filters.value.phed_division_id = String(rbac.phedDivisionId.value)
+  if (rbac.laboratoryId.value)   filters.value.laboratory_id    = String(rbac.laboratoryId.value)
+}
+
 onMounted(async () => {
   await loadDropdowns()
+  applyRbacLocks()
   dropdownsReady = true
   await generateReport()
 })
@@ -371,7 +392,7 @@ onMounted(async () => {
 
       <div class="fg">
         <label>CE Region</label>
-        <select v-model="filters.region_id"
+        <select v-model="filters.region_id" :disabled="!!rbac.regionId.value"
                 @change="filters.division_id='';filters.circle_id='';filters.district_id='';filters.phed_division_id='';filters.laboratory_id=''">
           <option value="">All CE Regions</option>
           <option v-for="r in regions" :key="r.id" :value="r.id">{{ r.name }}</option>
@@ -389,7 +410,7 @@ onMounted(async () => {
 
       <div class="fg">
         <label>PHE Circle</label>
-        <select v-model="filters.circle_id"
+        <select v-model="filters.circle_id" :disabled="!!rbac.circleId.value"
                 @change="filters.district_id='';filters.phed_division_id='';filters.laboratory_id=''">
           <option value="">All Circles</option>
           <option v-for="c in filteredCircles" :key="c.id" :value="c.id">{{ c.name }}</option>
@@ -407,7 +428,7 @@ onMounted(async () => {
 
       <div class="fg">
         <label>PHE Division</label>
-        <select v-model="filters.phed_division_id">
+        <select v-model="filters.phed_division_id" :disabled="!!rbac.phedDivisionId.value">
           <option value="">All PHE Divisions</option>
           <option v-for="p in filteredPhedDivs" :key="p.id" :value="p.id">{{ p.name }}</option>
         </select>
@@ -415,7 +436,7 @@ onMounted(async () => {
 
       <div class="fg">
         <label>Lab</label>
-        <select v-model="filters.laboratory_id">
+        <select v-model="filters.laboratory_id" :disabled="!!rbac.laboratoryId.value">
           <option value="">All Labs</option>
           <option v-for="l in filteredLaboratories" :key="l.id" :value="l.id">{{ l.name }}</option>
         </select>

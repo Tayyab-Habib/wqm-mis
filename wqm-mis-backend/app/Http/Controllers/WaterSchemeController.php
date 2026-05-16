@@ -8,6 +8,7 @@ use App\Http\Requests\WaterScheme\StoreWaterSchemeRequest;
 use App\Http\Requests\WaterScheme\UpdateWaterSchemeRequest;
 use App\Http\Requests\WaterScheme\ViewWaterSchemeRequest;
 use App\Models\WaterScheme;
+use App\Services\AuthScope;
 use Illuminate\Http\JsonResponse;
 use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
@@ -21,7 +22,7 @@ class WaterSchemeController extends Controller
     public function index(ViewWaterSchemeRequest $request): JsonResponse
     {
         $authUser = auth()->user();
-        $waterSchemes = WaterScheme::query()
+        $query = WaterScheme::query()
              ->select([
                  'id',
                 'slug',
@@ -40,13 +41,18 @@ class WaterSchemeController extends Controller
             ->with([
                 'unionCouncil',
                 'tehsil',
-                'district',
-                'division',
+                // district + its circle so the frontend can derive circle_id
+                'district:id,name,division_id,circle_id',
+                'district.circle:id,name,region_id,laboratory_id',
+                'division:id,name,region_id,province_id',
                 'phedDivision:id,name,district_id,circle_id',
                 'createdByUser:id,name',
-            ])
-            ->when(!$authUser->hasRole('system-administrator'), fn($query) => $query->where('division_id', '=', $authUser->district->division_id))
-            ->get();
+            ]);
+
+        // RBAC: scope water_schemes by user hierarchy
+        AuthScope::waterSchemes($query, $authUser);
+
+        $waterSchemes = $query->get();
 
 
         if ($waterSchemes->isEmpty()) {
@@ -99,7 +105,7 @@ class WaterSchemeController extends Controller
      */
     public function show(ShowWaterSchemeRequest $request, WaterScheme $waterScheme): JsonResponse
     {
-        if (auth()->user()->district_id !== $waterScheme->district_id && !auth()->user()->hasRole('system-administrator')) {
+        if (auth()->user()->district_id !== $waterScheme->district_id && !auth()->user()->isUnscoped()) {
             return response()->json([
                 'message' => 'You do not have permission to view this Water Schemes',
                 'data' => null,

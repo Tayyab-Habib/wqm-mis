@@ -28,7 +28,7 @@ class WaterSchemeTestingStatusController extends Controller
                 'tehsil:id,name'
             ]);
 
-        if (!$authUser->hasRole(['system-administrator'])) {
+        if (!$authUser->isUnscoped()) {
             $query->where('district_id', '=', $authUser->district_id);
         }
 

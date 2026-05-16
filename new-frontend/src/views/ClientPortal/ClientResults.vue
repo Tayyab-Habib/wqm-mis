@@ -72,10 +72,27 @@ onMounted(load)
       </div>
     </div>
 
-    <!-- Loading -->
-    <div v-if="loading" class="cp-loading">
-      <div class="cp-spinner"></div>
-      <span>Loading your results…</span>
+    <!-- Skeleton placeholder while sample results load. Mirrors the
+         layout underneath (4 stat cards + 8-col results table) so the
+         page doesn't reflow when the real data lands. -->
+    <div v-if="loading" class="cr-sk-wrap">
+      <div class="cr-sk-cards">
+        <div v-for="n in 4" :key="'cr-sc-' + n" class="cr-sk-card">
+          <div class="cr-sk cr-sk-icon"></div>
+          <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+            <div class="cr-sk cr-sk-val"></div>
+            <div class="cr-sk cr-sk-lbl"></div>
+          </div>
+        </div>
+      </div>
+      <div class="cr-sk-tbl">
+        <div class="cr-sk-th">
+          <div v-for="n in 8" :key="'cr-th-' + n" class="cr-sk cr-sk-h"></div>
+        </div>
+        <div v-for="r in 5" :key="'cr-row-' + r" class="cr-sk-tr">
+          <div v-for="c in 8" :key="'cr-tr' + r + '-' + c" class="cr-sk cr-sk-c"></div>
+        </div>
+      </div>
     </div>
 
     <!-- Error -->
@@ -215,4 +232,35 @@ onMounted(load)
 
 <style scoped>
 .cr-page { display: flex; flex-direction: column; gap: 20px; }
+
+/* ── Results skeleton ─────────────────────────────────────────────── */
+.cr-sk-wrap   { display: flex; flex-direction: column; gap: 14px; padding: 4px; }
+.cr-sk-cards  { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.cr-sk-card   {
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;
+  padding: 14px 16px; display: flex; align-items: center; gap: 12px;
+}
+.cr-sk-tbl    { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; }
+.cr-sk-th     { display: grid; grid-template-columns: repeat(8, 1fr); gap: 10px; padding: 12px 14px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; }
+.cr-sk-tr     { display: grid; grid-template-columns: repeat(8, 1fr); gap: 10px; padding: 12px 14px; border-bottom: 1px solid #f1f5f9; }
+.cr-sk-tr:last-child { border-bottom: none; }
+
+.cr-sk {
+  display: inline-block;
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #eef2f7 0%, #f7fafc 50%, #eef2f7 100%);
+  background-size: 200% 100%;
+  animation: cr-shimmer 1.4s infinite ease-in-out;
+}
+.cr-sk-icon { width: 38px; height: 38px; border-radius: 8px; flex-shrink: 0; }
+.cr-sk-val  { width: 50px; height: 18px; }
+.cr-sk-lbl  { width: 80px; height: 10px; }
+.cr-sk-h    { height: 11px; }
+.cr-sk-c    { height: 12px; }
+
+@keyframes cr-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
 </style>

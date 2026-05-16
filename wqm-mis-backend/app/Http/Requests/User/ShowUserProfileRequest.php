@@ -13,7 +13,8 @@ class ShowUserProfileRequest extends FormRequest
      */
     public function authorize()
     {
-        return true;
+        // Own profile — anyone authenticated can view their own data.
+        return auth()->check();
     }
 
     /**

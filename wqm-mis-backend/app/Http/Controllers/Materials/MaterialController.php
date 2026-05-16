@@ -35,7 +35,9 @@ class MaterialController extends Controller
      */
     public function index(ViewMaterialRequest $request): JsonResponse
     {
-        if ($this->authUser->hasRole(['system-administrator', 'system-manager'])) {
+        // RBAC: admin/manager/view-only-admin see all stock; everyone else is
+        // lab-scoped via the existing laboratoryUser pivot.
+        if ($this->authUser->hasRole(['system-administrator', 'system-manager', 'view-only-admin'])) {
             $materials = Material::query()->get();
         } else {
             $laboratoryId = $this->authUser->laboratoryUser?->id;
@@ -153,7 +155,7 @@ class MaterialController extends Controller
     public function show(ShowMaterialRequest $request, Material $material): JsonResponse
     {
 
-        if ($this->authUser->hasRole(['system-administrator', 'system-manager'])) {
+        if ($this->authUser->hasRole(['system-administrator', 'system-manager', 'view-only-admin'])) {
             $material->load('materialLogs');
         } else {
             $laboratoryId = $this->authUser->laboratoryUser?->id;

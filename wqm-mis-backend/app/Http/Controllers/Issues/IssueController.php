@@ -32,7 +32,7 @@ class IssueController extends Controller
         $authUser = auth()->user();
         $issues = Issue::query()
             ->with('user:id,name')
-            ->when(!$authUser->hasRole('system-administrator'), fn($query) => $query->where('user_id', '=', $authUser->id))
+            ->when(!$authUser->isUnscoped(), fn($query) => $query->where('user_id', '=', $authUser->id))
             ->paginate(20);
 
         if (0 === $issues->total()) {
@@ -122,7 +122,7 @@ class IssueController extends Controller
         // Check if the user is either the creator of the issue, an issue responsible, or a system administrator
         $isCreator = $user->id === (int)$issue->user_id;
         $isResponsible = $issue->issueResponsibles()->where('responsible_id', $user->id)->exists();
-        $isSystemAdmin = $user->hasRole('system-administrator');
+        $isSystemAdmin = $user->isUnscoped();
 
         if (!$isCreator && !$isResponsible && !$isSystemAdmin) {
             return response()->json([

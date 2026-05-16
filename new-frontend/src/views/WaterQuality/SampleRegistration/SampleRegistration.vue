@@ -9,6 +9,15 @@ const activeTab  = ref('phe')
 // ── Status messages ───────────────────────────────────────────────────
 const successMsg  = ref('')
 const errorMsg    = ref('')
+
+// ── Toast (matches the pattern in Topbar.vue / UsersHR.vue) ───────────
+const toast = ref({ show: false, message: '', type: 'success' })
+let toastTimer = null
+function showToast(message, type = 'success') {
+  clearTimeout(toastTimer)
+  toast.value = { show: true, message, type }
+  toastTimer = setTimeout(() => { toast.value.show = false }, 4000)
+}
 const saveLoading = ref(false)
 
 // ── Dropdown data from backend ────────────────────────────────────────
@@ -266,6 +275,7 @@ async function savePhe() {
     const res = await api.post('/water-samples', payload)
     generatedSampleId.value = res.data?.slug || res.data?.id || 'Saved'
     successMsg.value = `✅ Sample saved! ID: ${generatedSampleId.value}`
+    showToast(`✅ PHE Sample saved — ID ${generatedSampleId.value}`, 'success')
     // Reset sample-specific fields, keep location
     pheForm.value.water_scheme_id = ''
     pheForm.value.sourceGps       = ''
@@ -280,6 +290,7 @@ async function savePhe() {
       ? Object.entries(errs).map(([field, msgs]) => `${field}: ${Array.isArray(msgs) ? msgs[0] : msgs}`).join(' | ')
       : (e.response?.data?.message || e.message || 'Error saving sample')
     errorMsg.value = msg
+    showToast('❌ ' + msg, 'error')
     console.error('PHE save error full:', JSON.stringify(e.response?.data, null, 2))
   } finally {
     saveLoading.value = false
@@ -409,7 +420,9 @@ async function savePvt() {
     }
 
     const res = await api.post('/water-samples', payload)
-    successMsg.value = `✅ Sample saved! ID: ${res.data?.slug || res.data?.id}`
+    const pvtSlug = res.data?.slug || res.data?.id
+    successMsg.value = `✅ Sample saved! ID: ${pvtSlug}`
+    showToast(`✅ Private Sample saved — ID ${pvtSlug}`, 'success')
     pvtForm.value.sampleName = ''
     pvtForm.value.gps        = ''
     pvtForm.value.collectionDate = today()
@@ -417,9 +430,11 @@ async function savePvt() {
     clientSearch.value   = ''
   } catch (e) {
     const errs = e.response?.data?.errors
-    errorMsg.value = errs
+    const msg = errs
       ? Object.values(errs).flat().join(' | ')
       : (e.response?.data?.message || e.message || 'Error saving private sample')
+    errorMsg.value = msg
+    showToast('❌ ' + msg, 'error')
     console.error('PVT save error:', e.response?.data || e)
   } finally {
     saveLoading.value = false
@@ -468,13 +483,17 @@ async function savePT() {
     }
 
     const res = await api.post('/water-samples', payload)
-    successMsg.value = `✅ PT Sample saved! ID: ${res.data?.slug || res.data?.id}`
+    const ptSlug = res.data?.slug || res.data?.id
+    successMsg.value = `✅ PT Sample saved! ID: ${ptSlug}`
+    showToast(`✅ PT Sample saved — ID ${ptSlug}`, 'success')
     ptForm.value.round = ''
   } catch (e) {
     const errs = e.response?.data?.errors
-    errorMsg.value = errs
+    const msg = errs
       ? Object.values(errs).flat().join(' | ')
       : (e.response?.data?.message || e.message || 'Error saving PT sample')
+    errorMsg.value = msg
+    showToast('❌ ' + msg, 'error')
     console.error('PT save error:', e.response?.data || e)
   } finally {
     saveLoading.value = false
@@ -484,6 +503,22 @@ async function savePT() {
 
 <template>
   <div>
+    <!-- ── Toast notification ── -->
+    <Teleport to="body">
+      <Transition name="toast-slide">
+        <div v-if="toast.show"
+             :style="`position:fixed;top:22px;right:24px;z-index:9999;min-width:300px;max-width:460px;
+                      background:${toast.type === 'success' ? '#065f46' : '#991b1b'};
+                      color:#fff;border-radius:8px;padding:14px 18px;
+                      box-shadow:0 6px 32px rgba(0,0,0,.28);font-size:13px;display:flex;align-items:flex-start;gap:10px`">
+          <span style="flex:1;line-height:1.5">{{ toast.message }}</span>
+          <button @click="toast.show = false"
+                  style="background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:4px;
+                         padding:2px 8px;cursor:pointer;font-size:13px;margin-left:4px">✕</button>
+        </div>
+      </Transition>
+    </Teleport>
+
     <!-- Tabs -->
     <div class="tabs">
       <div class="tab" :class="{ active: activeTab === 'phe' }"   @click="activeTab = 'phe'">🏗 PHE / WSS Sample</div>
@@ -689,7 +724,7 @@ async function savePT() {
       </div>
 
       <div style="display:flex;gap:8px;align-items:center">
-        <button class="btn btn-pri" @click="savePhe" :disabled="saveLoading">
+        <button v-write="'add_water_samples'" class="btn btn-pri" @click="savePhe" :disabled="saveLoading">
           {{ saveLoading ? '⏳ Saving…' : '💾 Save & Print Label' }}
         </button>
         <button class="btn btn-sec">🖨 Print Barcode Label</button>
@@ -841,7 +876,7 @@ async function savePT() {
       </div>
 
       <div style="display:flex;gap:8px;align-items:center;margin-top:14px">
-        <button class="btn btn-pri" @click="savePvt" :disabled="saveLoading">
+        <button v-write="'add_water_samples'" class="btn btn-pri" @click="savePvt" :disabled="saveLoading">
           {{ saveLoading ? '⏳ Saving…' : '💾 Save & Generate Invoice' }}
         </button>
         <button class="btn btn-sec">🖨 Print Barcode Label</button>
@@ -941,7 +976,7 @@ async function savePT() {
       </div>
 
       <div style="display:flex;gap:8px;align-items:center;padding-top:10px;border-top:1px solid var(--border)">
-        <button class="btn btn-pri" @click="savePT" :disabled="saveLoading">
+        <button v-write="'add_water_samples'" class="btn btn-pri" @click="savePT" :disabled="saveLoading">
           {{ saveLoading ? '⏳ Saving…' : '💾 Save & Assign to Queue' }}
         </button>
         <button class="btn btn-sec">🖨 Save &amp; Print Label</button>
@@ -984,4 +1019,12 @@ async function savePT() {
   &.amber { border: 1px solid #f4a236; border-top: none; }
   &.red   { border: 1px solid #f5c6c6; border-top: none; }
 }
+</style>
+
+<style>
+/* Global so the toast in <Teleport to="body"> picks up the transition */
+.toast-slide-enter-active,
+.toast-slide-leave-active { transition: all 0.3s ease; }
+.toast-slide-enter-from,
+.toast-slide-leave-to     { opacity: 0; transform: translateX(60px); }
 </style>

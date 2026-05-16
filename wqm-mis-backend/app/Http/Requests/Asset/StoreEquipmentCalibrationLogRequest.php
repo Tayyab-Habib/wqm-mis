@@ -9,7 +9,8 @@ class StoreEquipmentCalibrationLogRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return true;
+        $u = auth()->user();
+        return $u && ($u->isUnscoped() || $u->can('add_asset_logs'));
     }
 
     public function rules(): array

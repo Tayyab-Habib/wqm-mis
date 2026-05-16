@@ -13,8 +13,9 @@ class InvokeCentralLaboratoryWaterQualityReportRequest extends FormRequest
      * @return bool
      */
     public function authorize()
-    {   
-        return true;
+    {
+        $u = auth()->user();
+        return $u && ($u->isUnscoped() || $u->can('central_water_analysis_report') || $u->can('view_reports'));
     }
 
     protected function prepareForValidation()

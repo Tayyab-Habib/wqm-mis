@@ -4,6 +4,7 @@ namespace App\Http\Controllers\WaterSamples;
 
 use App\Http\Controllers\Controller;
 use App\Models\WaterSamples\WaterSample;
+use App\Services\AuthScope;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -31,14 +32,12 @@ class WaterSchemeSampleController extends Controller
             ])
             ->whereNotNull('water_scheme_id');
 
-        if ($authUser->hasAnyRole(['laboratory-assistant', 'junior-clerk'])) {
+        // RBAC: permission-driven own-only filter so custom roles can opt in.
+        if (!$authUser->isUnscoped() && $authUser->can('view_own_samples_only')) {
             $query->where('created_by', '=', $authUser->id);
         }
 
-        if (!$authUser->hasAnyRole(['system-administrator', 'laboratory-assistant'])) {
-            $laboratoryId = $authUser->laboratoryUser->id;
-            $query->where('laboratory_id', '=', $laboratoryId);
-        }
+        AuthScope::waterSamples($query, $authUser);
 
         $waterSamples = $query->paginate(20);
 
