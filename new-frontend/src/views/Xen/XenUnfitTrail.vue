@@ -135,10 +135,13 @@ const retestLoading   = ref(false)
 const retestForm      = ref(blankRetestForm())
 
 function blankRetestForm() {
+  const now = new Date()
+  const pad = n => String(n).padStart(2, '0')
+  const nowTime = `${pad(now.getHours())}:${pad(now.getMinutes())}`
   const d = new Date(); d.setDate(d.getDate() + 3)
   return {
     date:                  new Date().toISOString().split('T')[0],
-    time:                  '09:00',
+    time:                  nowTime,
     collected_in:          'Plastic Bottle',
     collected_by:          'Laboratory Staff',
     desired_test:          ['Physical', 'Physical & Chemical', 'Microbiological(MF)'],
