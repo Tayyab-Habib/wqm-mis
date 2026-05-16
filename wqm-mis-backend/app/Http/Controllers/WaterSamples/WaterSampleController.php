@@ -16,11 +16,13 @@ use App\Http\Requests\WaterSample\StoreWaterSampleRequest;
 use App\Http\Requests\WaterSample\UpdateWaterSampleRequest;
 use App\Http\Requests\WaterSample\ViewWaterSampleRequest;
 use App\Models\Client;
+use App\Models\Laboratories\Laboratory;
 use App\Models\Scopes\LatestScope;
 use App\Models\Test;
 use App\Models\User;
 use App\Models\WaterSamples\WaterSample;
 use App\Models\WaterSamples\WaterSampleDetail;
+use App\Services\AuthScope;
 use App\Services\GenerateWaterSampleInvoice;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -71,27 +73,27 @@ class WaterSampleController extends Controller
                 'waterSampleInvoice:id,water_sample_id,price,paid,balance'
             ]);
 
-        if ($authUser->hasAnyRole(['laboratory-assistant', 'junior-clerk'])) {
-            $query->where('created_by', '=', $authUser->id);
-        }
+        // RBAC: permission-driven own-only filter for the index list.
+        // Custom roles granted view_own_samples_only see ONLY samples they
+        // registered. Lab-assistants and other lab-scoped roles see the full
+        // lab queue; isUnscoped admin roles see everything.
+        $applyOwnFilter = function ($q) use ($authUser) {
+            if (!$authUser->isUnscoped() && $authUser->can('view_own_samples_only')) {
+                $q->where('created_by', '=', $authUser->id);
+            }
+        };
+        $applyOwnFilter($query);
 
-        if (!$authUser->hasAnyRole(['system-administrator', 'laboratory-assistant'])) {
-            $laboratoryId = $authUser->laboratoryUser->id;
-            $query->where('laboratory_id', '=', $laboratoryId);
-        }
+        // Role-driven scoping handled centrally by AuthScope (region / circle /
+        // phed_division / laboratory_id). UNSCOPED_ROLES bypass.
+        AuthScope::waterSamples($query, $authUser);
 
         $waterSamples = $query->paginate(20);
 
         $query2 = WaterSample::query()->select('id');
+        $applyOwnFilter($query2);
 
-        if ($authUser->hasAnyRole(['laboratory-assistant', 'junior-clerk'])) {
-            $query2->where('created_by', '=', $authUser->id);
-        }
-
-        if (!$authUser->hasAnyRole(['system-administrator', 'laboratory-assistant'])) {
-            $laboratoryId = $authUser->laboratoryUser->id;
-            $query2->where('laboratory_id', '=', $laboratoryId);
-        }
+        AuthScope::waterSamples($query2, $authUser);
 
 
         $counts = [
@@ -134,11 +136,27 @@ class WaterSampleController extends Controller
             $collectableType = User::class;
             $collectableId = auth()->id();
             $user = auth()->user();
-            $laboratoryId = $user->laboratoryUser?->id;
+
+            // Lab routing per PHE hierarchy: each district maps to exactly one
+            // PHE Circle, which has exactly one HUB Lab. A Bajaur sample MUST
+            // go to Batkhela Lab, not whichever lab the registering user is
+            // attached to. Derive `laboratory_id` from the selected district
+            // via the chain districts → circles → laboratory_id.
+            $laboratoryId = DB::table('districts')
+                ->join('circles', 'districts.circle_id', '=', 'circles.id')
+                ->where('districts.id', $validatedData['district_id'])
+                ->value('circles.laboratory_id');
+
+            // Fallback: if the district's circle doesn't map to a lab (data
+            // gap in production), prefer the registering user's pivot lab so
+            // the sample at least lands somewhere reviewable.
+            if (!$laboratoryId) {
+                $laboratoryId = $user->laboratoryUser?->id ?? Laboratory::query()->value('id');
+            }
 
             if (!$laboratoryId) {
                 return response()->json([
-                    'message' => 'Error creating water sample, add laboratory to user first',
+                    'message' => 'Error creating water sample, no lab is configured for this district',
                     'data' => null,
                 ], SymfonyResponse::HTTP_FORBIDDEN);
             }
@@ -379,17 +397,28 @@ class WaterSampleController extends Controller
     {
         $authUser = auth()->user();
 
-        if ($authUser->hasRole('system-administrator')) {
+        if ($authUser->isUnscoped()) {
             return false;
         }
 
-        if (!$authUser->hasAnyRole(['system-administrator', 'laboratory-assistant'])
-            && (int)$waterSample->laboratory_id === (int)$authUser->laboratoryUser->id) {
-            return false;
+        $sampleLabId = (int) $waterSample->laboratory_id;
+        $userLabId   = (int) ($authUser->laboratoryUser?->id ?? 0);
+
+        // RBAC: permission-driven visibility.
+        //   view_own_samples_only → blocks unless user created the sample
+        //   view_all_lab_samples  → allows when sample lab matches user lab
+        // Custom roles granted these perms via the admin UI inherit the
+        // behaviour. Default mappings live in RbacRolePermissionsSeeder.
+        if ($authUser->can('view_own_samples_only')) {
+            return (int) $waterSample->created_by !== (int) $authUser->id;
+        }
+        if ($authUser->can('view_all_lab_samples')) {
+            return !($userLabId !== 0 && $sampleLabId === $userLabId);
         }
 
-        if ($authUser->hasAnyRole(['laboratory-assistant', 'junior_clerk'])
-            && (int)$waterSample->created_by === $authUser->id) {
+        // Fallback for hierarchy roles (lab-incharge, CE/SE/XEN with a lab
+        // pivot): allow when the sample lab matches the user's pivoted lab.
+        if ($userLabId !== 0 && $sampleLabId === $userLabId) {
             return false;
         }
 

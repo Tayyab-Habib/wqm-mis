@@ -4,8 +4,10 @@ import { useRouter } from 'vue-router'
 import { reportService } from '../../../services/reportService.js'
 import { dropdownService } from '../../../services/dropdownService.js'
 import { exportToXLSX } from '../../../utils/exportHelpers.js'
+import { useRbac } from '../../../composables/useRbac.js'
 
 const router = useRouter()
+const rbac   = useRbac()
 
 // Drill-down: open the GSR pre-filtered for a specific district (and optionally lab)
 function openGSR(districtId, labId = null) {
@@ -23,7 +25,11 @@ function openGSR(districtId, labId = null) {
   router.push({ name: 'GSR', query })
 }
 
-const loading    = ref(false)
+// Start true so the skeleton renders immediately on mount. Without this
+// the page paints with empty KPI cards + table for ~1s while loadDropdowns()
+// runs, and only after that does generateReport() flip loading on — looking
+// like the empty report appears first and the skeleton appears late.
+const loading    = ref(true)
 const errorMsg   = ref('')
 const divisions  = ref([])
 const laboratories = ref([])
@@ -69,11 +75,23 @@ const filteredPhedDivs = computed(() => {
   if (filters.value.circle_id)   list = list.filter(p => p.circle_id == filters.value.circle_id)
   return list
 })
+// Lab dropdown derives via circles.laboratory_id — a lab serves whole PHE
+// circles (catchment), so filtering by lab.district_id (the lab's HQ) would
+// hide labs that serve other districts in the same admin division.
 const filteredLaboratories = computed(() => {
-  let list = laboratories.value
-  if (filters.value.district_id) list = list.filter(l => l.district_id == filters.value.district_id)
-  if (filters.value.division_id) list = list.filter(l => l.division_id == filters.value.division_id)
-  return list
+  let labIds = null
+  if (filters.value.circle_id) {
+    const c = circles.value.find(c => String(c.id) === String(filters.value.circle_id))
+    labIds = c?.laboratory_id ? [c.laboratory_id] : []
+  } else if (filters.value.region_id) {
+    labIds = circles.value
+      .filter(c => String(c.region_id) === String(filters.value.region_id))
+      .map(c => c.laboratory_id)
+      .filter(Boolean)
+  }
+  if (labIds === null) return laboratories.value
+  const set = new Set(labIds.map(String))
+  return laboratories.value.filter(l => set.has(String(l.id)))
 })
 
 // ── Load dropdowns ────────────────────────────────────────────────────
@@ -96,12 +114,31 @@ async function loadDropdowns() {
   } catch (e) { console.error('Dropdown error:', e) }
 }
 
+// ── Client-side date validation ───────────────────────────────────────
+const dateError = computed(() => {
+  const f = filters.value.from_date
+  const t = filters.value.to_date
+  if (f && t && f > t) return 'From date must be on or before To date.'
+  return ''
+})
+
 // ── Generate report ───────────────────────────────────────────────────
+// Request sequence — drop stale responses if a newer request fires while the
+// previous one is still in flight (race condition on rapid filter changes).
+let requestSeq = 0
+
 async function generateReport() {
+  if (dateError.value) {
+    errorMsg.value  = dateError.value
+    generated.value = false
+    loading.value   = false
+    return
+  }
+
+  const mySeq = ++requestSeq
   loading.value  = true
   errorMsg.value = ''
-  rawSamples.value = []
-  generated.value  = false
+
   try {
     const payload = {}
     if (filters.value.from_date)        payload.from_date        = filters.value.from_date
@@ -115,14 +152,17 @@ async function generateReport() {
     if (filters.value.sample_type)      payload.sample_type      = filters.value.sample_type
 
     const res  = await reportService.getWaterQualityAnalysis(payload)
+    if (mySeq !== requestSeq) return   // a newer request was issued — drop this response
+
     const data = res.data?.data || res.data || []
     rawSamples.value = Array.isArray(data) ? data : []
     generated.value  = true
   } catch (e) {
+    if (mySeq !== requestSeq) return
     errorMsg.value = 'Failed to generate report: ' + (e.response?.data?.message || e.message)
     console.error('GAR error:', e)
   } finally {
-    loading.value = false
+    if (mySeq === requestSeq) loading.value = false
   }
 }
 
@@ -162,17 +202,19 @@ const labRows = computed(() => {
     else if (s.result === 'Unfit' || s.result === '2') { row.unfit++; dr.unfit++ }
   })
 
-  return Object.values(labMap).map(r => ({
-    ...r,
-    regions:       [...r.regionSet].sort().join(', ')   || '—',
-    divisions:     [...r.divisionSet].sort().join(', ') || '—',
-    districtNames: [...r.districtSet].sort().join(', '),
-    districtCount: r.districtSet.size,
-    districtList:  Object.values(r.districtRows),
-    pct:           r.tested > 0 ? ((r.unfit / r.tested) * 100).toFixed(1) : '0.0',
-    rag:           r.unfit / (r.tested || 1) > 0.2 ? 'r-red' : r.unfit / (r.tested || 1) > 0.1 ? 'r-amber' : 'r-green',
-    ragLabel:      r.unfit / (r.tested || 1) > 0.2 ? 'High' : r.unfit / (r.tested || 1) > 0.1 ? 'Moderate' : 'Good',
-  }))
+  return Object.values(labMap)
+    .map(r => ({
+      ...r,
+      regions:       [...r.regionSet].sort().join(', ')   || '—',
+      divisions:     [...r.divisionSet].sort().join(', ') || '—',
+      districtNames: [...r.districtSet].sort().join(', '),
+      districtCount: r.districtSet.size,
+      districtList:  Object.values(r.districtRows).sort((a, b) => a.district.localeCompare(b.district)),
+      pct:           r.tested > 0 ? ((r.unfit / r.tested) * 100).toFixed(1) : '0.0',
+      rag:           r.unfit / (r.tested || 1) > 0.2 ? 'r-red' : r.unfit / (r.tested || 1) > 0.1 ? 'r-amber' : 'r-green',
+      ragLabel:      r.unfit / (r.tested || 1) > 0.2 ? 'High' : r.unfit / (r.tested || 1) > 0.1 ? 'Moderate' : 'Good',
+    }))
+    .sort((a, b) => a.lab.localeCompare(b.lab))   // stable alphabetical lab order
 })
 
 // ── KP-level totals ───────────────────────────────────────────────────
@@ -218,6 +260,28 @@ const districtByDivision = computed(() => {
 // ── Month-wise Abstract ───────────────────────────────────────────────
 const MONTHS = ['Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May','Jun']
 
+// Parse a sampled_at that may arrive as ISO ("2026-05-13T..."),
+// SQL ("2026-05-13 10:30:00"), or the Laravel accessor pretty form
+// ("07 May, 2026 09:30"). Returns a 0-11 calendar month index, or null.
+const MONTH_ABBR_TO_IDX = { jan:0, feb:1, mar:2, apr:3, may:4, jun:5,
+                            jul:6, aug:7, sep:8, oct:9, nov:10, dec:11 }
+function parseCalMonth(stamp) {
+  if (!stamp) return null
+  const s = String(stamp).trim()
+  // ISO / SQL: YYYY-MM-DD...
+  const iso = s.match(/^\d{4}-(\d{2})-\d{2}/)
+  if (iso) return parseInt(iso[1], 10) - 1
+  // Pretty: "07 May, 2026 09:30"
+  const pretty = s.match(/\b([A-Za-z]{3})/)
+  if (pretty) {
+    const m = MONTH_ABBR_TO_IDX[pretty[1].toLowerCase()]
+    if (m !== undefined) return m
+  }
+  // Last resort — let the engine try
+  const d = new Date(s)
+  return Number.isNaN(d.getTime()) ? null : d.getMonth()
+}
+
 const monthWiseData = computed(() => {
   if (!rawSamples.value.length) return { rows: [], totals: {} }
 
@@ -227,10 +291,9 @@ const monthWiseData = computed(() => {
     const distName = s.district?.name || 'Unknown'
     const divName  = s.division?.name || '—'
     const phedDiv  = s.phed_division?.name || s.phedDivision?.name || '—'
-    const date     = s.sampled_at ? new Date(s.sampled_at) : null
-    if (!date) return
+    const calMonth = parseCalMonth(s.sampled_at)
+    if (calMonth === null) return
     // Fiscal year month index: Jul=0 ... Jun=11
-    const calMonth = date.getMonth() // 0=Jan
     const fiscalIdx = calMonth >= 6 ? calMonth - 6 : calMonth + 6
     const monthKey  = MONTHS[fiscalIdx]
 
@@ -323,16 +386,53 @@ function pctBar(fit, total) {
   return total > 0 ? ((fit / total) * 100).toFixed(1) : 0
 }
 
+// Banner reflects the actual filter selection (was hardcoded "All Regions · All Labs")
+function lookupName(list, id) {
+  if (!id) return null
+  const f = list.find(x => String(x.id) === String(id))
+  return f?.name || null
+}
+const bannerSummary = computed(() => {
+  const parts = []
+  parts.push(lookupName(regions.value,      filters.value.region_id)        || 'All CE Regions')
+  parts.push(lookupName(laboratories.value, filters.value.laboratory_id)    || 'All Labs')
+  if (filters.value.district_id)      parts.push(lookupName(districts.value,    filters.value.district_id))
+  if (filters.value.phed_division_id) parts.push(lookupName(phedDivs.value,     filters.value.phed_division_id))
+  if (filters.value.division_id)      parts.push(lookupName(divisions.value,    filters.value.division_id))
+  if (filters.value.circle_id)        parts.push(lookupName(circles.value,      filters.value.circle_id))
+  return parts.filter(Boolean).join(' · ')
+})
+
+// RAG class for the KP Grand Total row (was hardcoded "—")
+const totalsRag = computed(() => {
+  if (!totals.value.tested) return { cls: 'r-grey', label: '—' }
+  const ratio = totals.value.unfit / totals.value.tested
+  if (ratio > 0.2) return { cls: 'r-red',   label: 'High' }
+  if (ratio > 0.1) return { cls: 'r-amber', label: 'Moderate' }
+  return { cls: 'r-green', label: 'Good' }
+})
+
 // ── Auto-refresh on filter change (debounced) ─────────────────────────
 let filterTimer = null
 watch(filters, () => {
-  if (!generated.value) return  // skip until first load completes
+  if (!generated.value) return        // skip until first load completes
+  if (dateError.value) return         // skip while date range is invalid
   clearTimeout(filterTimer)
   filterTimer = setTimeout(generateReport, 350)
 }, { deep: true })
 
+// RBAC: pre-select + lock the filter at the user's scope level.
+// SA/manager/view-only see no locks; CE/SE/XEN/lab roles get locked to their scope.
+function applyRbacLocks() {
+  if (rbac.regionId.value)         filters.value.region_id        = String(rbac.regionId.value)
+  if (rbac.circleId.value)         filters.value.circle_id        = String(rbac.circleId.value)
+  if (rbac.phedDivisionId.value)   filters.value.phed_division_id = String(rbac.phedDivisionId.value)
+  if (rbac.laboratoryId.value)     filters.value.laboratory_id    = String(rbac.laboratoryId.value)
+}
+
 onMounted(async () => {
   await loadDropdowns()
+  applyRbacLocks()
   await generateReport()  // auto-generate with current month on load
 })
 </script>
@@ -345,7 +445,8 @@ onMounted(async () => {
       <div class="fg"><label>To</label><input type="date" v-model="filters.to_date"></div>
       <div class="fg">
         <label>CE Region</label>
-        <select v-model="filters.region_id" @change="filters.circle_id='';filters.division_id='';filters.district_id='';filters.phed_division_id='';filters.laboratory_id=''">
+        <select v-model="filters.region_id" :disabled="!!rbac.regionId.value"
+                @change="filters.circle_id='';filters.division_id='';filters.district_id='';filters.phed_division_id='';filters.laboratory_id=''">
           <option value="">All CE Regions</option>
           <option v-for="r in regions" :key="r.id" :value="r.id">{{ r.name }}</option>
         </select>
@@ -359,7 +460,8 @@ onMounted(async () => {
       </div>
       <div class="fg">
         <label>PHE Circle</label>
-        <select v-model="filters.circle_id" @change="filters.district_id='';filters.phed_division_id='';filters.laboratory_id=''">
+        <select v-model="filters.circle_id" :disabled="!!rbac.circleId.value"
+                @change="filters.district_id='';filters.phed_division_id='';filters.laboratory_id=''">
           <option value="">All Circles</option>
           <option v-for="c in filteredCircles" :key="c.id" :value="c.id">{{ c.name }}</option>
         </select>
@@ -373,14 +475,14 @@ onMounted(async () => {
       </div>
       <div class="fg">
         <label>PHE Division</label>
-        <select v-model="filters.phed_division_id">
+        <select v-model="filters.phed_division_id" :disabled="!!rbac.phedDivisionId.value">
           <option value="">All PHE Divisions</option>
           <option v-for="p in filteredPhedDivs" :key="p.id" :value="p.id">{{ p.name }}</option>
         </select>
       </div>
       <div class="fg">
         <label>Lab</label>
-        <select v-model="filters.laboratory_id">
+        <select v-model="filters.laboratory_id" :disabled="!!rbac.laboratoryId.value">
           <option value="">All Labs</option>
           <option v-for="l in filteredLaboratories" :key="l.id" :value="l.id">{{ l.name }}</option>
         </select>
@@ -391,7 +493,6 @@ onMounted(async () => {
           <option value="">All Sample Types</option>
           <option value="PHE">PHE / WSS</option>
           <option value="Private">Private Client</option>
-          <option value="PT">PT Sample</option>
         </select>
       </div>
       <button class="btn btn-sec btn-sm" style="align-self:flex-end" @click="clearFilters">✕ Clear Filters</button>
@@ -401,39 +502,61 @@ onMounted(async () => {
       <button class="btn btn-sec btn-sm" style="align-self:flex-end" @click="printReport">Print PDF</button>
     </div>
 
-    <div v-if="errorMsg" style="background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;padding:10px 14px;margin-bottom:10px;color:#b91c1c;font-size:12px">
+    <!-- Inline date range warning -->
+    <div v-if="dateError"
+         style="background:#fef9c3;border:1px solid #fde047;border-radius:6px;padding:8px 12px;margin-bottom:10px;color:#854d0e;font-size:12px">
+      ⚠ {{ dateError }}
+    </div>
+
+    <div v-if="errorMsg && !dateError" style="background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;padding:10px 14px;margin-bottom:10px;color:#b91c1c;font-size:12px">
       {{ errorMsg }}
     </div>
 
-    <div class="abar green" style="margin-bottom:12px">
-      General Abstract Report (GAR) | All Regions · All Labs | Annexure-1
-    </div>
+    <!-- Banner + KPI cards: hidden during initial load. The skeleton block
+         below mirrors this section so the page doesn't render empty zeros
+         before generateReport() flips loading off. -->
+    <template v-if="!loading">
+      <div class="abar green" style="margin-bottom:12px">
+        General Abstract Report (GAR) | {{ bannerSummary }} | Annexure-1
+      </div>
 
-    <!-- KP-Level Summary Cards -->
-    <div class="cards" style="grid-template-columns:repeat(6,1fr);margin-bottom:14px">
-      <div class="card">
-        <div class="c-lbl">Total Tested</div>
-        <div class="c-val">{{ totals.tested.toLocaleString() }}</div>
+      <!-- KP-Level Summary Cards -->
+      <div class="cards" style="grid-template-columns:repeat(6,1fr);margin-bottom:14px">
+        <div class="card">
+          <div class="c-lbl">Total Tested</div>
+          <div class="c-val">{{ totals.tested.toLocaleString() }}</div>
+        </div>
+        <div class="card c-green">
+          <div class="c-lbl">Fit</div>
+          <div class="c-val">{{ totals.fit.toLocaleString() }}</div>
+        </div>
+        <div class="card c-red">
+          <div class="c-lbl">Unfit</div>
+          <div class="c-val">{{ totals.unfit.toLocaleString() }}</div>
+        </div>
+        <div class="card c-amber">
+          <div class="c-lbl">% Unfit</div>
+          <div class="c-val">{{ totals.tested > 0 ? ((totals.unfit/totals.tested)*100).toFixed(1) + '%' : '—' }}</div>
+        </div>
+        <div class="card">
+          <div class="c-lbl">Labs Reporting</div>
+          <div class="c-val">{{ totals.labs }}</div>
+        </div>
+        <div class="card">
+          <div class="c-lbl" :title="'Distinct districts that submitted at least one sample in this period'">Districts with Samples</div>
+          <div class="c-val">{{ totals.districtsCovered }}</div>
+        </div>
       </div>
-      <div class="card c-green">
-        <div class="c-lbl">Fit</div>
-        <div class="c-val">{{ totals.fit.toLocaleString() }}</div>
-      </div>
-      <div class="card c-red">
-        <div class="c-lbl">Unfit</div>
-        <div class="c-val">{{ totals.unfit.toLocaleString() }}</div>
-      </div>
-      <div class="card c-amber">
-        <div class="c-lbl">% Unfit</div>
-        <div class="c-val">{{ totals.tested > 0 ? ((totals.unfit/totals.tested)*100).toFixed(1) + '%' : '—' }}</div>
-      </div>
-      <div class="card">
-        <div class="c-lbl">Labs Reporting</div>
-        <div class="c-val">{{ totals.labs }}</div>
-      </div>
-      <div class="card">
-        <div class="c-lbl">Districts Covered</div>
-        <div class="c-val">{{ totals.districtsCovered }}</div>
+    </template>
+
+    <!-- Skeleton banner + cards while the report loads -->
+    <div v-if="loading" class="gar-sk" style="margin-bottom:14px">
+      <div class="sk sk-banner" style="margin-bottom:12px"></div>
+      <div class="sk-cards" style="grid-template-columns:repeat(6,1fr)">
+        <div class="sk-card" v-for="i in 6" :key="'gar-sc'+i">
+          <div class="sk sk-lbl"></div>
+          <div class="sk sk-val"></div>
+        </div>
       </div>
     </div>
 
@@ -447,7 +570,17 @@ onMounted(async () => {
     </div>
 
     <div class="tbl-wrap" style="margin-bottom:18px">
-      <div v-if="loading" style="text-align:center;padding:24px;color:var(--muted)">Generating report...</div>
+      <!-- Skeleton loading state -->
+      <div v-if="loading" class="gar-sk">
+        <div class="sk-tbl">
+          <div class="sk-tbl-head">
+            <div class="sk sk-th" v-for="i in 11" :key="'gh'+i"></div>
+          </div>
+          <div class="sk-tbl-row" v-for="r in 6" :key="'gr'+r">
+            <div class="sk sk-td" v-for="i in 11" :key="'gc'+r+'-'+i"></div>
+          </div>
+        </div>
+      </div>
       <table v-else style="font-size:12px">
         <thead>
           <tr style="background:var(--navy);color:#fff">
@@ -467,9 +600,6 @@ onMounted(async () => {
         <tbody>
           <tr v-if="!labRows.length && generated">
             <td colspan="11" style="text-align:center;padding:24px;color:var(--muted)">No data found for the selected filters.</td>
-          </tr>
-          <tr v-if="!generated && !loading">
-            <td colspan="11" style="text-align:center;padding:24px;color:var(--muted)">Loading…</td>
           </tr>
 
           <template v-for="row in labRows" :key="row.id">
@@ -559,7 +689,7 @@ onMounted(async () => {
                 <span style="font-size:10px;color:#fff">{{ totals.fit }}/{{ totals.unfit }}</span>
               </div>
             </td>
-            <td style="text-align:center"><span class="rag r-amber">—</span></td>
+            <td style="text-align:center"><span class="rag" :class="totalsRag.cls">{{ totalsRag.label }}</span></td>
           </tr>
         </tfoot>
       </table>
@@ -738,8 +868,67 @@ onMounted(async () => {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* ── Skeleton loading (matches GAR table layout) ─────────────────── */
+.gar-page .gar-sk .sk {
+  background: linear-gradient(90deg, #e5e7eb 0%, #f3f4f6 50%, #e5e7eb 100%);
+  background-size: 200% 100%;
+  border-radius: 4px;
+  animation: gar-sk-shimmer 1.4s infinite linear;
+}
+@keyframes gar-sk-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.gar-page .gar-sk .sk-tbl {
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.gar-page .gar-sk .sk-tbl-head,
+.gar-page .gar-sk .sk-tbl-row {
+  display: grid;
+  grid-template-columns: 24px 1.6fr 1fr 1fr 1.4fr 0.6fr 0.6fr 0.6fr 0.6fr 1.2fr 0.7fr;
+  gap: 8px;
+  padding: 9px 12px;
+}
+.gar-page .gar-sk .sk-tbl-head { background: #f3f4f6; border-bottom: 1px solid #e5e7eb; }
+.gar-page .gar-sk .sk-tbl-row + .sk-tbl-row { border-top: 1px solid #f3f4f6; }
+.gar-page .gar-sk .sk-th,
+.gar-page .gar-sk .sk-td { height: 12px; }
+
+/* Banner + KPI card skeletons — sized to match the real banner and the
+   six-card grid the report renders once loading completes. */
+.gar-page .gar-sk .sk-banner { width: 100%; height: 32px; border-radius: 6px; }
+.gar-page .gar-sk .sk-cards  { display: grid; gap: 10px; }
+.gar-page .gar-sk .sk-card   {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.gar-page .gar-sk .sk-lbl    { width: 70%; height: 11px; }
+.gar-page .gar-sk .sk-val    { width: 50%; height: 22px; }
+
+/* ── Print rules (A3 landscape; preserve background colors for RAG/headers) */
+@page {
+  size: A3 landscape;
+  margin: 8mm;
+}
 @media print {
-  body * { visibility: hidden; }
-  .tbl-wrap, .tbl-wrap *, .cards, .cards *, .sh, .sh *, .abar, .abar * { visibility: visible; }
+  .filters, .btn, nav, aside, .gar-sk { display: none !important; }
+  body { font-size: 9px; background: #fff !important; }
+
+  .tbl-wrap     { overflow: visible !important; border: 0 !important; }
+  .tbl-wrap table { font-size: 8px !important; table-layout: auto; }
+  .tbl-wrap td, .tbl-wrap th { padding: 2px 4px !important; }
+
+  /* Keep RAG colors and header backgrounds visible on paper */
+  .rag, .cards .card, thead tr, tfoot tr, .abar {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
 }
 </style>

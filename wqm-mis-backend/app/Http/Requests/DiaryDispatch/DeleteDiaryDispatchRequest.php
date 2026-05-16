@@ -13,7 +13,10 @@ class DeleteDiaryDispatchRequest extends FormRequest
      */
     public function authorize()
     {
-        return auth()->user()->can(['delete_diaries', 'delete_dispatches']);
+        $enum = $this->route('enum');
+        $enumValue = is_object($enum) ? ($enum->value ?? (string) $enum) : (string) $enum;
+        $ability = $enumValue === 'dispatch' ? 'delete_dispatches' : 'delete_diaries';
+        return auth()->user()?->can($ability) ?? false;
     }
 
     /**

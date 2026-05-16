@@ -62,6 +62,10 @@ class User extends Authenticatable
         'region_id',
         'circle_id',
         'phed_division_id',
+        // RBAC scaffolding
+        'is_view_only',
+        'is_dummy',
+        'allowed_modules',
     ];
 
     /**
@@ -82,6 +86,9 @@ class User extends Authenticatable
      */
     protected $casts = [
         'email_verified_at' => 'datetime',
+        'is_view_only'      => 'boolean',
+        'is_dummy'          => 'boolean',
+        'allowed_modules'   => 'array',
     ];
 
     public function image(): Attribute
@@ -204,5 +211,20 @@ class User extends Authenticatable
     public function waterSampleDetails(): HasMany
     {
         return $this->hasMany(WaterSampleDetail::class);
+    }
+
+    /**
+     * True for roles that bypass all data scoping (see global, no lab filter,
+     * no hierarchy filter). Mirrors AuthScope::UNSCOPED_ROLES — keep them in
+     * sync. Used by legacy controllers that still gate on a single role check.
+     */
+    public function isUnscoped(): bool
+    {
+        return $this->hasAnyRole([
+            'system-administrator',
+            'system-manager',
+            'view-only-admin',
+            'general-view-account',
+        ]);
     }
 }

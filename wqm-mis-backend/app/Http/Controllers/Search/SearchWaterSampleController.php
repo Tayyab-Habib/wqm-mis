@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Search;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Search\SearchWaterSampleRequest;
 use App\Models\WaterSamples\WaterSample;
+use App\Services\AuthScope;
 use Illuminate\Http\JsonResponse;
 use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
@@ -19,6 +20,8 @@ class SearchWaterSampleController extends Controller
     public function __invoke(SearchWaterSampleRequest $request)
     {
         $query = WaterSample::query();
+        // RBAC: filter by user's hierarchy scope (CE/SE/XEN/lab roles).
+        $query = AuthScope::waterSamples($query, $request->user());
         $query->with([
             'waterScheme:id,name',
             'division:id,name',

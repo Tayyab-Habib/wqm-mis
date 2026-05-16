@@ -18,7 +18,10 @@ class DashboardRequest extends FormRequest
      */
     public function authorize()
     {
-        return true;
+        // Dashboard is the landing page for every authenticated role — gate
+        // only on authentication. Server-side query scoping (AuthScope) and
+        // the isUnscoped() check inside the controller handle data filtering.
+        return auth()->check();
     }
 
     /**

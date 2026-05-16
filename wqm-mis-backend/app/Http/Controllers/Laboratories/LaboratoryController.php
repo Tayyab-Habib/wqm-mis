@@ -36,7 +36,7 @@ class LaboratoryController extends Controller
                 'division',
                 'province',
             ])
-            ->when(!$authUser->hasRole('system-administrator'), fn($query) => $query->where('district_id', '=', $authUser->district_id))
+            ->when(!$authUser->isUnscoped(), fn($query) => $query->where('district_id', '=', $authUser->district_id))
             ->get();
 
         if ($laboratories->isEmpty()) {
@@ -112,7 +112,7 @@ class LaboratoryController extends Controller
      */
     public function show(ShowLaboratoryRequest $request, Laboratory $laboratory)
     {
-        if (auth()->user()->district_id !== $laboratory->district_id && !auth()->user()->hasRole('system-administrator')) {
+        if (auth()->user()->district_id !== $laboratory->district_id && !auth()->user()->isUnscoped()) {
             return response()->json([
                 'message' => 'You do not have permission to view this laboratory',
                 'data' => null,

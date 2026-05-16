@@ -9,6 +9,7 @@ use App\Http\Requests\DiaryDispatch\StoreDiaryDispatchRequest;
 use App\Http\Requests\DiaryDispatch\UpdateDiaryDispatchRequest;
 use App\Http\Requests\DiaryDispatch\ViewDiaryDispatchRequest;
 use App\Models\DiaryDispatch;
+use App\Services\AuthScope;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
@@ -44,9 +45,10 @@ class DiaryDispatchController extends Controller
                 'folder:id,name',
                 'createdByUser:id,name',
             ])
-            ->when(!$authUser->hasRole('system-administrator'), fn($query) => $query->where('laboratory_id', '=', $authUser->laboratoryUser?->id))
-            ->latest()
-            ->get();
+            ->latest();
+        // RBAC: scope diaries/dispatches by user's lab hierarchy
+        AuthScope::laboratoryScoped($diaryDispatches, $authUser, 'diary_dispatches');
+        $diaryDispatches = $diaryDispatches->get();
 
         if ($diaryDispatches->isEmpty()) {
             return response()->json([
@@ -81,9 +83,16 @@ class DiaryDispatchController extends Controller
             $path = Storage::disk('public')->putFile($dir, $request->file('attachment'));
         }
 
+        // RBAC: derive laboratory_id from the user's first attached lab, or fall
+        // back to the first lab in their hierarchy (so admin/hierarchy roles
+        // without a direct lab pivot can still write).
+        $user = auth()->user();
+        $labId = $user->laboratoryUser?->id
+            ?? (AuthScope::visibleLabIds($user)[0] ?? null);
+
         $diaryDispatch = DiaryDispatch::query()
             ->create(array_merge($validatedData, [
-                'laboratory_id' => auth()->user()->laboratoryUser?->id,
+                'laboratory_id' => $labId,
                 'type'          => $enum->value,
                 'attachment'    => $path,
                 'created_by'    => auth()->id(),
@@ -215,7 +224,7 @@ class DiaryDispatchController extends Controller
     {
         $authUser = auth()->user();
         $laboratory = $authUser->laboratoryUser;
-        if ($authUser->hasRole('system-administrator')) {
+        if ($authUser->isUnscoped()) {
             return false;
         }
         return (int)$diaryDispatch->laboratory_id !== $laboratory->id;

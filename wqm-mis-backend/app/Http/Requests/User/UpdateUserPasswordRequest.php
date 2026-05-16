@@ -14,7 +14,8 @@ class UpdateUserPasswordRequest extends FormRequest
      */
     public function authorize()
     {
-        return true;
+        // Own password — anyone authenticated can change their own.
+        return auth()->check();
     }
 
     /**

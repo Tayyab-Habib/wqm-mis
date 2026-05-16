@@ -165,7 +165,8 @@ async function saveCalib() {
     const res = await assetService.createCalibrationLog(payload)
     const updated = res.laboratory_asset || res.data?.laboratory_asset
 
-    // Reflect changes in the table row
+    // Reflect changes in the table row (optimistic — keeps the UI snappy if
+    // the reload is slow). loadEquipment() below is the source of truth.
     const eq = equipment.value.find(e => e.id === calibTarget.value.id)
     if (eq && updated) {
       eq.nextCalib    = updated.next_calibration_date || eq.nextCalib
@@ -174,6 +175,7 @@ async function saveCalib() {
     }
     showCalibModal.value = false
     showToast('success', `Calibration logged for "${calibTarget.value?.name || 'equipment'}"`)
+    await loadEquipment()
   } catch (e) {
     showToast('error', 'Failed to save calibration log: ' + (e?.response?.data?.message || e?.message || 'Unknown error'))
     console.error('Calib save error:', e)
@@ -249,12 +251,13 @@ async function saveRepair() {
     const res = await assetService.createRepairLog(payload)
     const updated = res.laboratory_asset || res.data?.laboratory_asset
 
-    // Reflect status change in the table row
+    // Optimistic row update — loadEquipment() below is the source of truth.
     const eq = equipment.value.find(e => e.id === repairTarget.value.id)
     if (eq && updated) eq.status = updated.status || eq.status
 
     showRepairModal.value = false
     showToast('success', `Repair logged for "${repairTarget.value?.name || 'equipment'}"`)
+    await loadEquipment()
   } catch (e) {
     showToast('error', 'Failed to save repair log: ' + (e?.response?.data?.message || e?.message || 'Unknown error'))
     console.error('Repair save error:', e)
@@ -459,15 +462,36 @@ onMounted(loadEquipment)
 
     <!-- Toolbar: + Add Equipment -->
     <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
-      <button class="btn btn-pri" @click="openAddEquipment">+ Add Equipment</button>
+      <button v-write="'add_assets'" class="btn btn-pri" @click="openAddEquipment">+ Add Equipment</button>
     </div>
 
     <!-- Equipment Table -->
     <div class="tbl-wrap">
-      <!-- Loading state -->
-      <div v-if="loading" style="text-align:center;padding:40px;color:var(--muted)">
-        ⏳ Loading equipment…
-      </div>
+      <!-- Skeleton loading state -->
+      <table v-if="loading">
+        <thead>
+          <tr>
+            <th>S#</th><th>Equipment Name</th><th>Make / Model</th><th>Serial No.</th>
+            <th>Asset Code</th><th>Purchase Date</th><th>Warranty Expiry</th>
+            <th>Calib. Cycle</th><th>Status</th><th>Next Calib. Due</th><th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="i in 6" :key="'sk-' + i" class="sk-row">
+            <td><span class="sk-bar sk-xs"></span></td>
+            <td><span class="sk-bar sk-lg"></span></td>
+            <td><span class="sk-bar sk-md"></span></td>
+            <td><span class="sk-bar sk-sm"></span></td>
+            <td><span class="sk-bar sk-sm"></span></td>
+            <td><span class="sk-bar sk-md"></span></td>
+            <td><span class="sk-bar sk-md"></span></td>
+            <td><span class="sk-bar sk-sm"></span></td>
+            <td><span class="sk-bar sk-sm"></span></td>
+            <td><span class="sk-bar sk-md"></span></td>
+            <td><span class="sk-bar sk-md"></span></td>
+          </tr>
+        </tbody>
+      </table>
 
       <!-- Error state -->
       <div v-else-if="errorMsg" style="text-align:center;padding:40px;color:var(--red)">
@@ -505,7 +529,7 @@ onMounted(loadEquipment)
               <div class="cell-scroll" :title="eq.model">{{ eq.model }}</div>
             </td>
             <td class="mono">{{ eq.serial_number || '—' }}</td>
-            <td class="mono">{{ eq.id }}</td>
+            <td class="mono">{{ eq.asset_code }}</td>
             <td>{{ fmtDate(eq.purchased) }}</td>
             <td>{{ fmtDate(eq.warranty_expiry) || '—' }}</td>
             <td>{{ eq.calibCycle }}</td>
@@ -517,7 +541,7 @@ onMounted(loadEquipment)
               <div style="display:inline-flex;flex-wrap:nowrap;gap:6px">
                 <button class="btn btn-sec btn-xs" @click="openCalib(eq)">📋 Calib.</button>
                 <button class="btn btn-sec btn-xs" @click="openRepair(eq)">🔧 Repair</button>
-                <button class="btn btn-sec btn-xs" @click="openEditEquipment(eq)">✎ Edit</button>
+                <button v-write="'edit_assets'" class="btn btn-sec btn-xs" @click="openEditEquipment(eq)">✎ Edit</button>
               </div>
             </td>
           </tr>
@@ -592,7 +616,23 @@ onMounted(loadEquipment)
 
           <!-- Calibration history -->
           <div v-if="calibTab === 'hist'">
-            <div v-if="calibHistLoading" style="text-align:center;padding:24px;color:var(--muted)">⏳ Loading history…</div>
+            <div class="tbl-wrap" v-if="calibHistLoading">
+              <table>
+                <thead>
+                  <tr><th>Date</th><th>Calibrated By</th><th>Result</th><th>Next Due</th><th>Cert. / Ref.</th><th>Standard Used</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-for="i in 4" :key="'ck-' + i" class="sk-row">
+                    <td><span class="sk-bar sk-md"></span></td>
+                    <td><span class="sk-bar sk-md"></span></td>
+                    <td><span class="sk-bar sk-sm"></span></td>
+                    <td><span class="sk-bar sk-md"></span></td>
+                    <td><span class="sk-bar sk-sm"></span></td>
+                    <td><span class="sk-bar sk-md"></span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
             <div v-else-if="!calibHistList.length" style="text-align:center;color:var(--muted);padding:24px">No calibration records yet.</div>
             <div class="tbl-wrap" v-else>
               <table>
@@ -628,7 +668,7 @@ onMounted(loadEquipment)
 
           <div v-if="calibTab === 'new'" style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
             <button class="btn btn-sec" @click="showCalibModal = false">Cancel</button>
-            <button class="btn btn-pri" @click="saveCalib" :disabled="calibSaving">
+            <button v-write="'add_asset_logs'" class="btn btn-pri" @click="saveCalib" :disabled="calibSaving">
               {{ calibSaving ? '⏳ Saving…' : '💾 Save' }}
             </button>
           </div>
@@ -700,7 +740,23 @@ onMounted(loadEquipment)
 
           <!-- Repair history -->
           <div v-if="repairTab === 'hist'">
-            <div v-if="repairHistLoading" style="text-align:center;padding:24px;color:var(--muted)">⏳ Loading history…</div>
+            <div class="tbl-wrap" v-if="repairHistLoading">
+              <table>
+                <thead>
+                  <tr><th>Fault Date</th><th>Description</th><th>Status</th><th>Technician</th><th>Resolved</th><th>Cost</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-for="i in 4" :key="'rk-' + i" class="sk-row">
+                    <td><span class="sk-bar sk-md"></span></td>
+                    <td><span class="sk-bar sk-lg"></span></td>
+                    <td><span class="sk-bar sk-sm"></span></td>
+                    <td><span class="sk-bar sk-md"></span></td>
+                    <td><span class="sk-bar sk-md"></span></td>
+                    <td><span class="sk-bar sk-sm"></span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
             <div v-else-if="!repairHistList.length" style="text-align:center;color:var(--muted);padding:24px">No repair records yet.</div>
             <div class="tbl-wrap" v-else>
               <table>
@@ -737,7 +793,7 @@ onMounted(loadEquipment)
 
           <div v-if="repairTab === 'new'" style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
             <button class="btn btn-sec" @click="showRepairModal = false">Cancel</button>
-            <button class="btn btn-pri" @click="saveRepair" :disabled="repairSaving">
+            <button v-write="'add_asset_maintenance_logs'" class="btn btn-pri" @click="saveRepair" :disabled="repairSaving">
               {{ repairSaving ? '⏳ Saving…' : '💾 Save' }}
             </button>
           </div>
@@ -826,8 +882,8 @@ onMounted(loadEquipment)
           </div>
 
           <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
-            <button class="btn btn-sec" @click="showAddEquipmentModal = false" :disabled="addEquipmentSaving">Cancel</button>
-            <button class="btn btn-pri" @click="saveEquipment" :disabled="addEquipmentSaving">
+            <button v-write class="btn btn-sec" @click="showAddEquipmentModal = false" :disabled="addEquipmentSaving">Cancel</button>
+            <button v-write="'add_assets'" class="btn btn-pri" @click="saveEquipment" :disabled="addEquipmentSaving">
               {{ addEquipmentSaving ? '⏳ Saving…' : '💾 Save Equipment' }}
             </button>
           </div>
@@ -926,8 +982,8 @@ onMounted(loadEquipment)
           </div>
 
           <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
-            <button class="btn btn-sec" @click="showEditEquipmentModal = false" :disabled="editEquipmentSaving">Cancel</button>
-            <button class="btn btn-pri" @click="saveEditEquipment" :disabled="editEquipmentSaving">
+            <button v-write class="btn btn-sec" @click="showEditEquipmentModal = false" :disabled="editEquipmentSaving">Cancel</button>
+            <button v-write class="btn btn-pri" @click="saveEditEquipment" :disabled="editEquipmentSaving">
               {{ editEquipmentSaving ? '⏳ Saving…' : '💾 Save Changes' }}
             </button>
           </div>
@@ -1002,4 +1058,25 @@ onMounted(loadEquipment)
 .cell-scroll::-webkit-scrollbar { width: 6px; }
 .cell-scroll::-webkit-scrollbar-thumb { background: #c8d5e2; border-radius: 3px; }
 .cell-scroll::-webkit-scrollbar-thumb:hover { background: #9fb3c8; }
+
+/* Skeleton loading rows — shimmer placeholder pattern. */
+.sk-row td { padding: 10px 11px; }
+.sk-bar {
+  display: inline-block;
+  height: 11px;
+  width: 70px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #eef2f7 0%, #f7fafc 50%, #eef2f7 100%);
+  background-size: 200% 100%;
+  animation: skShimmer 1.2s ease-in-out infinite;
+  vertical-align: middle;
+}
+.sk-bar.sk-xs { width: 18px; }
+.sk-bar.sk-sm { width: 42px; }
+.sk-bar.sk-md { width: 70px; }
+.sk-bar.sk-lg { width: 140px; }
+@keyframes skShimmer {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
 </style>

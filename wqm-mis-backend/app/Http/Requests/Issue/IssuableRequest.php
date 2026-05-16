@@ -15,7 +15,11 @@ class IssuableRequest extends FormRequest
      */
     public function authorize()
     {
-        return true;
+        // Issuable list is used to populate dropdowns of things issues can be
+        // raised against — gated on view_issues so any role granted issue
+        // visibility can fill the dropdown.
+        $u = auth()->user();
+        return $u && ($u->isUnscoped() || $u->can('view_issues'));
     }
 
     /**

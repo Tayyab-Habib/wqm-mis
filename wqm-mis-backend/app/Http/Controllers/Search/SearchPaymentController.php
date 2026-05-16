@@ -24,7 +24,7 @@ class SearchPaymentController extends Controller
         $authUser = auth()->user();
         $validatedData = $request->validated();
         $query = Payment::query()
-            ->when(!$authUser->hasRole('system-administrator'), fn($query) => $query->where('user_id', '=', $authUser->id));
+            ->when(!$authUser->isUnscoped(), fn($query) => $query->where('user_id', '=', $authUser->id));
 
         if (isset($validatedData['starting_amount'], $validatedData['ending_amount'])) {
             $query->whereBetween('amount', [$validatedData['starting_amount'], $validatedData['ending_amount']]);

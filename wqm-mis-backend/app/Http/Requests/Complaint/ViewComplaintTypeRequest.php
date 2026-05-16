@@ -13,7 +13,8 @@ class ViewComplaintTypeRequest extends FormRequest
      */
     public function authorize()
     {
-        return true;
+        $u = auth()->user();
+        return $u && ($u->isUnscoped() || $u->can('view_complaint_types') || $u->can('view_complaints'));
     }
 
     /**

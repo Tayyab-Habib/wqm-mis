@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
-import { useRoute }        from 'vue-router'
+import { useRbac } from '../../../composables/useRbac.js'
+import { useRoute } from 'vue-router'
 import { reportService }   from '../../../services/reportService.js'
 import { dropdownService } from '../../../services/dropdownService.js'
 import { exportToXLSX }    from '../../../utils/exportHelpers.js'
@@ -57,11 +58,21 @@ const filteredPhedDivs = computed(() => {
   if (filters.value.circle_id)   list = list.filter(p => String(p.circle_id)   === String(filters.value.circle_id))
   return list
 })
+// Lab dropdown derives via circles.laboratory_id — see GAR for rationale.
 const filteredLaboratories = computed(() => {
-  let list = laboratories.value
-  if (filters.value.district_id) list = list.filter(l => String(l.district_id) === String(filters.value.district_id))
-  if (filters.value.division_id) list = list.filter(l => String(l.division_id) === String(filters.value.division_id))
-  return list
+  let labIds = null
+  if (filters.value.circle_id) {
+    const c = circles.value.find(c => String(c.id) === String(filters.value.circle_id))
+    labIds = c?.laboratory_id ? [c.laboratory_id] : []
+  } else if (filters.value.region_id) {
+    labIds = circles.value
+      .filter(c => String(c.region_id) === String(filters.value.region_id))
+      .map(c => c.laboratory_id)
+      .filter(Boolean)
+  }
+  if (labIds === null) return laboratories.value
+  const set = new Set(labIds.map(String))
+  return laboratories.value.filter(l => set.has(String(l.id)))
 })
 
 // ── Data ───────────────────────────────────────────────────────────────
@@ -145,13 +156,32 @@ function deriveContamination(s) {
   }
 }
 
+// Defensive date parser — handles ISO ("2026-05-13T..."), SQL ("2026-05-13 10:30:00"),
+// and the Laravel pretty accessor format ("10 May, 2026 14:30"). Falls back to the raw
+// string if the format is unrecognized (previous code threw NaN in some browsers).
+const MONTH_ABBR = { jan:0, feb:1, mar:2, apr:3, may:4, jun:5,
+                     jul:6, aug:7, sep:8, oct:9, nov:10, dec:11 }
 function formatDate(dt) {
   if (!dt) return '—'
-  // sampled_at comes pre-formatted from model accessor e.g. "10 May, 2026 14:30"
-  // try to parse it anyway
-  const d = new Date(dt)
-  if (isNaN(d)) return dt
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }).replace(/ /g, '-')
+  const s = String(dt).trim()
+
+  // ISO / SQL: YYYY-MM-DD...
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (iso) {
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    return `${iso[3]}-${months[parseInt(iso[2],10)-1]}-${iso[1].slice(-2)}`
+  }
+  // Pretty: "10 May, 2026 14:30"
+  const pretty = s.match(/^(\d{1,2})\s+([A-Za-z]{3})[a-z]*,?\s+(\d{4})/)
+  if (pretty) {
+    return `${pretty[1].padStart(2,'0')}-${pretty[2]}-${pretty[3].slice(-2)}`
+  }
+  // Last-resort native parse
+  const d = new Date(s)
+  if (!Number.isNaN(d.getTime())) {
+    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }).replace(/ /g, '-')
+  }
+  return s
 }
 
 function mapSampleRow(s, idx) {
@@ -166,6 +196,7 @@ function mapSampleRow(s, idx) {
     division: s.division?.name || '—',
     region:   s.region?.name   || '—',
     circle:   s.circle?.name   || '—',
+    phedDiv:  s.phed_division?.name || s.phedDivision?.name || '—',
     lab:      s.laboratory?.name || '—',
     date:     s.sampled_at ? formatDate(s.sampled_at) : '—',
     coords:   (lat && lng) ? `${lat}, ${lng}` : '—',
@@ -196,12 +227,29 @@ async function loadDropdowns() {
   } catch (e) { console.error('Dropdown error:', e) }
 }
 
+// ── Client-side date validation ────────────────────────────────────────
+const dateError = computed(() => {
+  const f = filters.value.from_date
+  const t = filters.value.to_date
+  if (f && t && f > t) return 'From date must be on or before To date.'
+  return ''
+})
+
+// Request sequence — drop stale responses when filters change rapidly
+let requestSeq = 0
+
 // ── Generate report (called on mount + on Generate button) ─────────────
 async function generateReport() {
-  loading.value   = true
-  errorMsg.value  = ''
-  allRows.value   = []
-  generated.value = false
+  if (dateError.value) {
+    errorMsg.value  = dateError.value
+    generated.value = false
+    loading.value   = false
+    return
+  }
+
+  const mySeq = ++requestSeq
+  loading.value  = true
+  errorMsg.value = ''
   try {
     const payload = {}
     if (filters.value.from_date)        payload.from_date        = filters.value.from_date
@@ -217,15 +265,18 @@ async function generateReport() {
     if (filters.value.sample_type)      payload.sample_type      = filters.value.sample_type
 
     const res  = await reportService.getWaterQualityAnalysis(payload)
+    if (mySeq !== requestSeq) return    // a newer request was issued — drop this response
+
     const data = res.data?.data || res.data || []
     allRows.value = Array.isArray(data) ? data.map(mapSampleRow) : []
     generatedAt.value = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
     generated.value = true
   } catch (e) {
+    if (mySeq !== requestSeq) return
     errorMsg.value = 'Failed to generate report: ' + (e.response?.data?.message || e.message)
     console.error('GSR error:', e)
   } finally {
-    loading.value = false
+    if (mySeq === requestSeq) loading.value = false
   }
 }
 
@@ -239,8 +290,12 @@ const unfitCount       = computed(() => filteredRows.value.filter(r => r.result 
 const unfitPct         = computed(() => totalCount.value > 0
   ? ((unfitCount.value / totalCount.value) * 100).toFixed(1) + '%' : '—')
 const districtsCovered = computed(() => new Set(filteredRows.value.map(r => r.district).filter(d => d !== '—')).size)
+// Was reading r.phedDiv which mapSampleRow didn't return (always 0). Now mapSampleRow
+// returns phedDiv, so this computes the real count of distinct PHE divisions in the data.
 const phedDivCount     = computed(() => new Set(filteredRows.value.map(r => r.phedDiv).filter(d => d !== '—')).size)
-const activeLabsCount  = computed(() => laboratories.value.length)
+// Distinct labs that submitted at least one sample in this period (was reading
+// laboratories.value.length which counted dropdown options, not actual reporters).
+const activeLabsCount  = computed(() => new Set(filteredRows.value.map(r => r.lab).filter(l => l !== '—')).size)
 
 // ── Group rows by district ─────────────────────────────────────────────
 const groupedByDistrict = computed(() => {
@@ -320,27 +375,36 @@ function clearFilters() {
 // ── Auto-refresh on filter change (debounced) ─────────────────────────
 let filterTimer = null
 watch(filters, () => {
-  if (!generated.value) return  // skip until first load completes
+  if (!generated.value) return     // skip until first load completes
+  if (dateError.value) return      // skip while date range is invalid
   clearTimeout(filterTimer)
   filterTimer = setTimeout(generateReport, 350)
 }, { deep: true })
 
-// Pre-fill filters from route query (used when GAR drills into a district)
-function applyQueryFilters() {
+// Seed filters from URL query params (drill-down from GAR pushes
+// district_id / laboratory_id / region_id / from_date / to_date / etc.)
+function seedFromQuery() {
   const q = route.query || {}
-  if (q.from_date)        filters.value.from_date        = String(q.from_date)
-  if (q.to_date)          filters.value.to_date          = String(q.to_date)
-  if (q.region_id)        filters.value.region_id        = String(q.region_id)
-  if (q.division_id)      filters.value.division_id      = String(q.division_id)
-  if (q.circle_id)        filters.value.circle_id        = String(q.circle_id)
-  if (q.district_id)      filters.value.district_id      = String(q.district_id)
-  if (q.phed_division_id) filters.value.phed_division_id = String(q.phed_division_id)
-  if (q.laboratory_id)    filters.value.laboratory_id    = String(q.laboratory_id)
+  const KEYS = ['from_date','to_date','region_id','division_id','circle_id',
+                'district_id','phed_division_id','laboratory_id','sample_type','result']
+  KEYS.forEach(k => {
+    if (q[k] !== undefined && q[k] !== '') filters.value[k] = String(q[k])
+  })
+}
+
+// RBAC: pre-select + lock filters at the user's hierarchy scope
+const rbac = useRbac()
+function applyRbacLocks() {
+  if (rbac.regionId.value)       filters.value.region_id        = String(rbac.regionId.value)
+  if (rbac.circleId.value)       filters.value.circle_id        = String(rbac.circleId.value)
+  if (rbac.phedDivisionId.value) filters.value.phed_division_id = String(rbac.phedDivisionId.value)
+  if (rbac.laboratoryId.value)   filters.value.laboratory_id    = String(rbac.laboratoryId.value)
 }
 
 onMounted(async () => {
+  seedFromQuery()
+  applyRbacLocks()
   await loadDropdowns()
-  applyQueryFilters()
   await generateReport()
 })
 </script>
@@ -354,7 +418,7 @@ onMounted(async () => {
 
       <div class="fg">
         <label>Region (CE)</label>
-        <select v-model="filters.region_id"
+        <select v-model="filters.region_id" :disabled="!!rbac.regionId.value"
                 @change="filters.circle_id='';filters.division_id='';filters.district_id='';filters.phed_division_id='';filters.laboratory_id=''">
           <option value="">All Regions</option>
           <option v-for="r in regions" :key="r.id" :value="r.id">{{ r.name }}</option>
@@ -371,7 +435,8 @@ onMounted(async () => {
 
       <div class="fg">
         <label>PHE Circle</label>
-        <select v-model="filters.circle_id" @change="filters.district_id='';filters.phed_division_id='';filters.laboratory_id=''">
+        <select v-model="filters.circle_id" :disabled="!!rbac.circleId.value"
+                @change="filters.district_id='';filters.phed_division_id='';filters.laboratory_id=''">
           <option value="">All Circles</option>
           <option v-for="c in filteredCircles" :key="c.id" :value="c.id">{{ c.name }}</option>
         </select>
@@ -387,7 +452,7 @@ onMounted(async () => {
 
       <div class="fg">
         <label>PHE Division</label>
-        <select v-model="filters.phed_division_id">
+        <select v-model="filters.phed_division_id" :disabled="!!rbac.phedDivisionId.value">
           <option value="">All PHE Divisions</option>
           <option v-for="p in filteredPhedDivs" :key="p.id" :value="p.id">{{ p.name }}</option>
         </select>
@@ -395,7 +460,7 @@ onMounted(async () => {
 
       <div class="fg">
         <label>Lab</label>
-        <select v-model="filters.laboratory_id">
+        <select v-model="filters.laboratory_id" :disabled="!!rbac.laboratoryId.value">
           <option value="">All Labs</option>
           <option v-for="l in filteredLaboratories" :key="l.id" :value="l.id">{{ l.name }}</option>
         </select>
@@ -424,23 +489,46 @@ onMounted(async () => {
 
       <button class="btn btn-sec btn-sm" style="align-self:flex-end" @click="clearFilters">✕ Clear Filters</button>
       <div class="tsp"></div>
-      <span v-if="loading" style="font-size:11px;color:var(--muted);align-self:flex-end;padding-bottom:6px">Updating…</span>
       <button class="btn btn-sec btn-sm" style="align-self:flex-end" @click="exportReport">Export .xlsx</button>
       <button class="btn btn-sec btn-sm" style="align-self:flex-end" @click="printReport">Print PDF</button>
     </div>
 
+    <!-- Inline date range warning -->
+    <div v-if="dateError"
+         style="background:#fef9c3;border:1px solid #fde047;border-radius:6px;padding:8px 12px;margin-bottom:10px;color:#854d0e;font-size:12px">
+      ⚠ {{ dateError }}
+    </div>
+
     <!-- Error -->
-    <div v-if="errorMsg"
+    <div v-if="errorMsg && !dateError"
          style="background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;padding:10px 14px;margin-bottom:10px;color:#b91c1c;font-size:12px">
       {{ errorMsg }}
     </div>
 
-    <!-- Loading splash only on first load -->
-    <div v-if="loading && !generated" style="text-align:center;padding:48px;color:var(--muted);font-size:13px">
-      Loading report data...
+    <!-- Skeleton loading on first load -->
+    <div v-if="loading" class="gsr-sk">
+      <!-- Banner -->
+      <div class="sk sk-banner"></div>
+      <!-- 6 stat cards -->
+      <div class="sk-cards">
+        <div class="sk-card" v-for="i in 6" :key="'sc'+i">
+          <div class="sk sk-lbl"></div>
+          <div class="sk sk-val"></div>
+        </div>
+      </div>
+      <!-- Section head + table skeleton -->
+      <div class="sk sk-section-head"></div>
+      <div class="sk-tbl">
+        <div class="sk-tbl-head">
+          <div class="sk sk-th" v-for="i in 11" :key="'gh'+i"></div>
+        </div>
+        <div class="sk-tbl-row" v-for="r in 8" :key="'gr'+r">
+          <div class="sk sk-td" v-for="i in 11" :key="'gc'+r+'-'+i"></div>
+        </div>
+      </div>
     </div>
 
-    <template v-if="generated">
+    <template v-if="generated && !loading">
       <!-- ── Report header banner ── -->
       <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:6px;padding:10px 16px;margin-bottom:8px;font-size:12px">
         <div style="font-weight:700;color:#166534;margin-bottom:3px">
@@ -587,9 +675,68 @@ onMounted(async () => {
 </template>
 
 <style>
+/* ── Skeleton loading (matches GSR layout: banner + 6 cards + table) ─── */
+.gsr-sk .sk {
+  background: linear-gradient(90deg, #e5e7eb 0%, #f3f4f6 50%, #e5e7eb 100%);
+  background-size: 200% 100%;
+  border-radius: 4px;
+  animation: gsr-sk-shimmer 1.4s infinite linear;
+}
+@keyframes gsr-sk-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.gsr-sk .sk-banner    { height: 50px; margin-bottom: 12px; }
+.gsr-sk .sk-cards {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.gsr-sk .sk-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.gsr-sk .sk-lbl { height: 10px; width: 60%; }
+.gsr-sk .sk-val { height: 22px; width: 45%; }
+.gsr-sk .sk-section-head { height: 16px; width: 220px; margin: 6px 0 10px; }
+.gsr-sk .sk-tbl {
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.gsr-sk .sk-tbl-head, .gsr-sk .sk-tbl-row {
+  display: grid;
+  grid-template-columns: 0.4fr 1.2fr 1.5fr 0.8fr 1fr 1fr 1fr 0.7fr 0.7fr 1.2fr 1.4fr;
+  gap: 8px;
+  padding: 9px 12px;
+}
+.gsr-sk .sk-tbl-head { background: #f3f4f6; border-bottom: 1px solid #e5e7eb; }
+.gsr-sk .sk-tbl-row + .sk-tbl-row { border-top: 1px solid #f3f4f6; }
+.gsr-sk .sk-th, .gsr-sk .sk-td { height: 12px; }
+
+/* ── Print rules (A3 landscape, preserve colors) ─────────────────────── */
+@page {
+  size: A3 landscape;
+  margin: 8mm;
+}
 @media print {
-  .filters, .btn, nav, aside { display: none !important; }
-  .tbl-wrap, .tbl-wrap *, .cards, .cards *, .sh, .sh * { visibility: visible; }
-  body { font-size: 10px; }
+  .filters, .btn, nav, aside, .gsr-sk { display: none !important; }
+  body { font-size: 9px; background: #fff !important; }
+
+  .tbl-wrap { overflow: visible !important; border: 0 !important; }
+  .tbl-wrap table { font-size: 8px !important; table-layout: auto; min-width: 0 !important; }
+  .tbl-wrap td, .tbl-wrap th { padding: 2px 4px !important; word-break: break-word; }
+
+  /* Keep result badges and header backgrounds visible on paper */
+  .cards .card, thead tr, tfoot tr, [class*="r-red"], [class*="r-green"], [class*="r-amber"] {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
 }
 </style>

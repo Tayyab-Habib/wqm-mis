@@ -11,47 +11,50 @@ const router = useRouter()
 const filters = ref({
   client: 'PHE',
   from: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
-  to:   new Date().toISOString().split('T')[0],  // today, not end of month
-  allTime: true,   // default to all-time so no date filter on initial load
-  region: '',
-  division: '',
+  to:   new Date().toISOString().split('T')[0],
+  allTime: true,
+  // All location filters use IDs (matching DB rows). The auxiliary name
+  // strings are kept for legacy backend compatibility / display.
+  regionId: '',
   divisionId: '',
-  circle: '',
-  lab: '',
-  labId: '',
-  district: '',
+  circleId: '',
   districtId: '',
-  phediv: '',
+  phedDivisionId: '',
+  labId: '',
 })
 
-// ── Cascading location data ───────────────────────────────────────────
-const KP_GEO = {
-  Peshawar:  { Peshawar:['PWR-I','PWR-II'], Charsadda:['Charsadda'], Nowshera:['Nowshera'] },
-  Mardan:    { Mardan:['Mardan'], Swabi:['Swabi'], Buner:['Buner'] },
-  Malakand:  { Malakand:['Malakand'], Swat:['Swat-I','Swat-II'], 'Dir Upper':['Dir Upper'], 'Dir Lower':['Dir Lower'], Chitral:['Chitral'], Bajaur:['Bajaur'], Mohmand:['Mohmand'], Shangla:['Shangla'] },
-  Hazara:    { Abbottabad:['Abbottabad'], Haripur:['Haripur'], Mansehra:['Mansehra'], Battagram:['Battagram'], Torghar:['Torghar'] },
-  Kohat:     { Kohat:['Kohat'], Hangu:['Hangu'], Orakzai:['Orakzai'], Kurram:['Kurram'] },
-  Bannu:     { Bannu:['Bannu'], 'Lakki Marwat':['Lakki Marwat'], Karak:['Karak'], 'N. Waziristan':['N. Waziristan'] },
-  'D.I.Khan':{ 'D.I.Khan':['D.I.Khan'], Tank:['Tank'], 'S. Waziristan':['S. Waziristan'] },
-}
-const allDivisions = Object.keys(KP_GEO)
-const availableDistricts = computed(() => filters.value.division ? Object.keys(KP_GEO[filters.value.division] || {}) : [])
-const availablePhedivs   = computed(() => {
-  if (!filters.value.division || !filters.value.district) return []
-  return KP_GEO[filters.value.division]?.[filters.value.district] || []
+// ── Cascading filter relationships (DB-truth) ─────────────────────────
+// Region → Circles (direct)
+// Circle → Districts (direct)
+// Division → Districts (direct)
+// District → PHE Divisions (direct)
+// District / Division → Laboratories (direct)
+//
+// Note: divisions.region_id is NULL in this DB, so Division is derived
+// indirectly from Region via Region → Circles → Districts → Divisions.
+//
+// Reset downstream selections when an upstream changes so the user can't
+// hold a stale child selection that doesn't belong to the new parent.
+watch(() => filters.value.regionId, () => {
+  filters.value.circleId = ''
+  filters.value.divisionId = ''
+  filters.value.districtId = ''
+  filters.value.phedDivisionId = ''
+  filters.value.labId = ''
 })
-// All districts flat list (used when no division selected)
-const allDistrictOptions = computed(() => {
-  if (filters.value.division) return Object.keys(KP_GEO[filters.value.division] || {})
-  const all = []
-  Object.values(KP_GEO).forEach(divObj => all.push(...Object.keys(divObj)))
-  return [...new Set(all)].sort()
+watch(() => filters.value.divisionId, () => {
+  filters.value.districtId = ''
+  filters.value.phedDivisionId = ''
+  filters.value.labId = ''
 })
-watch(() => filters.value.division, () => { filters.value.district = ''; filters.value.phediv = '' })
-watch(() => filters.value.district, () => {
-  filters.value.phediv = ''
-  const divs = availablePhedivs.value
-  if (divs.length === 1) filters.value.phediv = divs[0]
+watch(() => filters.value.circleId, () => {
+  filters.value.districtId = ''
+  filters.value.phedDivisionId = ''
+  filters.value.labId = ''
+})
+watch(() => filters.value.districtId, () => {
+  filters.value.phedDivisionId = ''
+  filters.value.labId = ''
 })
 
 // ── Charts ────────────────────────────────────────────────────────────
@@ -71,8 +74,46 @@ const hmSubs = {
 }
 
 const hmSubOptions = computed(() => hmSubs[hmParam.value] || [])
-watch(hmParam, () => { hmSub.value = ''; updateHeatmap() })
-watch(hmSub,   () => { updateHeatmap() })
+
+// Polygon ID → DB district name(s). One polygon can aggregate multiple DB
+// districts (e.g. "Chitral" polygon = Upper+Lower Chitral DB rows).
+// Names must match districts.name in the DB exactly (case-insensitive).
+const polygonToDbNames = {
+  chitral:    ['Upper Chitral', 'Lower Chitral'],
+  upperdir:   ['Upper Dir'],
+  lowerdir:   ['Lower Dir'],
+  swat:       ['Swat'],
+  malakand:   ['Malakand'],
+  shangla:    ['Shangla'],
+  buner:      ['Buner'],
+  bajaur:     ['Bajaur'],
+  mohmand:    ['Mohmand'],
+  charsadda:  ['Charsadda'],
+  mardan:     ['Mardan'],
+  swabi:      ['Swabi'],
+  peshawar:   ['Peshawar'],
+  nowshera:   ['Nowshera'],
+  khyber:     ['Khyber'],
+  kurram:     ['Kurram'],
+  kohat:      ['Kohat'],
+  orakzai:    ['Orakzai'],
+  hangu:      ['Hangu'],
+  attock:     [],                              // Punjab district, not in KP DB
+  haripur:    ['Haripur'],
+  abbottabad: ['Abbottabad'],
+  mansehra:   ['Mansehra'],
+  kohistanu:  ['Kohistan'],                    // Upper Kohistan in DB is just "Kohistan"
+  kohistanl:  ['Kohistan Lower', 'Kolai Palas Kohistan'],
+  torghar:    ['Torghar'],
+  battagram:  ['Battagram'],
+  karak:      ['Karak'],
+  bannu:      ['Bannu'],
+  nwaz:       ['North Waziristan'],
+  swaz:       ['South Waziristan'],
+  lakki:      ['Lakki Marwat'],
+  tank:       ['Tank'],
+  dik:        ['D.I. Khan'],
+}
 
 // Per-district % unfit data
 const districtData = {
@@ -112,17 +153,6 @@ const districtData = {
   attock:     { name:'Attock (Punjab)', fit:95, unfit:5,  division:'Peshawar', lab:'Peshawar', wss:5,  tested:4,  unfitWss:1, micro:1, chem:0, phys:0 },
 }
 
-// Sub-param override data (key → districtId → %unfit)
-const hmSubData = {
-  ecoli:     { chitral:16, upperdir:9, lowerdir:11, swat:22, malakand:7, shangla:14, buner:36, bajaur:42, mohmand:50, charsadda:40, mardan:10, swabi:7, peshawar:30, nowshera:12, khyber:28, kurram:26, kohat:14, orakzai:10, hangu:6, haripur:5, abbottabad:3, mansehra:14, kohistanu:20, kohistanl:18, torghar:16, battagram:55, karak:8, bannu:8, nwaz:20, swaz:8, lakki:10, tank:12, dik:25, attock:4 },
-  coliform:  { chitral:18, upperdir:10, lowerdir:12, swat:24, malakand:8, shangla:16, buner:38, bajaur:46, mohmand:54, charsadda:44, mardan:12, swabi:8, peshawar:35, nowshera:13, khyber:30, kurram:28, kohat:16, orakzai:11, hangu:7, haripur:6, abbottabad:4, mansehra:16, kohistanu:22, kohistanl:20, torghar:18, battagram:58, karak:9, bannu:10, nwaz:22, swaz:9, lakki:12, tank:14, dik:28, attock:5 },
-  arsenic:   { chitral:4, upperdir:6, lowerdir:5, swat:8, malakand:7, shangla:10, buner:15, bajaur:20, mohmand:28, charsadda:45, mardan:12, swabi:5, peshawar:38, nowshera:9, khyber:25, kurram:22, kohat:30, orakzai:7, hangu:6, haripur:4, abbottabad:3, mansehra:5, kohistanu:7, kohistanl:9, torghar:6, battagram:8, karak:8, bannu:14, nwaz:18, swaz:10, lakki:16, tank:12, dik:35, attock:3 },
-  fluoride:  { chitral:2, upperdir:4, lowerdir:3, swat:5, malakand:5, shangla:8, buner:10, bajaur:6, mohmand:8, charsadda:12, mardan:10, swabi:6, peshawar:15, nowshera:4, khyber:12, kurram:16, kohat:18, orakzai:8, hangu:10, haripur:3, abbottabad:2, mansehra:4, kohistanu:5, kohistanl:6, torghar:4, battagram:6, karak:12, bannu:22, nwaz:14, swaz:8, lakki:20, tank:18, dik:28, attock:2 },
-  turbidity: { chitral:8, upperdir:7, lowerdir:6, swat:12, malakand:8, shangla:12, buner:16, bajaur:10, mohmand:14, charsadda:22, mardan:9, swabi:6, peshawar:18, nowshera:8, khyber:14, kurram:14, kohat:16, orakzai:7, hangu:8, haripur:5, abbottabad:4, mansehra:7, kohistanu:10, kohistanl:12, torghar:9, battagram:10, karak:10, bannu:14, nwaz:10, swaz:8, lakki:12, tank:16, dik:20, attock:3 },
-}
-
-const catScale = { overall:1, microbial:0.6, chemical:0.7, physical:0.3 }
-
 function ragColor(u) {
   if (u > 35) return '#d32f2f'
   if (u > 20) return '#f4a236'
@@ -133,23 +163,114 @@ function ragColor(u) {
 // Reactive fill colors per district
 const districtColors = ref({})
 
-function updateHeatmap() {
-  const cat = hmParam.value
-  const sub = hmSub.value.toLowerCase().replace(/[^a-z]/g, '')
-  const keyMap = { ecoli:'ecoli', totalcoliform:'coliform', arsenic:'arsenic', fluoride:'fluoride', turbidity:'turbidity' }
-  const dataKey = keyMap[sub] || null
+// Live stats per polygon (aggregated across the polygon's mapped DB districts).
+// Shape: { [polygonId]: { tested, fit, unfit, wss, unfitPct, hasData } }
+const districtStats = ref({})
+
+// Map sub-param dropdown values to the canonical water_quality_parameter
+// strings stored on tests rows. Anything not in this map is sent as-is.
+const subParamMap = {
+  ecoli:         'E. coli',
+  totalcoliform: 'Total Coliform',
+  arsenic:       'Arsenic',
+  fluoride:      'Fluoride',
+  nitrates:      'Nitrates',
+  hardness:      'Hardness',
+  chlorides:     'Chlorides',
+  iron:          'Iron',
+  manganese:     'Manganese',
+  ph:            'pH',
+  turbidity:     'Turbidity',
+  tds:           'TDS',
+  colour:        'Colour',
+}
+function resolveSubParam(rawSub) {
+  if (!rawSub) return null
+  const key = rawSub.toLowerCase().replace(/[^a-z]/g, '')
+  if (key.startsWith('all')) return null  // "All Microbial" etc. → no sub filter
+  return subParamMap[key] || null
+}
+
+// Recolor the polygons from whatever's currently in districtStats.
+function recolorHeatmap() {
   const colors = {}
-  Object.entries(districtData).forEach(([id, d]) => {
-    let u
-    if (dataKey && hmSubData[dataKey]) {
-      u = hmSubData[dataKey][id] ?? Math.round(d.unfit * (catScale[cat] || 1))
-    } else {
-      u = Math.round(d.unfit * (catScale[cat] || 1))
+  Object.keys(polygonToDbNames).forEach(id => {
+    const s = districtStats.value[id]
+    const u = s?.unfitPct
+    colors[id] = {
+      color: u != null ? ragColor(u) : '#cccccc',
+      unfit: u ?? null,
     }
-    colors[id] = { color: ragColor(u), unfit: u }
   })
   districtColors.value = colors
 }
+
+// Fold a backend district row (matched by name) into the polygon-keyed store.
+// Multiple DB districts can map to one polygon (e.g. Kohistan Lower + Kolai Palas),
+// so we sum the per-type breakdowns as well as the aggregate counts.
+function aggregateBackendDistricts(rows) {
+  const byName = {}
+  rows.forEach(r => { byName[String(r.name).toLowerCase()] = r })
+  const stats = {}
+  Object.entries(polygonToDbNames).forEach(([polyId, dbNames]) => {
+    let tested = 0, fit = 0, unfit = 0
+    let wss = 0, testedWss = 0, unfitWss = 0
+    let hadHit = false
+    const byType = {
+      microbial: { tested: 0, unfit: 0 },
+      chemical:  { tested: 0, unfit: 0 },
+      physical:  { tested: 0, unfit: 0 },
+    }
+    dbNames.forEach(name => {
+      const row = byName[name.toLowerCase()]
+      if (!row) return
+      hadHit = true
+      tested    += Number(row.tested     || 0)
+      fit       += Number(row.fit        || 0)
+      unfit     += Number(row.unfit      || 0)
+      wss       += Number(row.wss        || 0)
+      testedWss += Number(row.tested_wss || 0)
+      unfitWss  += Number(row.unfit_wss  || 0)
+      const bt = row.by_type || {}
+      ;['microbial', 'chemical', 'physical'].forEach(k => {
+        byType[k].tested += Number(bt[k]?.tested || 0)
+        byType[k].unfit  += Number(bt[k]?.unfit  || 0)
+      })
+    })
+    stats[polyId] = {
+      tested, fit, unfit,
+      wss, testedWss, unfitWss,
+      unfitPct: tested > 0 ? Math.round((unfit / tested) * 100) : null,
+      byType,
+      hasData: hadHit,
+    }
+  })
+  districtStats.value = stats
+  recolorHeatmap()
+}
+
+// Fetch heatmap data from the dedicated endpoint, honoring the current
+// parameter_type / sub-parameter selection plus the dashboard filter bar.
+async function fetchHeatmap() {
+  try {
+    const payload = { ...buildPayload() }
+    if (hmParam.value && hmParam.value !== 'overall') payload.parameter_type = hmParam.value
+    const sub = resolveSubParam(hmSub.value)
+    if (sub) payload.water_quality_parameter = sub
+    const res = await api.post('/dashboard/district-heatmap', payload)
+    const rows = res.data?.data?.districts || res.data?.districts || []
+    aggregateBackendDistricts(rows)
+  } catch (e) {
+    console.error('Heatmap fetch failed:', e?.response?.data || e)
+  }
+}
+
+watch(hmParam, () => { hmSub.value = ''; fetchHeatmap() })
+watch(hmSub,   () => { fetchHeatmap() })
+
+// Kept for the initial onMounted call before the API resolves — just paints
+// every polygon grey via recolorHeatmap().
+function updateHeatmap() { recolorHeatmap() }
 
 // ── Selected district panel ───────────────────────────────────────────
 const selectedDistrict = ref(null)
@@ -178,37 +299,83 @@ function onDistrictLeave() {
 
 function clearSelection() { selectedDistrict.value = null }
 
-const selectedData = computed(() => {
-  if (!selectedDistrict.value) return null
-  const d = districtData[selectedDistrict.value]
-  if (!d) return null
-  const u = districtColors.value[selectedDistrict.value]?.unfit ?? d.unfit
-  const rag = u > 35 ? '🔴 High Risk' : u > 20 ? '🟠 Concern' : u > 10 ? '🟡 Moderate' : '🟢 Good'
-  const ragClass = u > 35 ? 'r-red' : u > 20 ? 'r-amber' : 'r-green'
-  const total = d.fit + d.unfit  // approximate
-  const covPct = d.wss > 0 ? Math.round(d.tested / d.wss * 100) : 0
-  return { ...d, id: selectedDistrict.value, u, rag, ragClass, total: d.wss * 3, fit: Math.round(d.wss * 3 * d.fit / 100), unfit: Math.round(d.wss * 3 * d.unfit / 100), covPct }
-})
+// Build the display object for hover/click. Live numbers from districtStats
+// win over the static fallback in districtData (which carries division/lab/etc).
+function buildDistrictDisplay(polyId) {
+  if (!polyId) return null
+  const meta = districtData[polyId]
+  const live = districtStats.value[polyId]
+  if (!meta && !live) return null
+  const hasLive = !!live?.hasData && live?.tested > 0
 
-const hoveredData = computed(() => {
-  if (!hoveredDistrict.value) return null
-  const d = districtData[hoveredDistrict.value]
-  if (!d) return null
-  const u = districtColors.value[hoveredDistrict.value]?.unfit ?? d.unfit
-  const rag = u > 35 ? '🔴 High Risk' : u > 20 ? '🟠 Concern' : u > 10 ? '🟡 Moderate' : '🟢 Good'
-  return { ...d, u, rag }
-})
+  const u      = hasLive ? live.unfitPct : null
+  const tested = hasLive ? live.tested   : 0
+  const fit    = hasLive ? live.fit      : 0
+  const unfit  = hasLive ? live.unfit    : 0
+
+  // Real WSS counts: total registered, those with ≥1 sample (= tested), and
+  // those with ≥1 unfit sample. Coverage % is now schemes/schemes — same unit.
+  const wss       = live?.wss       ?? 0
+  const testedWss = live?.testedWss ?? 0
+  const unfitWss  = live?.unfitWss  ?? 0
+  const covPct    = wss > 0 ? Math.round((testedWss / wss) * 100) : null
+
+  const fitPct = hasLive && tested > 0 ? Math.round((fit / tested) * 100) : null
+
+  const rag = u == null ? '⚪ No Data'
+            : u > 35  ? '🔴 High Risk'
+            : u > 20  ? '🟠 Concern'
+            : u > 10  ? '🟡 Moderate'
+            : '🟢 Good'
+  const ragClass = u == null ? 'r-grey'
+                 : u > 35    ? 'r-red'
+                 : u > 20    ? 'r-amber'
+                 : 'r-green'
+
+  // Per-parameter breakdown comes from the backend's by_type cut. The strip
+  // shows the count of UNFIT samples per type — that's what stakeholders care
+  // about ("where is contamination concentrated?"). When no live data exists
+  // for the district, all three collapse to 0.
+  const bt = live?.byType || {}
+  return {
+    id: polyId,
+    name: meta?.name || polyId,
+    division: meta?.division || '—',
+    lab: meta?.lab || '—',
+    wss, tested, fit, unfit,
+    total: tested,                       // KPI strip labels "Total" = total tested samples
+    u: u ?? 0,
+    fitPct: fitPct ?? 0,
+    rag, ragClass,
+    covPct: covPct ?? 0,
+    testedWss,                           // exposed if anyone wants the raw number
+    unfitWss,                            // real count of WSS with ≥1 unfit sample
+    micro: Number(bt.microbial?.unfit || 0),
+    chem:  Number(bt.chemical?.unfit  || 0),
+    phys:  Number(bt.physical?.unfit  || 0),
+    hasData: hasLive,
+  }
+}
+
+const selectedData = computed(() => buildDistrictDisplay(selectedDistrict.value))
+const hoveredData  = computed(() => buildDistrictDisplay(hoveredDistrict.value))
 
 // ── Real data from backend ────────────────────────────────────────────
 
-const dashLoading = ref(false)
+// Start true so the skeleton shows immediately on mount — otherwise the
+// v-else branch renders first with empty '—' placeholders, then flips to the
+// skeleton when fetchDashboard() finally runs, which looks janky.
+const dashLoading = ref(true)
 const dashError   = ref('')
 const dashData    = ref(null)   // raw response from POST /dashboard
 
 // Dropdown data for filter selects
-const dbDivisions    = ref([])
-const dbDistricts    = ref([])
-const dbLaboratories = ref([])
+const dbRegions       = ref([])
+const dbCircles       = ref([])
+const dbDivisions     = ref([])
+const dbDistricts     = ref([])
+const dbPhedDivisions = ref([])
+const dbLaboratories  = ref([])
 
 // Reactive stat cards (updated from API)
 const stats = ref({
@@ -238,11 +405,13 @@ const stats = ref({
 // Build the filter payload for the API
 function buildPayload() {
   const p = {}
-  // Only send type filter if explicitly set (not the default 'PHE' which shows all)
   if (filters.value.client && filters.value.client !== 'ALL') p.type = filters.value.client
+  if (filters.value.regionId)        p.region_id        = filters.value.regionId
+  if (filters.value.circleId)        p.circle_id        = filters.value.circleId
   // division_id is required_with district_id — always send both together
   if (filters.value.divisionId)  p.division_id  = filters.value.divisionId
   if (filters.value.districtId && filters.value.divisionId) p.district_id = filters.value.districtId
+  if (filters.value.phedDivisionId)  p.phed_division_id = filters.value.phedDivisionId
   if (filters.value.labId)       p.laboratory_id = filters.value.labId
   if (!filters.value.allTime && filters.value.from && filters.value.to) {
     // Ensure start strictly before end (backend requires before/after)
@@ -262,115 +431,121 @@ let ch02Instance = null
 async function fetchDashboard() {
   dashLoading.value = true
   dashError.value   = ''
+
+  // Fire the 4 secondary endpoints in the BACKGROUND — they only feed Row 4
+  // cards (Diary / Dispatch / Equipment / Calib Due). Awaiting them blocks
+  // the skeleton from clearing even though they're not on the critical path.
+  // Each one updates its card independently when it returns.
+  loadRow4Async()
+
+  // The main /dashboard endpoint is the only blocking call — as soon as it
+  // returns, the skeleton clears and the user sees real cards.
   try {
-    // Fire all available endpoints in parallel
-    const [dashRes, diaryRes, dispatchRes, assetRes, maintRes] = await Promise.allSettled([
-      api.post('/dashboard', buildPayload()),
-      api.get('/diary-dispatch/diary/registers'),
-      api.get('/diary-dispatch/dispatch/registers'),
-      api.get('/laboratory/assets/all'),          // no role restriction
-      api.get('/asset-maintenance-schedules'),
-    ])
+    const dashRes = await api.post('/dashboard', buildPayload())
+    dashData.value = dashRes.data || dashRes
+    const d = dashData.value
 
-    // ── Main dashboard data ─────────────────────────────────────────
-    if (dashRes.status === 'fulfilled') {
-      dashData.value = dashRes.value.data || dashRes.value
-      const d = dashData.value
+    const ws  = d.water_samples || {}
+    const tws = d.tested_water_samples || {}
+    const mws = d.microbial_water_samples || {}
+    const cws = d.chemical_parameter_water_samples || {}
+    const pws = d.physical_parameter_water_samples || {}
+    const rev = d.laboratory_wise_revenue || {}
 
-      const ws  = d.water_samples || {}
-      const tws = d.tested_water_samples || {}
-      const mws = d.microbial_water_samples || {}
-      const cws = d.chemical_parameter_water_samples || {}
-      const pws = d.physical_parameter_water_samples || {}
-      const rev = d.laboratory_wise_revenue || {}
+    // WSS operation breakdown from operation_wise_graph
+    const opGraph = d.operation_wise_graph || {}
+    const opLabels = opGraph.labels || []
+    const opData   = opGraph.datasets?.[0]?.data || []
+    const opMap    = {}
+    opLabels.forEach((l, i) => { opMap[l] = opData[i] || 0 })
 
-      // WSS operation breakdown from operation_wise_graph
-      const opGraph = d.operation_wise_graph || {}
-      const opLabels = opGraph.labels || []
-      const opData   = opGraph.datasets?.[0]?.data || []
-      const opMap    = {}
-      opLabels.forEach((l, i) => { opMap[l] = opData[i] || 0 })
-
-      stats.value = {
-        // Water samples
-        totalSamples:      ws.total_water_samples    ?? '—',
-        fitSamples:        ws.total_water_samples_fit ?? '—',
-        unfitSamples:      ws.total_water_samples_unfit ?? '—',
-        testedSamples:     tws.total_tested_water_samples ?? '—',
-        fitPct:            tws.total_water_samples_fit   ?? '—',
-        unfitPct:          tws.total_water_samples_unfit ?? '—',
-        microFitPct:       mws.total_microbial_samples_fit   ?? '—',
-        microUnfitPct:     mws.total_microbial_samples_unfit ?? '—',
-        chemFitPct:        cws.total_chemical_samples_fit    ?? '—',
-        chemUnfitPct:      cws.total_chemical_samples_unfit  ?? '—',
-        physFitPct:        pws.total_physical_samples_fit    ?? '—',
-        physUnfitPct:      pws.total_physical_samples_unfit  ?? '—',
-        // WSS
-        totalWss:          d.total_water_schemes ?? '—',
-        operationalWss:    opMap['Operational']     ?? '—',
-        nonOperationalWss: opMap['Non-Operational'] ?? '—',
-        abandonedWss:      opMap['Abandoned']       ?? '—',
-        wipWss:            opMap['Work in progress'] ?? '—',
-        // Labs & compliance
-        totalLabs:         d.total_laboratories ?? '—',
-        totalComplaints:   d.total_complaints?.datasets?.[0]?.data?.[0] ?? '—',
-        pendingComplaints: d.total_complaints?.datasets?.[0]?.data?.[1] ?? '—',
-        totalIssues:       d.total_issues?.datasets?.[0]?.data?.[0] ?? '—',
-        pendingInventory:  d.total_pending_inventory_requests ?? '—',
-        revenue:           rev.series?.[0]?.data?.reduce((a, b) => a + b, 0)?.toLocaleString() ?? '—',
-        // Row 4 — filled below from separate calls
-        diaryCount:    '—',
-        dispatchCount: '—',
-        assetCount:    '—',
-        calibDue:      '—',
-      }
-
-      await nextTick()
-      rebuildCH01(d.laboratories_water_sample_results)
-      rebuildCH02(d.districts_water_sample_results)
-      updateHeatmapFromApi(d.districts_water_sample_results)
-    } else {
-      dashError.value = dashRes.reason?.response?.data?.message || dashRes.reason?.message || 'Failed to load dashboard'
-      console.error('Dashboard error:', dashRes.reason?.response?.data || dashRes.reason)
+    stats.value = {
+      // Water samples
+      totalSamples:      ws.total_water_samples    ?? '—',
+      fitSamples:        ws.total_water_samples_fit ?? '—',
+      unfitSamples:      ws.total_water_samples_unfit ?? '—',
+      testedSamples:     tws.total_tested_water_samples ?? '—',
+      fitPct:            tws.total_water_samples_fit   ?? '—',
+      unfitPct:          tws.total_water_samples_unfit ?? '—',
+      microFitPct:       mws.total_microbial_samples_fit   ?? '—',
+      microUnfitPct:     mws.total_microbial_samples_unfit ?? '—',
+      chemFitPct:        cws.total_chemical_samples_fit    ?? '—',
+      chemUnfitPct:      cws.total_chemical_samples_unfit  ?? '—',
+      physFitPct:        pws.total_physical_samples_fit    ?? '—',
+      physUnfitPct:      pws.total_physical_samples_unfit  ?? '—',
+      // WSS — operation buckets fall back to 0 (not '—') because absence from
+      // the GROUP BY response means zero schemes in that bucket, not missing data.
+      totalWss:          d.total_water_schemes ?? 0,
+      operationalWss:    opMap['Operational']     ?? 0,
+      nonOperationalWss: opMap['Non-Operational'] ?? 0,
+      abandonedWss:      opMap['Abandoned']       ?? 0,
+      wipWss:            opMap['Work in progress'] ?? 0,
+      // Labs & compliance
+      totalLabs:         d.total_laboratories ?? '—',
+      totalComplaints:   d.total_complaints?.datasets?.[0]?.data?.[0] ?? '—',
+      pendingComplaints: d.total_complaints?.datasets?.[0]?.data?.[1] ?? '—',
+      totalIssues:       d.total_issues?.datasets?.[0]?.data?.[0] ?? '—',
+      pendingInventory:  d.total_pending_inventory_requests ?? '—',
+      revenue:           rev.series?.[0]?.data?.reduce((a, b) => a + b, 0)?.toLocaleString() ?? '—',
+      // Row 4 — populated asynchronously by loadRow4Async()
+      diaryCount:    stats.value?.diaryCount    ?? '—',
+      dispatchCount: stats.value?.dispatchCount ?? '—',
+      assetCount:    stats.value?.assetCount    ?? '—',
+      calibDue:      stats.value?.calibDue      ?? '—',
     }
 
-    // ── Row 4 — Diary count ─────────────────────────────────────────
-    if (diaryRes.status === 'fulfilled') {
-      const d = diaryRes.value.data
-      stats.value.diaryCount = Array.isArray(d) ? d.length : (d?.length ?? 0)
-    }
-
-    // ── Row 4 — Dispatch count ──────────────────────────────────────
-    if (dispatchRes.status === 'fulfilled') {
-      const d = dispatchRes.value.data
-      stats.value.dispatchCount = Array.isArray(d) ? d.length : (d?.length ?? 0)
-    }
-
-    // ── Row 4 — Equipment (lab assets) count ───────────────────────
-    if (assetRes.status === 'fulfilled') {
-      const d = assetRes.value?.data
-      stats.value.assetCount = Array.isArray(d) ? d.length : 0
-    }
-
-    // ── Row 4 — Calibration due (maintenance schedules ≤30 days) ───
-    if (maintRes.status === 'fulfilled') {
-      const d = maintRes.value?.data
-      const schedules = Array.isArray(d) ? d : []
-      const today = new Date()
-      const in30  = new Date(); in30.setDate(today.getDate() + 30)
-      // field is 'scheduled_at' from AssetMaintenanceScheduleLog
-      stats.value.calibDue = schedules.filter(s => {
-        const dt = new Date(s.scheduled_at || s.next_maintenance_date || s.date)
-        return !isNaN(dt) && dt >= today && dt <= in30
-      }).length
-    }
-
+    // Clear loading BEFORE rebuilds so the canvas elements get mounted
+    // (they live inside a v-else template paired with the skeleton).
+    // Without this, rebuildCH01/CH02 run while ch01Ref.value/ch02Ref.value
+    // are still null and silently return.
+    dashLoading.value = false
+    await nextTick()
+    rebuildCH01(d.laboratories_water_sample_results)
+    rebuildCH02(d.districts_water_sample_results)
+    // Heatmap pulls from its own filtered endpoint instead of reusing the
+    // bar-chart numbers, so it can honor parameter_type / sub-parameter.
+    fetchHeatmap()
+    // Lab KPI matrix is also a dedicated endpoint — fired in parallel so a
+    // slow KPI query doesn't block heatmap reactivity.
+    fetchLabKpis()
   } catch (e) {
     dashError.value = e.response?.data?.message || e.message || 'Failed to load dashboard'
     console.error('Dashboard error:', e.response?.data || e)
   } finally {
     dashLoading.value = false
   }
+}
+
+// Row 4 cards (Diary / Dispatch / Equipment / Calib Due) load in the
+// background so they don't block the initial render. Each one writes into
+// stats.value as soon as its endpoint responds.
+function loadRow4Async() {
+  api.get('/diary-dispatch/diary/registers').then(res => {
+    const d = res.data
+    stats.value.diaryCount = Array.isArray(d) ? d.length : (d?.length ?? 0)
+  }).catch(() => {})
+
+  api.get('/diary-dispatch/dispatch/registers').then(res => {
+    const d = res.data
+    stats.value.dispatchCount = Array.isArray(d) ? d.length : (d?.length ?? 0)
+  }).catch(() => {})
+
+  // One fetch feeds two cards: total equipment + count of assets whose
+  // next_calibration_date falls within the next 30 days. The dedicated
+  // /asset-maintenance-schedules endpoint isn't useful here because that table
+  // stores `day_of_month` / `frequency`, not a concrete next-due date.
+  api.get('/laboratory/assets/all').then(res => {
+    const assets = Array.isArray(res.data) ? res.data : []
+    stats.value.assetCount = assets.length
+
+    const today = new Date()
+    const in30  = new Date(); in30.setDate(today.getDate() + 30)
+    stats.value.calibDue = assets.filter(a => {
+      if (!a.next_calibration_date) return false
+      const dt = new Date(a.next_calibration_date)
+      return !isNaN(dt) && dt >= today && dt <= in30
+    }).length
+  }).catch(() => {})
 }
 
 // Rebuild CH-01 (Lab-wise) from API data
@@ -451,46 +626,148 @@ function rebuildCH02(districtResults) {
   })
 }
 
-// Update heatmap colors from district API data
-function updateHeatmapFromApi(districtResults) {
-  if (!districtResults?.labels) return
-  const labels  = Object.values(districtResults.labels)   // district names
-  const ds      = districtResults.datasets || []
-  const fitArr  = ds.find(d => d.label?.toLowerCase().includes('fit') && !d.label?.toLowerCase().includes('unfit'))?.data || []
-  const unfitArr= ds.find(d => d.label?.toLowerCase().includes('unfit'))?.data || []
+// Title suffix reflects the current heatmap selection.
+const hmTitleSuffix = computed(() => {
+  const cat = hmParam.value
+  const sub = hmSub.value
+  const catLabels = { overall:'Overall', microbial:'Microbial', chemical:'Chemical', physical:'Physical' }
+  const label = catLabels[cat] || 'Overall'
+  if (sub) {
+    const subDisplay = (hmSubs[cat] || []).find(s => s.toLowerCase().replace(/[^a-z]/g,'') === sub.toLowerCase().replace(/[^a-z]/g,''))
+    if (subDisplay && !subDisplay.toLowerCase().startsWith('all')) return `${label} · ${subDisplay}`
+  }
+  return label
+})
 
-  // Build a name→unfit% map
-  const nameMap = {}
-  labels.forEach((name, i) => {
-    const total = (fitArr[i] || 0) + (unfitArr[i] || 0)
-    nameMap[name.toLowerCase()] = total > 0 ? Math.round((unfitArr[i] / total) * 100) : null
-  })
-
-  // Match to districtData keys by name
-  const colors = {}
-  Object.entries(districtData).forEach(([id, d]) => {
-    const key = d.name.toLowerCase()
-    const u   = nameMap[key] ?? Math.round(d.unfit)
-    colors[id] = { color: ragColor(u), unfit: u }
-  })
-  districtColors.value = colors
-}
-
-// Load filter dropdowns from backend
+// Load filter dropdowns from backend (full geography + labs).
 async function loadFilterDropdowns() {
   try {
-    const [divRes, distRes, labRes] = await Promise.all([
+    const [regRes, cirRes, divRes, distRes, phedRes, labRes] = await Promise.all([
+      api.get('/regions'),
+      api.get('/circles'),
       api.get('/all-divisions'),
       api.get('/all-districts'),
+      api.get('/phed-divisions'),
       api.get('/all-laboratories'),
     ])
-    dbDivisions.value    = divRes.data  || []
-    dbDistricts.value    = distRes.data || []
-    dbLaboratories.value = labRes.data  || []
+    dbRegions.value       = regRes.data?.data  || regRes.data  || []
+    dbCircles.value       = cirRes.data?.data  || cirRes.data  || []
+    dbDivisions.value     = divRes.data        || []
+    dbDistricts.value     = distRes.data       || []
+    dbPhedDivisions.value = phedRes.data?.data || phedRes.data || []
+    dbLaboratories.value  = labRes.data        || []
   } catch (e) {
     console.warn('Filter dropdown load failed:', e.message)
   }
 }
+
+// Reset every filter back to its default — useful when the user has narrowed
+// the view too far and wants to start over without reloading the page.
+function clearFilters() {
+  filters.value = {
+    client:        'PHE',
+    from:          new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
+    to:            new Date().toISOString().split('T')[0],
+    allTime:       true,
+    regionId:      '',
+    divisionId:    '',
+    circleId:      '',
+    districtId:    '',
+    phedDivisionId:'',
+    labId:         '',
+  }
+}
+
+// ── Cascade helpers ───────────────────────────────────────────────────
+// Division is derived indirectly: Region → Circles → Districts → Divisions
+// because divisions.region_id is NULL in this DB.
+const filteredCircles = computed(() => {
+  if (!filters.value.regionId) return dbCircles.value
+  return dbCircles.value.filter(c => String(c.region_id) === String(filters.value.regionId))
+})
+const filteredDivisions = computed(() => {
+  if (!filters.value.regionId) return dbDivisions.value
+  const circleIds   = new Set(filteredCircles.value.map(c => String(c.id)))
+  const divisionIds = new Set(
+    dbDistricts.value
+      .filter(d => circleIds.has(String(d.circle_id)))
+      .map(d => String(d.division_id))
+  )
+  return dbDivisions.value.filter(d => divisionIds.has(String(d.id)))
+})
+const filteredDistricts = computed(() => {
+  let list = dbDistricts.value
+  if (filters.value.divisionId) list = list.filter(d => String(d.division_id) === String(filters.value.divisionId))
+  if (filters.value.circleId)   list = list.filter(d => String(d.circle_id)   === String(filters.value.circleId))
+  return list
+})
+const filteredPhedDivisions = computed(() => {
+  if (!filters.value.districtId) return dbPhedDivisions.value
+  return dbPhedDivisions.value.filter(p => String(p.district_id) === String(filters.value.districtId))
+})
+const filteredLaboratories = computed(() => {
+  let list = dbLaboratories.value
+  if (filters.value.districtId) list = list.filter(l => String(l.district_id) === String(filters.value.districtId))
+  if (filters.value.divisionId) list = list.filter(l => String(l.division_id) === String(filters.value.divisionId))
+  return list
+})
+
+// ── PNG export helpers ───────────────────────────────────────────────
+// Chart.js canvases render with a transparent background; we composite
+// them onto white before exporting so downloaded PNGs look like the UI.
+function downloadChartPng(chart, filename) {
+  if (!chart || !chart.canvas) return
+  const src = chart.canvas
+  const out = document.createElement('canvas')
+  out.width  = src.width
+  out.height = src.height
+  const ctx = out.getContext('2d')
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, out.width, out.height)
+  ctx.drawImage(src, 0, 0)
+  const link = document.createElement('a')
+  link.href = out.toDataURL('image/png')
+  link.download = filename
+  link.click()
+}
+
+// SVG → PNG via offscreen canvas. Used for the heatmap (CH-03).
+function downloadSvgPng(svgEl, filename) {
+  if (!svgEl) return
+  const rect = svgEl.getBoundingClientRect()
+  const w = Math.max(rect.width  || 0, 1200)
+  const h = Math.max(rect.height || 0, 750)
+  const clone = svgEl.cloneNode(true)
+  if (!clone.getAttribute('xmlns')) clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+  const xml = new XMLSerializer().serializeToString(clone)
+  const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(xml)
+  const img = new Image()
+  img.onload = () => {
+    const out = document.createElement('canvas')
+    out.width  = w
+    out.height = h
+    const ctx = out.getContext('2d')
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, w, h)
+    ctx.drawImage(img, 0, 0, w, h)
+    const link = document.createElement('a')
+    link.href = out.toDataURL('image/png')
+    link.download = filename
+    link.click()
+  }
+  img.src = url
+}
+
+const ch03SvgRef = ref(null)
+
+function pngStamp() {
+  const d = new Date()
+  return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}-${String(d.getHours()).padStart(2,'0')}${String(d.getMinutes()).padStart(2,'0')}`
+}
+
+function exportCh01() { downloadChartPng(ch01Instance, `CH01-lab-wise-${pngStamp()}.png`) }
+function exportCh02() { downloadChartPng(ch02Instance, `CH02-district-wise-${pngStamp()}.png`) }
+function exportCh03() { downloadSvgPng(ch03SvgRef.value, `CH03-heatmap-${pngStamp()}.png`) }
 
 // Re-fetch when filters change (debounced)
 let fetchTimer = null
@@ -506,39 +783,76 @@ onMounted(async () => {
 })
 
 // ── CH-05: KPI Performance — Labs ────────────────────────────────────
-const kpiLabs = ['Peshawar', 'Kohat', 'Lakki/Bannu', 'D.I.Khan', 'Mardan', 'Malakand', 'Swat', 'Abbottabad']
+// Reactive matrix populated by POST /dashboard/lab-kpis. Each row is a KPI,
+// each column is a lab. Cells are integer percentages or null (data source
+// not implemented — rendered as "—" with a tooltip).
+const kpiLabs = ref([])         // [{id, name, displayName}]
+const kpiRows = ref([])         // [{id, name, target_pct, missing_reason, values: {labId: pct|null}}]
+const kpiMeta = ref({})         // {tat_target_hours, entry_target_hours, period_start, period_end}
+const kpiLoading = ref(false)
 
-const kpiRows = [
-  { id:'KPI-001', name:'Inter-lab Comparison Success Rate',
-    values:{ Peshawar:97, Kohat:98, 'Lakki/Bannu':93, 'D.I.Khan':95, Mardan:95, Malakand:94, Swat:92, Abbottabad:100 } },
-  { id:'KPI-002', name:'Equipment Calibration Compliance',
-    values:{ Peshawar:94, Kohat:96, 'Lakki/Bannu':88, 'D.I.Khan':91, Mardan:100, Malakand:90, Swat:87, Abbottabad:100 } },
-  { id:'KPI-003', name:'Retesting of Unfit Samples',
-    values:{ Peshawar:88, Kohat:85, 'Lakki/Bannu':78, 'D.I.Khan':82, Mardan:91, Malakand:83, Swat:80, Abbottabad:90 } },
-  { id:'KPI-004', name:'Monthly Sampling Coverage',
-    values:{ Peshawar:87, Kohat:89, 'Lakki/Bannu':82, 'D.I.Khan':85, Mardan:93, Malakand:88, Swat:84, Abbottabad:96 } },
-  { id:'KPI-005', name:'TAT — Analysis',
-    values:{ Peshawar:96, Kohat:95, 'Lakki/Bannu':94, 'D.I.Khan':93, Mardan:98, Malakand:92, Swat:91, Abbottabad:99 } },
-  { id:'KPI-006', name:'Data Entry Timeliness',
-    values:{ Peshawar:99, Kohat:100, 'Lakki/Bannu':97, 'D.I.Khan':98, Mardan:98, Malakand:97, Swat:96, Abbottabad:98 } },
-  { id:'KPI-007', name:'Staff Training Compliance',
-    values:{ Peshawar:82, Kohat:88, 'Lakki/Bannu':80, 'D.I.Khan':79, Mardan:90, Malakand:81, Swat:78, Abbottabad:95 } },
-  { id:'KPI-008', name:'SOP Standard Compliance',
-    values:{ Peshawar:95, Kohat:91, 'Lakki/Bannu':89, 'D.I.Khan':87, Mardan:97, Malakand:90, Swat:88, Abbottabad:100 } },
-  { id:'KPI-009', name:'Data Verification Compliance',
-    values:{ Peshawar:92, Kohat:90, 'Lakki/Bannu':87, 'D.I.Khan':85, Mardan:95, Malakand:88, Swat:86, Abbottabad:98 } },
-]
+// Lab name → short header used in the table. Keeps display compact without
+// changing the actual data.
+function shortLabName(fullName) {
+  const map = {
+    'Central Laboratory Peshawar':           'Peshawar',
+    'Swat Laboratory':                       'Swat',
+    'Timergara (at Batkhela) Laboratory':    'Malakand',
+    'Kohat Laboratory':                      'Kohat',
+    'Mardan Laboratory':                     'Mardan',
+    'Di Khan Laboratory':                    'D.I. Khan',
+    'Bannu/lakki Laboratory':                'Lakki/Bannu',
+    'Abbottabad Laboratory':                 'Abbottabad',
+  }
+  return map[fullName] || fullName
+}
+
+async function fetchLabKpis() {
+  kpiLoading.value = true
+  try {
+    const res = await api.post('/dashboard/lab-kpis', buildPayload())
+    const d = res.data?.data || res.data || {}
+    kpiLabs.value = (d.labs || []).map(l => ({ id: l.id, name: l.name, displayName: shortLabName(l.name) }))
+    const catalog = d.kpis || []
+    const rowsByLab = d.rows || []
+    kpiRows.value = catalog.map(k => {
+      const values = {}
+      rowsByLab.forEach(r => { values[r.lab_id] = r.kpis?.[k.id] ?? null })
+      return {
+        id: k.id,
+        name: k.name,
+        target_pct: k.target_pct,
+        missing_reason: k.missing_reason,
+        values,
+      }
+    })
+    kpiMeta.value = d.meta || {}
+  } catch (e) {
+    console.error('Lab KPIs fetch failed:', e?.response?.data || e)
+    kpiLabs.value = []
+    kpiRows.value = []
+  } finally {
+    kpiLoading.value = false
+  }
+}
 
 function kpiCellStyle(val) {
+  if (val == null) return 'background:#f1f5f9;color:#94a3b8;border:1px solid #e2e8f0'
   if (val >= 90) return 'background:#d1fae5;color:#065f46;border:1px solid #6ee7b7'
   if (val >= 75) return 'background:#fef9c3;color:#713f12;border:1px solid #fde047'
   return 'background:#fee2e2;color:#991b1b;border:1px solid #fca5a5'
 }
 
 function exportKpiCsv() {
-  const header = ['KPI ID', 'KPI Name', ...kpiLabs].join(',')
-  const rows = kpiRows.map(r =>
-    [r.id, `"${r.name}"`, ...kpiLabs.map(l => r.values[l] !== undefined ? r.values[l] + '%' : '—')].join(',')
+  const labs = kpiLabs.value
+  const header = ['KPI ID', 'KPI Name', 'Target', ...labs.map(l => `"${l.name}"`)].join(',')
+  const rows = kpiRows.value.map(r =>
+    [
+      r.id,
+      `"${r.name}"`,
+      r.target_pct != null ? r.target_pct + '%' : '—',
+      ...labs.map(l => r.values[l.id] != null ? r.values[l.id] + '%' : '—'),
+    ].join(',')
   )
   const csv = [header, ...rows].join('\n')
   const a = document.createElement('a')
@@ -549,11 +863,8 @@ function exportKpiCsv() {
 </script>
 
 <template>
-  <div>
-    <!-- Loading / Error bar -->
-    <div v-if="dashLoading" style="background:var(--sky2);border:1px solid var(--sky);border-radius:5px;padding:8px 14px;margin-bottom:10px;font-size:12px;color:var(--navy2)">
-      ⏳ Loading dashboard data…
-    </div>
+  <div class="dashboard-page">
+    <!-- Error bar (separate from loading — error can persist while a refetch runs) -->
     <div v-if="dashError" style="background:#fee2e2;border:1px solid #fca5a5;border-radius:5px;padding:8px 14px;margin-bottom:10px;font-size:12px;color:#991b1b">
       ⚠ {{ dashError }} — showing cached/demo data
     </div>
@@ -567,76 +878,92 @@ function exportKpiCsv() {
           <option value="Private">Private</option>
         </select>
       </div>
-      <div class="sep"></div>
       <div class="fg">
         <label>From</label>
-        <input type="date" v-model="filters.from">
+        <input type="date" v-model="filters.from" :disabled="filters.allTime">
       </div>
       <div class="fg">
         <label>To</label>
-        <input type="date" v-model="filters.to">
+        <input type="date" v-model="filters.to" :disabled="filters.allTime">
       </div>
-      <div class="fg" style="flex-direction:row;align-items:center;gap:4px;margin-top:14px">
-        <input type="checkbox" id="alltime" v-model="filters.allTime">
-        <label for="alltime" style="font-size:11.5px;margin-top:0">All Time</label>
+      <div class="fg fg-check">
+        <label for="alltime">All Time</label>
+        <div class="alltime-box">
+          <input type="checkbox" id="alltime" v-model="filters.allTime">
+          <span class="alltime-hint">Ignore date range</span>
+        </div>
       </div>
-      <div class="sep"></div>
       <div class="fg">
         <label>Region (CE)</label>
-        <select v-model="filters.region">
+        <select v-model="filters.regionId">
           <option value="">All CE Zones</option>
-          <option value="CE Center">CE Center</option>
-          <option value="CE North">CE North</option>
-          <option value="CE South">CE South</option>
-          <option value="CE East">CE East</option>
+          <option v-for="r in dbRegions" :key="r.id" :value="r.id">{{ r.name }}</option>
         </select>
       </div>
       <div class="fg">
         <label>Division</label>
-        <select v-model="filters.divisionId" @change="d => { const found = dbDivisions.find(x=>x.id==filters.divisionId); filters.division=found?.name||''; filters.districtId=''; filters.district='' }">
+        <select v-model="filters.divisionId">
           <option value="">All Divisions</option>
-          <option v-for="d in dbDivisions" :key="d.id" :value="d.id">{{ d.name }}</option>
+          <option v-for="d in filteredDivisions" :key="d.id" :value="d.id">{{ d.name }}</option>
         </select>
       </div>
       <div class="fg">
         <label>PHE Circle</label>
-        <select v-model="filters.circle">
-          <option value="">All</option>
-          <option value="Swat-I">Swat-I</option>
-          <option value="Swat-II">Swat-II</option>
-          <option value="Peshawar">Peshawar</option>
-          <option value="Mardan">Mardan</option>
-          <option value="Hazara">Hazara</option>
-          <option value="Kohat">Kohat</option>
-          <option value="Bannu">Bannu</option>
-          <option value="D.I.Khan">D.I.Khan</option>
+        <select v-model="filters.circleId">
+          <option value="">All Circles</option>
+          <option v-for="c in filteredCircles" :key="c.id" :value="c.id">{{ c.name }}</option>
+        </select>
+      </div>
+      <div class="fg">
+        <label>District</label>
+        <select v-model="filters.districtId">
+          <option value="">All Districts</option>
+          <option v-for="d in filteredDistricts" :key="d.id" :value="d.id">{{ d.name }}</option>
+        </select>
+      </div>
+      <div class="fg">
+        <label>PHE Division</label>
+        <select v-model="filters.phedDivisionId">
+          <option value="">All PHE Divisions</option>
+          <option v-for="p in filteredPhedDivisions" :key="p.id" :value="p.id">{{ p.name }}</option>
         </select>
       </div>
       <div class="fg">
         <label>Lab</label>
-        <select v-model="filters.labId" @change="() => { const found = dbLaboratories.find(x=>x.id==filters.labId); filters.lab=found?.name||'' }">
+        <select v-model="filters.labId">
           <option value="">All Labs</option>
-          <option v-for="l in dbLaboratories" :key="l.id" :value="l.id">{{ l.name }}</option>
+          <option v-for="l in filteredLaboratories" :key="l.id" :value="l.id">{{ l.name }}</option>
         </select>
       </div>
-      <!-- Second row: District + PHE Division -->
-      <div style="flex-basis:100%;display:flex;gap:6px;flex-wrap:wrap;padding-top:4px">
-        <div class="fg">
-          <label>District</label>
-          <select v-model="filters.districtId" @change="() => { const found = dbDistricts.find(x=>x.id==filters.districtId); filters.district=found?.name||'' }">
-            <option value="">All Districts</option>
-            <option v-for="d in (filters.divisionId ? dbDistricts.filter(x=>x.division_id==filters.divisionId) : dbDistricts)" :key="d.id" :value="d.id">{{ d.name }}</option>
-          </select>
-        </div>
-        <div class="fg">
-          <label>PHE Division</label>
-          <select v-model="filters.phediv">
-            <option value="">All PHE Divisions</option>
-            <option v-for="p in availablePhedivs" :key="p" :value="p">{{ p }}</option>
-          </select>
-        </div>
+      <div class="fg fg-action">
+        <label>&nbsp;</label>
+        <button type="button" class="btn-clear" @click="clearFilters">✕ Clear Filters</button>
       </div>
     </div>
+
+    <!-- Skeleton loading state — mirrors the real layout (4 card rows + chart area) -->
+    <div v-if="dashLoading" class="dash-skeleton">
+      <template v-for="(row, ri) in [5, 5, 5, 5]" :key="'sk-row-' + ri">
+        <div class="sk-row-label"></div>
+        <div class="cards">
+          <div v-for="i in row" :key="'sk-c-' + ri + '-' + i" class="sk-card">
+            <div class="sk-bar sk-bar-sm"></div>
+            <div class="sk-bar sk-bar-xl"></div>
+            <div class="sk-bar sk-bar-md"></div>
+            <div class="sk-bar sk-bar-sm"></div>
+          </div>
+        </div>
+        <!-- Chart placeholder row between Row 2 and Row 3 -->
+        <div v-if="ri === 1" class="sk-charts">
+          <div class="sk-chart"></div>
+          <div class="sk-chart"></div>
+        </div>
+        <div v-if="ri === 1" class="sk-map"></div>
+      </template>
+    </div>
+
+    <!-- Real content (rendered only when not loading) -->
+    <template v-else>
 
     <!-- Row 1 — Water Supply Schemes -->
     <div style="font-size:10.5px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">
@@ -723,7 +1050,7 @@ function exportKpiCsv() {
       <div class="chart-box">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
           <h3 style="margin-bottom:0">Lab-wise WQ Analysis — March 2026 <span style="font-size:11px;font-weight:400;color:var(--muted)">(CH-01)</span></h3>
-          <button class="btn btn-sec btn-xs">⬇ PNG</button>
+          <button class="btn btn-sec btn-xs" @click="exportCh01">⬇ PNG</button>
         </div>
         <div style="position:relative;height:210px">
           <canvas ref="ch01Ref"></canvas>
@@ -732,7 +1059,7 @@ function exportKpiCsv() {
       <div class="chart-box">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
           <h3 style="margin-bottom:0">District-wise WQ Analysis — March 2026 <span style="font-size:11px;font-weight:400;color:var(--muted)">(CH-02)</span></h3>
-          <button class="btn btn-sec btn-xs">⬇ PNG</button>
+          <button class="btn btn-sec btn-xs" @click="exportCh02">⬇ PNG</button>
         </div>
         <div style="position:relative;height:210px">
           <canvas ref="ch02Ref"></canvas>
@@ -757,7 +1084,7 @@ function exportKpiCsv() {
           <select v-if="hmSubOptions.length" v-model="hmSub" style="border:1px solid var(--border);border-radius:4px;padding:4px 7px;font-size:11.5px;font-family:inherit">
             <option v-for="s in hmSubOptions" :key="s" :value="s.toLowerCase().replace(/[^a-z]/g,'')">{{ s }}</option>
           </select>
-          <button class="btn btn-sec btn-xs">⬇ PNG</button>
+          <button class="btn btn-sec btn-xs" @click="exportCh03">⬇ PNG</button>
         </div>
       </div>
 
@@ -765,13 +1092,18 @@ function exportKpiCsv() {
       <div v-if="hoveredData" style="position:fixed;background:rgba(13,33,55,.93);color:#fff;border-radius:6px;padding:8px 12px;font-size:11.5px;pointer-events:none;z-index:9999;line-height:1.6;max-width:200px"
            :style="tooltipStyle">
         <b>{{ hoveredData.name }}</b><br>
-        ✅ Fit: {{ hoveredData.fit }}% &nbsp; ❌ Unfit: {{ hoveredData.u }}%<br>
-        <span style="opacity:.8">{{ hoveredData.rag }}</span>
+        <template v-if="hoveredData.hasData">
+          ✅ Fit: {{ hoveredData.fitPct }}% &nbsp; ❌ Unfit: {{ hoveredData.u }}%<br>
+          <span style="opacity:.8">{{ hoveredData.rag }}</span>
+        </template>
+        <template v-else>
+          <span style="opacity:.7">No samples in current filter</span>
+        </template>
       </div>
 
       <!-- SVG Map -->
       <div style="background:#d6eaf8;border-radius:6px;border:1px solid var(--border);overflow:hidden;position:relative">
-        <svg viewBox="0 0 620 375" style="width:100%;display:block;cursor:default">
+        <svg ref="ch03SvgRef" viewBox="0 0 620 375" style="width:100%;display:block;cursor:default">
           <rect width="620" height="375" fill="#cce5f5"/>
 
           <!-- Districts -->
@@ -859,7 +1191,7 @@ function exportKpiCsv() {
 
         <!-- Title overlay -->
         <div style="position:absolute;top:8px;left:10px;background:rgba(13,33,55,.82);color:#fff;border-radius:4px;padding:3px 10px;font-size:11px;font-weight:600">
-          KP Province · District Heatmap · Dummy Data
+          KP Province · District Heatmap · {{ hmTitleSuffix }}
         </div>
       </div>
 
@@ -886,7 +1218,7 @@ function exportKpiCsv() {
             {l:'❌ Unfit',   v: selectedData.unfit},
             {l:'% Unfit',    v: selectedData.u + '%'},
             {l:'WSS Count',  v: selectedData.wss},
-            {l:'WSS Tested', v: selectedData.tested + ' (' + selectedData.covPct + '%)'},
+            {l:'WSS Tested', v: selectedData.testedWss + ' (' + selectedData.covPct + '%)'},
             {l:'Unfit WSS',  v: selectedData.unfitWss},
           ]" :key="kpi.l" style="background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:8px 6px;text-align:center">
             <div style="font-size:9.5px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em">{{ kpi.l }}</div>
@@ -933,22 +1265,34 @@ function exportKpiCsv() {
             <tr style="background:var(--navy);color:#fff">
               <th style="padding:7px 10px;text-align:left;font-weight:600;white-space:nowrap;min-width:72px">KPI ID</th>
               <th style="padding:7px 10px;text-align:left;font-weight:600;min-width:220px">KPI Name</th>
-              <th v-for="lab in kpiLabs" :key="lab" style="padding:7px 8px;text-align:center;font-weight:600;white-space:nowrap;min-width:72px">
-                <span v-if="lab === 'Lakki/Bannu'">Lakki/<br>Bannu</span>
-                <span v-else>{{ lab }}</span>
+              <th style="padding:7px 8px;text-align:center;font-weight:600;white-space:nowrap;min-width:60px">Target</th>
+              <th v-for="lab in kpiLabs" :key="lab.id" :title="lab.name" style="padding:7px 8px;text-align:center;font-weight:600;white-space:nowrap;min-width:72px">
+                <span v-if="lab.displayName === 'Lakki/Bannu'">Lakki/<br>Bannu</span>
+                <span v-else>{{ lab.displayName }}</span>
               </th>
             </tr>
           </thead>
           <tbody>
+            <tr v-if="!kpiLoading && kpiRows.length === 0">
+              <td :colspan="3 + kpiLabs.length" style="padding:18px;text-align:center;color:var(--muted);font-size:12px">No KPI data available</td>
+            </tr>
             <tr v-for="(kpi, i) in kpiRows" :key="kpi.id"
-                :style="i % 2 === 0 ? 'background:#fff' : 'background:#f8fafc'">
+                :style="i % 2 === 0 ? 'background:#fff' : 'background:#f8fafc'"
+                :title="kpi.missing_reason || ''">
               <td style="padding:6px 10px;font-family:'DM Mono',monospace;font-size:11px;color:var(--muted);white-space:nowrap">{{ kpi.id }}</td>
-              <td style="padding:6px 10px;font-weight:500">{{ kpi.name }}</td>
-              <td v-for="lab in kpiLabs" :key="lab" style="padding:6px 8px;text-align:center">
-                <span v-if="kpi.values[lab] !== undefined"
+              <td style="padding:6px 10px;font-weight:500">
+                {{ kpi.name }}
+                <span v-if="kpi.missing_reason" style="margin-left:6px;font-size:10px;color:#94a3b8;font-weight:400" :title="kpi.missing_reason">ⓘ</span>
+              </td>
+              <td style="padding:6px 8px;text-align:center;color:var(--muted);font-size:11px;white-space:nowrap">
+                {{ kpi.target_pct != null ? '≥ ' + kpi.target_pct + '%' : '—' }}
+              </td>
+              <td v-for="lab in kpiLabs" :key="lab.id" style="padding:6px 8px;text-align:center"
+                  :title="kpi.values[lab.id] == null ? (kpi.missing_reason || 'No data for this lab in current filter') : ''">
+                <span v-if="kpi.values[lab.id] != null"
                   style="display:inline-block;padding:2px 8px;border-radius:4px;font-weight:700;font-size:11.5px;min-width:44px"
-                  :style="kpiCellStyle(kpi.values[lab])">
-                  {{ kpi.values[lab] }}%
+                  :style="kpiCellStyle(kpi.values[lab.id])">
+                  {{ kpi.values[lab.id] }}%
                 </span>
                 <span v-else style="color:#ccc;font-size:11px">—</span>
               </td>
@@ -1047,10 +1391,127 @@ function exportKpiCsv() {
         <div class="c-nav">→ Equipment</div>
       </div>
     </div>
+
+    </template>
   </div>
 </template>
 
 <style>
+/* Dashboard filter bar — uniform grid so every filter has the same width
+   and wraps predictably on smaller screens. Scoped via .dashboard-page so it
+   doesn't affect other pages that share the global .filters style. */
+.dashboard-page .filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px 12px;
+  align-items: end;
+}
+.dashboard-page .filters .fg { width: 100%; }
+.dashboard-page .filters .fg label {
+  display: block;
+  margin-bottom: 3px;
+}
+.dashboard-page .filters .fg select,
+.dashboard-page .filters .fg input[type="date"] {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.dashboard-page .filters .sep { display: none; }
+.dashboard-page .filters .fg-check .alltime-box {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px; /* match select height so checkbox lines up with row */
+  padding: 0 7px;
+  border: 1px solid var(--input-border);
+  border-radius: 4px;
+  background: var(--white);
+}
+.dashboard-page .filters .fg-check .alltime-box input { margin: 0; }
+.dashboard-page .filters .fg-check .alltime-hint {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.dashboard-page .filters .fg-action .btn-clear {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #b91c1c;
+  background: #fff;
+  border: 1px solid #fca5a5;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.dashboard-page .filters .fg-action .btn-clear:hover {
+  background: #fef2f2;
+  border-color: #f87171;
+}
+
+/* Dashboard skeleton loader — mirrors the real layout so the page doesn't
+   jump when data arrives. Pure CSS shimmer, no JS. */
+.dashboard-page .dash-skeleton .sk-row-label {
+  width: 240px;
+  height: 11px;
+  background: linear-gradient(90deg, #eef2f7 0%, #f7fafc 50%, #eef2f7 100%);
+  background-size: 200% 100%;
+  animation: skShimmer 1.2s ease-in-out infinite;
+  border-radius: 3px;
+  margin: 4px 0 8px;
+}
+.dashboard-page .dash-skeleton .sk-card {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-top: 3px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 96px;
+}
+.dashboard-page .dash-skeleton .sk-bar {
+  display: block;
+  height: 10px;
+  width: 100%;
+  background: linear-gradient(90deg, #eef2f7 0%, #f7fafc 50%, #eef2f7 100%);
+  background-size: 200% 100%;
+  animation: skShimmer 1.2s ease-in-out infinite;
+  border-radius: 3px;
+}
+.dashboard-page .dash-skeleton .sk-bar.sk-bar-sm { width: 50%; }
+.dashboard-page .dash-skeleton .sk-bar.sk-bar-md { width: 75%; }
+.dashboard-page .dash-skeleton .sk-bar.sk-bar-xl { height: 22px; width: 60%; }
+.dashboard-page .dash-skeleton .sk-charts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.dashboard-page .dash-skeleton .sk-chart {
+  height: 220px;
+  background: linear-gradient(90deg, #eef2f7 0%, #f7fafc 50%, #eef2f7 100%);
+  background-size: 200% 100%;
+  animation: skShimmer 1.2s ease-in-out infinite;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+.dashboard-page .dash-skeleton .sk-map {
+  height: 340px;
+  background: linear-gradient(90deg, #eef2f7 0%, #f7fafc 50%, #eef2f7 100%);
+  background-size: 200% 100%;
+  animation: skShimmer 1.2s ease-in-out infinite;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  margin-bottom: 14px;
+}
+@keyframes skShimmer {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
 .hm-d {
   stroke: #fff;
   stroke-width: 1;

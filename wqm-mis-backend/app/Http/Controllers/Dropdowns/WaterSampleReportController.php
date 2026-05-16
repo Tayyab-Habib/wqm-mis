@@ -50,7 +50,7 @@ class WaterSampleReportController extends Controller
             'modifiedByUser:id,name',
             'laboratory:id,name,email,phone,address,logo,fax',
             'waterSampleDetails' => function ($query) {
-                $query->orderBy('test_id', 'asc')->with('test');
+                $query->orderBy('test_id', 'asc')->with(['test', 'analyst:id,name']);
             },
             'tests'
         ])->loadCount('tests');
@@ -70,8 +70,11 @@ class WaterSampleReportController extends Controller
                 'water_sample_id' => $waterSampleDetail->water_sample_id,
                 'test_id' => $waterSampleDetail->test_id,
                 'analyst_id' => $waterSampleDetail->analyst_id,
-                'input_result' => $waterSampleDetail->input_result ?? 0,
-                'analysis_result' => $waterSampleDetail->analysis_result ?? 0,
+                'analyst_name' => $waterSampleDetail->analyst?->name,
+                // Preserve null so the frontend can show "NT" (Not Tested);
+                // empty/0 here would shadow a missing result with a real-looking value.
+                'input_result' => $waterSampleDetail->input_result,
+                'analysis_result' => $waterSampleDetail->analysis_result,
                 'type' => $waterSampleDetail->test->type,
                 'criteria' => $waterSampleDetail->test->criteria,
                 'water_quality_parameter' => $waterSampleDetail->test->water_quality_parameter,

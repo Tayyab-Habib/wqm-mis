@@ -45,8 +45,19 @@ class ClientController extends Controller
      */
     public function store(StoreClientRequest $request)
     {
-        $client = Client::query()
-            ->firstOrCreate($request->validated());
+        $data = $request->validated();
+
+        $client = Client::query()->firstOrCreate(
+            ['phone' => $data['phone']],
+            array_merge($data, [
+                'password' => \Illuminate\Support\Facades\Hash::make('password'),
+            ])
+        );
+
+        // If the client already existed and has no password, set the default now
+        if (!$client->wasRecentlyCreated && is_null($client->password)) {
+            $client->update(['password' => \Illuminate\Support\Facades\Hash::make('password')]);
+        }
 
         return response()->json([
             'message' => 'Success creating client',

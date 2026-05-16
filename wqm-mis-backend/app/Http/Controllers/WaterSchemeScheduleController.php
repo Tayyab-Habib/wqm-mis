@@ -28,7 +28,7 @@ class WaterSchemeScheduleController extends Controller
             ])
             ->leftJoin('water_schemes', 'water_scheme_schedule_logs.water_scheme_id', '=', 'water_schemes.id')
             ->leftJoin('laboratories', 'water_scheme_schedule_logs.laboratory_id', '=', 'laboratories.id')
-            ->when(!$authUser->hasRole('system-administrator'), fn(Builder $query) => $query->where('water_scheme_schedule_logs.laboratory_id', '=', $authUser->laboratoryUser->id))
+            ->when(!$authUser->isUnscoped(), fn(Builder $query) => $query->where('water_scheme_schedule_logs.laboratory_id', '=', $authUser->laboratoryUser->id))
             ->get();
 
         if ($waterSchemeScheduleLogs->isEmpty()) {

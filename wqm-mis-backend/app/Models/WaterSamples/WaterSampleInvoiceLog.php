@@ -21,7 +21,23 @@ class WaterSampleInvoiceLog extends Model
         'user_id',
         'paid',
         'balance',
+        'payment_mode',
+        'note',
+        'sbp_submission_id',
+        // F-03 — explicit payment audit fields
+        'payment_date',
+        'receipt_no',
+        'received_by_name',
     ];
+
+    protected $casts = [
+        'payment_date' => 'date',
+    ];
+
+    public function sbpSubmission(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\SbpSubmission::class);
+    }
 
     public function getActivitylogOptions(): LogOptions
     {
@@ -29,7 +45,7 @@ class WaterSampleInvoiceLog extends Model
             ->logOnly($this->fillable)
             ->logOnlyDirty()
             ->useLogName('water_sample_invoice_logs')
-            ->setDescriptionForEvent(fn(string $eventName) => "Water Sample Invoice Log has been {$eventName}");
+            ->setDescriptionForEvent(fn (string $eventName) => "Water Sample Invoice Log has been {$eventName}");
     }
 
     public function waterSampleInvoice(): BelongsTo
@@ -47,4 +63,3 @@ class WaterSampleInvoiceLog extends Model
         return $this->belongsTo(User::class);
     }
 }
-

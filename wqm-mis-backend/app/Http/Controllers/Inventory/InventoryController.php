@@ -15,6 +15,7 @@ use App\Models\Inventory\Inventory;
 use App\Models\Material\Material;
 use App\Models\User;
 use App\Notifications\GenericNotification;
+use App\Services\AuthScope;
 use Exception;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Http\JsonResponse;
@@ -32,10 +33,11 @@ class InventoryController extends Controller
     public function index(ViewInventoryRequest $request)
     {
         $authUser = auth()->user();
-        $inventories = Inventory::query()
-            ->when(!$authUser->hasRole('system-administrator'), function ($query) use ($authUser) {
-                $query->where('laboratory_id', '=', $authUser->laboratoryUser->id);
-            })
+        // RBAC: SA/manager/view-only see all; lab roles filter via pivot;
+        // CE/SE/XEN see all (hierarchy scope doesn't apply to demands).
+        $invQuery = Inventory::query();
+        $invQuery = AuthScope::inventories($invQuery, $authUser);
+        $inventories = $invQuery
             ->with([
                 'laboratory:id,name',
                 'inventoryDetails:id,inventory_id,inventoryable_id,inventoryable_type,quantity,approved_quantity,unit,status,is_received,received_at' => [
@@ -50,6 +52,38 @@ class InventoryController extends Controller
                 'data' => null,
             ], SymfonyResponse::HTTP_OK);
         }
+
+        // Attach the issuing lab's effective available qty (available_quantity
+        // minus expired-batch qty) to each detail so the approver can see what
+        // they can actually fulfill before clicking Issue.
+        $sourceLabId = $authUser->laboratoryDetails?->laboratory_id;
+        if ($sourceLabId) {
+            $today = now()->toDateString();
+            foreach ($inventories->items() as $inv) {
+                foreach ($inv->inventoryDetails as $det) {
+                    if ($det->inventoryable_type !== Material::class) {
+                        $det->central_available_qty = null;
+                        continue;
+                    }
+                    $lm = \App\Models\Material\LaboratoryMaterial::query()
+                        ->where('laboratory_id', $sourceLabId)
+                        ->where('material_id', $det->inventoryable_id)
+                        ->first();
+                    if (!$lm) {
+                        $det->central_available_qty = 0;
+                        continue;
+                    }
+                    $expired = \App\Models\Material\LaboratoryMaterialLog::query()
+                        ->where('laboratory_material_id', $lm->id)
+                        ->where('status', 'in')
+                        ->whereNotNull('date_of_expiry')
+                        ->where('date_of_expiry', '<', $today)
+                        ->sum('quantity');
+                    $det->central_available_qty = max(0, (float) $lm->available_quantity - (float) $expired);
+                }
+            }
+        }
+
         return response()->json([
             'message' => 'Success fetching inventories',
             'data' => $inventories
@@ -146,7 +180,7 @@ class InventoryController extends Controller
      */
     public function show(ShowInventoryRequest $request, Inventory $inventory)
     {
-        if (!auth()->user()->hasRole('system-administrator')
+        if (!auth()->user()->isUnscoped()
             && (int)$inventory->created_by !== auth()->id()) {
             return response()->json([
                 'message' => 'You are not authorize to access this inventory request',

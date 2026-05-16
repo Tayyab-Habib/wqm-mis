@@ -26,13 +26,20 @@ class DivisionRule implements Rule
      */
     public function passes($attribute, $value)
     {
-        if ($value != null) {
-            return $value
-                && Division::query()
-                    ->where('id', '=', $value)
-                    ->where('region_id', '=', request()->region_id)
-                    ->exists();
-        }
+        // Consistency check (not a presence check). Pass when:
+        //  1. division_id wasn't provided (Laravel's `nullable` handles existence).
+        //  2. region_id wasn't provided (no two-sided comparison possible).
+        //  3. The division's own region_id is NULL — upstream data gap; PHED still
+        //     populating divisions.region_id. Until that mapping lands, we can't
+        //     enforce the relationship for those divisions. Once it lands, the
+        //     rule starts enforcing automatically.
+        if ($value === null || $value === '') return true;
+        $regionId = request()->region_id;
+        if ($regionId === null || $regionId === '') return true;
+        $division = Division::query()->find($value);
+        if (!$division) return false;                          // bad division id → fail (exists rule should already catch)
+        if ($division->region_id === null) return true;        // upstream data gap → can't enforce, allow
+        return (int) $division->region_id === (int) $regionId; // both sides known → must match
     }
 
     /**

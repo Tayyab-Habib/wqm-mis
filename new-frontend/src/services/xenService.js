@@ -23,5 +23,6 @@ export const xenService = {
   retestSamples: () => api.get('/xen/retest-samples'),
   overdueWss: () => api.get('/xen/overdue-wss'),
   notifications: () => api.get('/xen/notifications'),
+  markNotificationsRead: (ids) => api.post('/mark-as-read-notifications', { notification_id: Array.isArray(ids) ? ids : [ids] }),
   updateSettings: (payload) => api.put('/xen/settings', payload),
 }

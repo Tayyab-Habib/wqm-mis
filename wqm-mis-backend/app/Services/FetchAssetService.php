@@ -62,7 +62,11 @@ class FetchAssetService
      */
     public function show(LaboratoryAsset $laboratoryAsset): JsonResponse
     {
-        if (!$this->authUser->hasRole('system-administrator') && $this->authUser->laboratoryUser->id !== (int)$laboratoryAsset->laboratory_id) {
+        // RBAC: admin/manager/view-only-admin + hierarchy roles see any asset.
+        // Lab roles can only access assets in their lab.
+        $unrestrictedRoles = ['system-administrator', 'system-manager', 'view-only-admin', 'chief-engineer', 'superintending-engineer', 'xen'];
+        $userLabId = optional($this->authUser->laboratoryUser)->id;
+        if (!$this->authUser->hasAnyRole($unrestrictedRoles) && $userLabId !== (int)$laboratoryAsset->laboratory_id) {
             return response()->json([
                 'message' => 'You are not authorize to access data',
                 'data' => '',

@@ -86,6 +86,9 @@ use App\Http\Controllers\Inventory\InventoryLogController;
 use App\Http\Controllers\Inventory\InventoryReceivedController;
 use App\Http\Controllers\Inventory\UpdateInventoryApproveStatusController;
 use App\Http\Controllers\Inventory\UpdateInventoryIssueStatusController;
+use App\Http\Controllers\Finance\FinanceInvoiceController;
+use App\Http\Controllers\Finance\FinanceExportController;
+use App\Http\Controllers\Finance\DiscountSettingController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\Issues\AssignIssueController;
 use App\Http\Controllers\Issues\IssueController;
@@ -172,8 +175,25 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 
 Route::post('login', [AuthController::class, 'login']);
 
-Route::middleware('auth:sanctum')->group(callback: function () {
+// ── Public WQ results portal (SRS §1.2 "Public" role, no auth) ──
+Route::post('public/results', [\App\Http\Controllers\Public\PublicResultsController::class, 'search']);
+
+Route::middleware(['auth:sanctum', 'dummy.account', 'view.only'])->group(callback: function () {
+    // RBAC: GET /api/me — returns the current user's fresh roles, permissions,
+    // and identity payload. Used by the frontend after an admin updates a
+    // role or per-user permission, so the UI can reflect the change without
+    // requiring re-login. Returns the same UserResource shape as login.
+    Route::get('me', function () {
+        $user = auth()->user()?->load(['roles', 'permissions', 'phedDivision', 'district', 'circle', 'region', 'laboratories']);
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated'], 401);
+        }
+        return new \App\Http\Resources\UserResource($user);
+    });
+
     Route::post('dashboard', DashboardController::class);
+    Route::post('dashboard/district-heatmap', [DashboardController::class, 'districtHeatmap']);
+    Route::post('dashboard/lab-kpis', [DashboardController::class, 'labKpis']);
     Route::post('district-wise-contaminants', DistrictWiseContaminantsController::class);
 
     // XEN Dashboard Routes
@@ -218,6 +238,7 @@ Route::middleware('auth:sanctum')->group(callback: function () {
     Route::get('collected-by-status', CollectedByController::class);
     Route::get('focal-persons', FocalPersonController::class);
     Route::get('all-laboratories', \App\Http\Controllers\Dropdowns\LaboratoryController::class);
+    Route::get('all-materials',    \App\Http\Controllers\Dropdowns\MaterialDropdownController::class);
     Route::get('all-diary-dispatches', \App\Http\Controllers\Dropdowns\DiaryDispatchController::class);
     Route::get('all-water-schemes', \App\Http\Controllers\Dropdowns\WaterSchemeController::class);
     Route::get('all-designations', \App\Http\Controllers\Dropdowns\DesignationController::class);
@@ -357,6 +378,7 @@ Route::middleware('auth:sanctum')->group(callback: function () {
         Route::post('central-laboratory-water-quality', CentralLaboratoryWaterQualityReportController::class);
         Route::post('laboratory-water-quality-analysis', LaboratoryWaterQualityAnalysisReportController::class);
         Route::post('ce-wise', \App\Http\Controllers\Reports\CEWiseReportController::class);
+        Route::post('pwr',    \App\Http\Controllers\Reports\PWRController::class);
         Route::controller(ContaminantWiseReportController::class)
             ->prefix('contaminant-wise')
             ->group(function () {
@@ -367,6 +389,41 @@ Route::middleware('auth:sanctum')->group(callback: function () {
     //End Reports
     Route::middleware(['update_modified_user'])->group(function () {
         Route::apiResource('invoices', InvoiceController::class);
+    });
+
+    // ── Finance Module Routes ────────────────────────────────────────────
+    Route::prefix('finance')->group(function () {
+        Route::get('invoices',         [FinanceInvoiceController::class, 'index']);          // F-01
+        Route::get('ledger',           [FinanceInvoiceController::class, 'ledger']);
+        Route::get('dues',             [FinanceInvoiceController::class, 'dues']);
+        Route::get('revenue-summary',  [FinanceInvoiceController::class, 'revenueSummary']); // F-05
+        Route::get('dashboard-card',   [FinanceInvoiceController::class, 'dashboardCard']);  // F-06 / F-07
+
+        // F-08 — wizard step 1 (clients) and step 3 (their unbilled invoices)
+        Route::get('clients-with-unbilled',            [FinanceInvoiceController::class, 'clientsWithUnbilled']);
+        Route::get('unbilled-by-client/{client_id}',   [FinanceInvoiceController::class, 'unbilledByClient']);
+
+        Route::post('record-payment/{waterSampleInvoice}', [FinanceInvoiceController::class, 'recordPayment']);  // F-03
+        Route::post('clubbed-invoice',                     [FinanceInvoiceController::class, 'storeClubbedInvoice']); // F-13, F-15
+
+        // F-18 — xlsx export of the current revenue register
+        Route::get('invoices/export', [\App\Http\Controllers\Finance\FinanceExportController::class, 'invoicesXlsx']);
+
+        // SBP Submission Routes
+        Route::get('sbp-submissions',                 [\App\Http\Controllers\Finance\SbpSubmissionController::class, 'index']);
+        Route::get('sbp-submissions/pending',         [\App\Http\Controllers\Finance\SbpSubmissionController::class, 'pending']);   // D-02
+        Route::post('sbp-submissions',                [\App\Http\Controllers\Finance\SbpSubmissionController::class, 'store']);
+        Route::post('sbp-submissions/{id}/verify',    [\App\Http\Controllers\Finance\SbpSubmissionController::class, 'verify']);   // D-05
+
+        // F-17 — Discount admin (Super Admin only). Read by everyone with finance access.
+        Route::get('discount',  [\App\Http\Controllers\Finance\DiscountSettingController::class, 'show']);
+        Route::put('discount',  [\App\Http\Controllers\Finance\DiscountSettingController::class, 'update'])
+            ->middleware('role:system-administrator');
+
+        // F-10 / F-12 — clubbed-invoice PDF (kept inside finance prefix for grouping;
+        // also exposed via web.php for download outside of API auth flow).
+        Route::get('clubbed-invoices/{waterSampleInvoice}/pdf',
+            [FinanceInvoiceController::class, 'clubbedPdf'])->name('finance.clubbed.pdf');
     });
     //start payment management routes
     Route::apiResource('payments', PaymentController::class)->middleware('update_modified_user');
@@ -451,4 +508,23 @@ Route::middleware('auth:sanctum')->group(callback: function () {
 
 });
 
-include('newapis.php');
+// newapis.php declared /api/v1/* routes via App\Http\Controllers\Apis\IndexController
+// — but that controller file doesn't exist in this branch. The frontend never
+// calls /api/v1 anyway. Re-enable when the controller stub is committed.
+// include('newapis.php');
+
+// ── Client Portal ─────────────────────────────────────────────────────
+Route::prefix('client-portal')->group(function () {
+    // Public: login & logout
+    Route::post('login',  [\App\Http\Controllers\ClientPortal\ClientPortalAuthController::class, 'login']);
+    Route::post('logout', [\App\Http\Controllers\ClientPortal\ClientPortalAuthController::class, 'logout']);
+
+    // Protected: requires client portal token
+    Route::middleware('client.portal')->group(function () {
+        Route::get('me',             [\App\Http\Controllers\ClientPortal\ClientPortalController::class, 'me']);
+        Route::get('samples',        [\App\Http\Controllers\ClientPortal\ClientPortalController::class, 'samples']);
+        Route::get('invoices',       [\App\Http\Controllers\ClientPortal\ClientPortalController::class, 'invoices']);
+        Route::get('email-reports',  [\App\Http\Controllers\ClientPortal\ClientPortalController::class, 'emailReports']);
+        Route::put('change-password',[\App\Http\Controllers\ClientPortal\ClientPortalController::class, 'changePassword']);
+    });
+});

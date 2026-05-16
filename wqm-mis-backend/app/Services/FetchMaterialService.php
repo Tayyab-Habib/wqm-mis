@@ -33,8 +33,12 @@ class FetchMaterialService
             $query = $laboratory;
         }
 
+        // Eager-load the full set of master columns the frontend Edit modal needs
+        // (category, supplier, unit, threshold) — not just id+name.
         $materials = $query->laboratoryMaterials()
-            ->withWhereHas('material:id,name')
+            ->withWhereHas('material', function ($q) {
+                $q->select(['id', 'name', 'category', 'unit', 'supplier', 'threshold']);
+            })
             ->get();
 
         return LaboratoryMaterialResource::collection($materials);
@@ -42,9 +46,18 @@ class FetchMaterialService
 
     public function fetchAll(): Collection
     {
+        // Lab scoping: system-administrator sees all labs (admin lab-filter UI
+        // depends on this); everyone else only sees stock at their own lab.
+        $isAdmin       = $this->authUser?->isUnscoped() ?? false;
+        $laboratoryId  = $this->authUser?->laboratoryUser?->id;
+
         return LaboratoryMaterial::query()
+            ->when(!$isAdmin && $laboratoryId, fn ($q) => $q->where('laboratory_id', $laboratoryId))
+            // Non-admin user with no lab linkage → return nothing rather than leaking everything.
+            ->when(!$isAdmin && !$laboratoryId, fn ($q) => $q->whereRaw('1 = 0'))
             ->with([
-                'material:id,name',
+                // Pull the full set of master columns the frontend Edit modal needs.
+                'material:id,name,category,unit,supplier,threshold',
                 'laboratory:id,name',
                 'laboratoryMaterialLogs' => function ($query) {
                     $query->orderByDesc('id')->with('recipientLab:id,name');
@@ -61,7 +74,7 @@ class FetchMaterialService
      */
     public function show(LaboratoryMaterial $laboratoryMaterial): JsonResponse
     {
-        if (!$this->authUser->hasRole('system-administrator') && $this->authUser->laboratoryUser->id !== (int)$laboratoryMaterial->laboratory_id) {
+        if (!$this->authUser->isUnscoped() && $this->authUser->laboratoryUser->id !== (int)$laboratoryMaterial->laboratory_id) {
             return response()->json([
                 'message' => 'You are not authorize to access data',
                 'data' => '',

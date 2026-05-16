@@ -136,10 +136,20 @@ onMounted(async () => {
             <tr><th>WSS Name</th><th>District</th><th>Latitude</th><th>Longitude</th><th>Result</th></tr>
           </thead>
           <tbody>
-            <tr v-if="!mapPins.length">
+            <!-- Skeleton shimmer rows while the map fetches WSS coords -->
+            <template v-if="loading">
+              <tr v-for="n in 6" :key="'wm-sk-' + n" class="wm-sk-row">
+                <td><div class="wm-sk" style="width:160px"></div></td>
+                <td><div class="wm-sk" style="width:100px"></div></td>
+                <td><div class="wm-sk" style="width:80px"></div></td>
+                <td><div class="wm-sk" style="width:80px"></div></td>
+                <td><div class="wm-sk wm-sk-pill"></div></td>
+              </tr>
+            </template>
+            <tr v-else-if="!mapPins.length">
               <td colspan="5" style="text-align:center;padding:20px;color:var(--muted)">No WSS with coordinates found.</td>
             </tr>
-            <tr v-for="(pin, i) in mapPins" :key="pin.id" :class="i%2===1?'alt':''">
+            <tr v-else v-for="(pin, i) in mapPins" :key="pin.id" :class="i%2===1?'alt':''">
               <td>{{ pin.wss }}</td>
               <td>{{ pin.district }}</td>
               <td class="mono">{{ pin.lat }}</td>
@@ -152,3 +162,21 @@ onMounted(async () => {
     </div>
   </div>
 </template>
+
+<style>
+.wm-sk-row { background: transparent !important; }
+.wm-sk-row:hover { background: transparent !important; }
+.wm-sk {
+  display: inline-block;
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #eef2f7 0%, #f7fafc 50%, #eef2f7 100%);
+  background-size: 200% 100%;
+  animation: wm-shimmer 1.4s infinite ease-in-out;
+}
+.wm-sk-pill { width: 50px; height: 16px; border-radius: 10px; }
+@keyframes wm-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+</style>

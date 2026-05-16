@@ -57,7 +57,17 @@ class StoreUserRequest extends FormRequest
             'province_id' => ['required', 'integer', 'exists:provinces,id'],
             'present_duty' => ['required_with:laboratory_id', 'string', 'max:255'],
             'assigned_parameters' => ['nullable', 'string', 'max:255'],
-            'role' => ['required', Rule::exists('roles', 'name')]
+            // RBAC: accept EITHER `role` (single, legacy) OR `roles[]` (new
+            // multi-role form). Controller normalises to an array. At least
+            // one of the two must be present.
+            'role'              => ['nullable', 'required_without:roles', Rule::exists('roles', 'name')],
+            'roles'             => ['nullable', 'array'],
+            'roles.*'           => [Rule::exists('roles', 'name')],
+            // Optional direct permission grants (model_has_permissions pivot),
+            // on top of role-derived permissions. Admin can use this to give
+            // a specific user extra capability without making a new role.
+            'extra_permissions'   => ['nullable', 'array'],
+            'extra_permissions.*' => [Rule::exists('permissions', 'name')],
         ];
     }
 }

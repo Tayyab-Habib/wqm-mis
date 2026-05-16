@@ -14,7 +14,8 @@ class ExportLaboratoryRequest extends FormRequest
      */
     public function authorize()
     {
-        return true;
+        $u = auth()->user();
+        return $u && ($u->isUnscoped() || $u->can('view_laboratories'));
     }
 
     /**

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Reports;
 
 use App\Http\Controllers\Controller;
+use App\Services\AuthScope;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -25,7 +26,10 @@ class CEWiseReportController extends Controller
         $query = DB::table('water_samples')
             ->whereNull('deleted_at')
             ->where('is_draft', 0)
-            ->whereNotNull('result')
+            ->whereNotNull('result');
+        // RBAC: filter by user's hierarchy scope (CE/SE/XEN/lab roles)
+        $query = AuthScope::waterSamples($query, $request->user());
+        $query = $query
             ->when($request->filled('from_date'), fn($q) =>
                 $q->whereDate('sampled_at', '>=', $request->from_date))
             ->when($request->filled('to_date'), fn($q) =>

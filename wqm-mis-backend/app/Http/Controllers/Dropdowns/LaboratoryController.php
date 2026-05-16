@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Dropdowns;
 
 use App\Http\Controllers\Controller;
 use App\Models\Laboratories\Laboratory;
+use App\Services\AuthScope;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
@@ -18,12 +19,14 @@ class LaboratoryController extends Controller
      */
     public function __invoke(Request $request): JsonResponse
     {
-        $authUser = auth()->user();
-        $laboratories = Laboratory::query()
+        // RBAC: scope to labs in user's hierarchy. SA/manager/view-only/general-view
+        // see all; CE sees labs in their region; SE/XEN see lab for their circle;
+        // lab roles see only their own lab(s) via the laboratory_user pivot.
+        $query = Laboratory::query()
             ->select(['id', 'name', 'district_id', 'division_id'])
-            ->isActive()
-            ->when(!$authUser->hasRole('system-administrator'), fn($query) => $query->where('district_id', '=', $authUser->district_id))
-            ->get();
+            ->isActive();
+        AuthScope::labs($query, auth()->user());
+        $laboratories = $query->get();
 
         return response()->json([
             'message' => 'Success fetching laboratories',

@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
+import { useRbac } from '../../../composables/useRbac.js'
 import { reportService }   from '../../../services/reportService.js'
 import { dropdownService } from '../../../services/dropdownService.js'
 import { exportToXLSX }    from '../../../utils/exportHelpers.js'
@@ -25,22 +26,13 @@ const filters = ref({
   district_id: '',
 })
 
-// Cascaded dropdowns per DB-truth:
-//   divisions.region_id is NULL in this DB → can't filter Division directly by Region.
-//   Use the indirect path: Region → Circles → Districts → Divisions.
-const filteredDivisions = computed(() => {
-  if (!filters.value.region_id) return divisions.value
-  const regId       = String(filters.value.region_id)
-  const circleIds   = new Set(
-    circles.value.filter(c => String(c.region_id) === regId).map(c => String(c.id))
-  )
-  const divisionIds = new Set(
-    districts.value
-      .filter(d => circleIds.has(String(d.circle_id)))
-      .map(d => String(d.division_id))
-  )
-  return divisions.value.filter(d => divisionIds.has(String(d.id)))
-})
+// Cascaded dropdowns. divisions.region_id is properly backfilled per the
+// xlsx hierarchy now, so Division filters directly off d.region_id.
+const filteredDivisions = computed(() =>
+  filters.value.region_id
+    ? divisions.value.filter(d => String(d.region_id) === String(filters.value.region_id))
+    : divisions.value
+)
 
 const filteredDistricts = computed(() =>
   filters.value.division_id
@@ -70,13 +62,29 @@ async function loadDropdowns() {
   } catch (e) { console.error('Dropdown error:', e) }
 }
 
+// ── Client-side date validation ────────────────────────────────────────
+const dateError = computed(() => {
+  const f = filters.value.from_date
+  const t = filters.value.to_date
+  if (f && t && f > t) return 'From date must be on or before To date.'
+  return ''
+})
+
+// Request sequence — drop stale responses if a newer request fires mid-flight
+let requestSeq = 0
+
 // ── Generate ───────────────────────────────────────────────────────────
 async function generateReport() {
+  if (dateError.value) {
+    errorMsg.value  = dateError.value
+    generated.value = false
+    loading.value   = false
+    return
+  }
+
+  const mySeq = ++requestSeq
   loading.value   = true
   errorMsg.value  = ''
-  generated.value = false
-  ceSummary.value      = []
-  districtDetail.value = []
   try {
     const payload = {}
     if (filters.value.from_date)   payload.from_date   = filters.value.from_date
@@ -86,6 +94,8 @@ async function generateReport() {
     if (filters.value.district_id) payload.district_id = filters.value.district_id
 
     const res = await reportService.getCEWiseReport(payload)
+    if (mySeq !== requestSeq) return    // newer request superseded this one
+
     // axios interceptor returns body directly (not under res.data)
     const body = res.ce_summary ? res : (res.data || res)
     ceSummary.value      = body.ce_summary      || []
@@ -94,10 +104,11 @@ async function generateReport() {
     generatedAt.value    = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
     generated.value = true
   } catch (e) {
+    if (mySeq !== requestSeq) return
     errorMsg.value = 'Failed to generate report: ' + (e.response?.data?.message || e.message)
     console.error('CE-wise error:', e)
   } finally {
-    loading.value = false
+    if (mySeq === requestSeq) loading.value = false
   }
 }
 
@@ -218,12 +229,23 @@ function clearFilters() {
 let filterTimer = null
 watch(filters, () => {
   if (!generated.value) return
+  if (dateError.value) return       // skip while date range is invalid
   clearTimeout(filterTimer)
   filterTimer = setTimeout(generateReport, 350)
 }, { deep: true })
 
+// RBAC: pre-select + lock filters at the user's hierarchy scope.
+// CE-Wise only has region/division/district selectors.
+const rbac = useRbac()
+function applyRbacLocks() {
+  if (rbac.regionId.value) filters.value.region_id = String(rbac.regionId.value)
+  // No circle_id field on this form; SE just sees their region-level data
+  // (circle scoping still happens at the backend via AuthScope).
+}
+
 onMounted(async () => {
   await loadDropdowns()
+  applyRbacLocks()
   await generateReport()
 })
 </script>
@@ -237,7 +259,7 @@ onMounted(async () => {
 
       <div class="fg">
         <label>CE Zone</label>
-        <select v-model="filters.region_id" @change="filters.division_id='';filters.district_id=''">
+        <select v-model="filters.region_id" :disabled="!!rbac.regionId.value" @change="filters.division_id='';filters.district_id=''">
           <option value="">All CE Zones</option>
           <option v-for="r in regions" :key="r.id" :value="r.id">{{ r.name }}</option>
         </select>
@@ -261,23 +283,38 @@ onMounted(async () => {
 
       <button class="btn btn-sec btn-sm" style="align-self:flex-end" @click="clearFilters">✕ Clear Filters</button>
       <div class="tsp"></div>
-      <span v-if="loading" style="font-size:11px;color:var(--muted);align-self:flex-end;padding-bottom:6px">Updating…</span>
       <button class="btn btn-sec btn-sm" style="align-self:flex-end" @click="exportReport">↓ Export .xlsx</button>
       <button class="btn btn-sec btn-sm" style="align-self:flex-end" @click="printReport">Print PDF</button>
     </div>
 
+    <!-- Inline date range warning -->
+    <div v-if="dateError"
+         style="background:#fef9c3;border:1px solid #fde047;border-radius:6px;padding:8px 12px;margin-bottom:10px;color:#854d0e;font-size:12px">
+      ⚠ {{ dateError }}
+    </div>
+
     <!-- Error -->
-    <div v-if="errorMsg"
+    <div v-if="errorMsg && !dateError"
          style="background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;padding:10px 14px;margin-bottom:10px;color:#b91c1c;font-size:12px">
       {{ errorMsg }}
     </div>
 
-    <!-- Loading splash only on first load -->
-    <div v-if="loading && !generated" style="text-align:center;padding:48px;color:var(--muted);font-size:13px">
-      Loading report data...
+    <!-- Skeleton loader -->
+    <div v-if="loading" class="ce-sk">
+      <div class="sk sk-banner"></div>
+      <div class="sk-cards">
+        <div class="sk-card" v-for="i in 4" :key="'sc'+i">
+          <div class="sk sk-lbl"></div>
+          <div class="sk sk-val"></div>
+        </div>
+      </div>
+      <div class="sk-tbl">
+        <div class="sk-tbl-head"><div class="sk sk-th" v-for="i in 8" :key="'th'+i"></div></div>
+        <div class="sk-tbl-row" v-for="r in 6" :key="'tr'+r"><div class="sk sk-td" v-for="i in 8" :key="'td'+r+'-'+i"></div></div>
+      </div>
     </div>
 
-    <template v-if="generated">
+    <template v-if="generated && !loading">
       <!-- ── Report banner ── -->
       <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:10px 16px;margin-bottom:12px;font-size:12px;display:flex;align-items:center;gap:8px">
         <span style="font-size:14px">📊</span>
@@ -449,8 +486,48 @@ onMounted(async () => {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* ── Skeleton loader ─────────────────────────────────────────────────── */
+.ce-sk .sk {
+  background: linear-gradient(90deg, #e5e7eb 0%, #f3f4f6 50%, #e5e7eb 100%);
+  background-size: 200% 100%;
+  border-radius: 4px;
+  animation: ce-sk-shimmer 1.4s infinite linear;
+}
+@keyframes ce-sk-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.ce-sk .sk-banner { height: 44px; margin-bottom: 12px; }
+.ce-sk .sk-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.ce-sk .sk-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ce-sk .sk-lbl { height: 10px; width: 60%; }
+.ce-sk .sk-val { height: 22px; width: 45%; }
+.ce-sk .sk-tbl { border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden; }
+.ce-sk .sk-tbl-head, .ce-sk .sk-tbl-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr 1fr 1fr 1fr 1.2fr;
+  gap: 8px;
+  padding: 9px 12px;
+}
+.ce-sk .sk-tbl-head { background: #f3f4f6; border-bottom: 1px solid #e5e7eb; }
+.ce-sk .sk-tbl-row + .sk-tbl-row { border-top: 1px solid #f3f4f6; }
+.ce-sk .sk-th, .ce-sk .sk-td { height: 12px; }
+
 @media print {
-  .filters, .btn, nav, aside { display: none !important; }
+  .filters, .btn, nav, aside, .ce-sk { display: none !important; }
   .tbl-wrap, .tbl-wrap *, .cards, .cards *, .sh, .sh * { visibility: visible; }
   body { font-size: 10px; }
 }

@@ -26,13 +26,19 @@ class DistrictRule implements Rule
      */
     public function passes($attribute, $value)
     {
-        if ($value != null) {
-            return $value
-                && District::query()
-                    ->where('id', '=', $value)
-                    ->where('circle_id', '=', request()->circle_id)
-                    ->exists();
-        }
+        // Consistency check (not a presence check). Pass when:
+        //  1. district_id wasn't provided.
+        //  2. circle_id wasn't provided (no two-sided comparison possible).
+        //  3. The district's own circle_id is NULL — upstream data gap; PHED still
+        //     populating districts.circle_id. Until that mapping lands, we can't
+        //     enforce the relationship.
+        if ($value === null || $value === '') return true;
+        $circleId = request()->circle_id;
+        if ($circleId === null || $circleId === '') return true;
+        $district = District::query()->find($value);
+        if (!$district) return false;
+        if ($district->circle_id === null) return true;
+        return (int) $district->circle_id === (int) $circleId;
     }
 
     /**

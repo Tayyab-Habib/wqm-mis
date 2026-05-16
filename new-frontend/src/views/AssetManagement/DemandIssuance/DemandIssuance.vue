@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { assetService } from '../../../services/assetService.js'
+import { dropdownService } from '../../../services/dropdownService.js'
 
 const loading  = ref(false)
 const errorMsg = ref('')
@@ -33,59 +34,65 @@ function prettyStatus(s) {
   return String(s || 'pending').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 }
 
+// Each inventory detail becomes its own row — important for auto-spawned
+// remainder details (Mardan asks 200, admin issues 40 → original detail closes
+// with "Issued: 40 of 200", new remainder detail opens at qty 160 pending).
 function mapDemand(inv) {
-  const detail = inv.inventory_details?.[0] || inv.inventoryDetails?.[0] || {}
-  const itemName = detail.inventoryable?.name || detail.material?.name || detail.asset?.name || '—'
-  const unit = detail.unit || ''
-  const qty = detail.quantity ? `${parseFloat(detail.quantity)} ${unit}`.trim() : '—'
+  const details = inv.inventory_details || inv.inventoryDetails || []
+  if (!details.length) return []
   const daysPending = inv.created_at
     ? Math.floor((Date.now() - new Date(inv.created_at)) / (1000 * 60 * 60 * 24))
     : 0
-  return {
-    id: inv.id,
-    slug: inv.slug || `DMD-${inv.id}`,
-    detailId: detail.id || null,
-    detailStatus: detail.status || inv.status || 'pending',
-    detailQty: detail.quantity || 0,
-    from: inv.laboratory?.name || '—',
-    item: itemName,
-    qty,
-    unit,
-    urgency: inv.urgency || 'routine',
-    justification: inv.justification || '',
-    daysPending,
-    status: inv.status || 'pending',
-  }
+  return details.map((detail, idx) => {
+    const itemName = detail.inventoryable?.name || detail.material?.name || detail.asset?.name || '—'
+    const unit = detail.unit || ''
+    const requestedQty = parseFloat(detail.quantity) || 0
+    const approvedQty  = parseFloat(detail.approved_quantity) || 0
+    const detailStatus = detail.status || 'pending'
+    // Partial fulfillment: issued less than requested. Display-only label —
+    // the backend enum doesn't have a 'partially_issued' value yet.
+    const isPartial = detailStatus === 'issued' && approvedQty > 0 && approvedQty < requestedQty
+    return {
+      id: `${inv.id}-${detail.id || idx}`,    // composite key so multiple details under one demand don't collide
+      slug: inv.slug || `DMD-${inv.id}`,
+      detailId: detail.id || null,
+      detailStatus,
+      detailQty: requestedQty,
+      approvedQty,
+      isPartial,
+      // Issuing-lab's available qty (already excludes expired batches). null = not a material.
+      centralAvailable: detail.central_available_qty !== undefined && detail.central_available_qty !== null
+        ? parseFloat(detail.central_available_qty)
+        : null,
+      from: inv.laboratory?.name || '—',
+      item: itemName,
+      qty: requestedQty ? `${requestedQty} ${unit}`.trim() : '—',
+      unit,
+      urgency: inv.urgency || 'routine',
+      justification: inv.justification || '',
+      daysPending,
+      status: isPartial ? 'partially_issued' : detailStatus,
+    }
+  })
 }
 
 async function loadData() {
   loading.value = true
   errorMsg.value = ''
   try {
+    // Demand list is lab-scoped by the backend controller.
+    // Materials dropdown comes from the FULL master catalog (cross-lab) so users
+    // can request items their lab doesn't currently stock.
     const [invRes, matRes] = await Promise.all([
       assetService.getInventories(),
-      assetService.getMaterials(),
+      dropdownService.getMaterialsDropdown(),
     ])
     const invData = invRes.data?.data?.data || invRes.data?.data || invRes.data || []
     const matData = matRes.data?.data || matRes.data || []
-    demands.value = Array.isArray(invData) ? invData.map(mapDemand) : []
+    demands.value = Array.isArray(invData) ? invData.flatMap(mapDemand) : []
 
-    // /laboratory/materials/all returns laboratory_materials rows with
-    // `material` eager-loaded. We need the master material_id (not the
-    // lab_material row id) for the demand payload, and the same material
-    // may appear once per lab — dedupe so the dropdown shows each item once.
-    const flat = Array.isArray(matData) ? matData : []
-    const byMaterialId = new Map()
-    for (const lm of flat) {
-      const matId = lm.material?.id || lm.material_id
-      if (!matId || byMaterialId.has(matId)) continue
-      byMaterialId.set(matId, {
-        id:   matId,                                      // material id (FK target)
-        name: lm.material?.name || '(unnamed)',
-        unit: lm.unit || 'pcs',
-      })
-    }
-    stockItems.value = Array.from(byMaterialId.values())
+    stockItems.value = (Array.isArray(matData) ? matData : [])
+      .map(m => ({ id: m.id, name: m.name || '(unnamed)', unit: m.unit || 'pcs' }))
       .sort((a, b) => a.name.localeCompare(b.name))
   } catch (e) {
     errorMsg.value = 'Failed to load demand data'
@@ -132,19 +139,31 @@ async function confirmReject() {
 }
 
 // ─── Issue confirm modal ───────────────────────────────────────────────────
-const issueModal = ref({ open: false, demand: null })
+// `issueQty` defaults to the requested qty but is editable so the approver can
+// partially fulfill when their lab's available stock is less than the request.
+const issueModal = ref({ open: false, demand: null, issueQty: 0, error: '' })
 function openIssue(demand) {
   if (!demand.detailId) return
-  issueModal.value = { open: true, demand }
+  // Default the issue qty to min(requested, available) so partial fulfillment
+  // is one click away when stock is short.
+  const requested = Number(demand.detailQty) || 0
+  const available = demand.centralAvailable != null ? Number(demand.centralAvailable) : requested
+  issueModal.value = { open: true, demand, issueQty: Math.min(requested, available), error: '' }
 }
 async function confirmIssue() {
   const demand = issueModal.value.demand
   if (!demand) return
+  const requested = Number(demand.detailQty) || 0
+  const available = demand.centralAvailable != null ? Number(demand.centralAvailable) : Infinity
+  const qty       = Number(issueModal.value.issueQty)
+  if (!qty || qty <= 0)         { issueModal.value.error = 'Quantity must be greater than 0';   return }
+  if (qty > requested)          { issueModal.value.error = `Cannot issue more than requested (${requested})`; return }
+  if (qty > available)          { issueModal.value.error = `Only ${available} available (excluding expired)`; return }
   savingId.value = demand.id
   issueModal.value.open = false
   try {
-    await assetService.issueInventory(demand.detailId, demand.detailQty)
-    showToast('success', `📦 Issued ${demand.qty} for ${demand.slug} — credited to ${demand.from}`)
+    await assetService.issueInventory(demand.detailId, qty)
+    showToast('success', `📦 Issued ${qty} ${demand.unit} for ${demand.slug} — credited to ${demand.from}`)
     await loadData()
   } catch (e) {
     showToast('error', e?.response?.data?.message || 'Failed to issue demand')
@@ -225,7 +244,28 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
       <button class="btn btn-pri btn-sm" @click="showDemandModal = true">+ Raise Demand</button>
     </div>
 
-    <div v-if="loading" class="empty-state">⏳ Loading demands…</div>
+    <div v-if="loading" class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Demand ID</th><th>From Lab</th><th>Item</th><th>Qty</th>
+            <th>Urgency</th><th>Days Pending</th><th>Status</th><th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="i in 6" :key="'sk-' + i" class="sk-row">
+            <td><span class="sk-bar sk-sm"></span></td>
+            <td><span class="sk-bar sk-md"></span></td>
+            <td><span class="sk-bar sk-lg"></span></td>
+            <td><span class="sk-bar sk-sm"></span></td>
+            <td><span class="sk-bar sk-sm"></span></td>
+            <td><span class="sk-bar sk-xs"></span></td>
+            <td><span class="sk-bar sk-sm"></span></td>
+            <td><span class="sk-bar sk-md"></span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
     <div v-else-if="errorMsg" class="empty-state error">
       {{ errorMsg }}
       <button class="btn btn-sec btn-sm" @click="loadData" style="margin-left:12px">Retry</button>
@@ -253,7 +293,13 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
               <b>{{ d.item }}</b>
               <div v-if="d.justification" class="muted-sm">{{ d.justification }}</div>
             </td>
-            <td>{{ d.qty }}</td>
+            <td>
+              <span v-if="d.isPartial" style="display:inline-flex;flex-direction:column;line-height:1.2">
+                <span style="font-weight:600;color:#0f766e">Issued: {{ d.approvedQty }} {{ d.unit }}</span>
+                <span style="font-size:11px;color:#6b7280">of {{ d.detailQty }} requested</span>
+              </span>
+              <span v-else>{{ d.qty }}</span>
+            </td>
             <td><span class="rag" :class="urgencyClass(d.urgency)">{{ prettyStatus(d.urgency) }}</span></td>
             <td :style="d.daysPending >= 3 && String(d.status).toLowerCase() === 'pending' ? 'color:#9d1b20;font-weight:700' : ''">
               {{ d.daysPending }} <span v-if="d.daysPending >= 3 && String(d.status).toLowerCase() === 'pending'">⚠</span>
@@ -261,7 +307,7 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
             <td><span class="rag" :class="statusClass(d.detailStatus)">{{ prettyStatus(d.detailStatus) }}</span></td>
             <td>
               <template v-if="String(d.detailStatus).toLowerCase() === 'pending'">
-                <button class="btn btn-green btn-xs" :disabled="savingId === d.id" @click="approveDemand(d)">✓ Approve</button>
+                <button v-write="'edit_inventory_approve_status'" class="btn btn-green btn-xs" :disabled="savingId === d.id" @click="approveDemand(d)">✓ Approve</button>
                 <button class="btn btn-red btn-xs" :disabled="savingId === d.id" @click="openReject(d)">✗ Reject</button>
               </template>
               <template v-else-if="String(d.detailStatus).toLowerCase() === 'approved'">
@@ -327,7 +373,7 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
             </div>
           </div>
           <div class="modal-footer">
-            <button class="btn btn-pri" type="button" :disabled="demandSaving" @click="saveDemand">
+            <button v-write="'add_inventories'" class="btn btn-pri" type="button" :disabled="demandSaving" @click="saveDemand">
               <span class="btn-icon">📤</span> {{ demandSaving ? 'Submitting…' : 'Submit Demand' }}
             </button>
             <button class="btn btn-sec outline" type="button" :disabled="demandSaving" @click="showDemandModal = false">Cancel</button>
@@ -342,20 +388,44 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
         <div class="modal-content" style="max-width:480px">
           <div class="modal-header">
             <h3>📦 Issue Stock</h3>
-            <button class="close-btn" type="button" @click="issueModal.open = false">✕</button>
+            <button v-write class="close-btn" type="button" @click="issueModal.open = false">✕</button>
           </div>
           <div class="modal-body">
-            <p class="modal-desc">This will deduct from Central Lab stock and auto-credit the receiving lab.</p>
+            <p class="modal-desc">This will deduct from your lab's stock and auto-credit the receiving lab. Expired batches are excluded from the Available total.</p>
             <div class="confirm-line"><b>Demand:</b> <span class="mono">{{ issueModal.demand?.slug }}</span></div>
             <div class="confirm-line"><b>Item:</b> {{ issueModal.demand?.item }}</div>
-            <div class="confirm-line"><b>Quantity:</b> {{ issueModal.demand?.qty }}</div>
+            <div class="confirm-line"><b>Requested:</b> {{ issueModal.demand?.qty }}</div>
+            <div class="confirm-line" v-if="issueModal.demand?.centralAvailable != null">
+              <b>Available at your lab:</b>
+              <span :style="{ color: issueModal.demand.centralAvailable < issueModal.demand.detailQty ? '#b91c1c' : '#16a34a', fontWeight: 600 }">
+                {{ issueModal.demand.centralAvailable }} {{ issueModal.demand.unit }}
+              </span>
+            </div>
             <div class="confirm-line"><b>Issue to:</b> {{ issueModal.demand?.from }}</div>
+            <div style="margin-top:12px">
+              <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px">Quantity to Issue <span style="color:#b91c1c">*</span></label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                :max="Math.min(issueModal.demand?.detailQty || 0, issueModal.demand?.centralAvailable ?? issueModal.demand?.detailQty ?? 0)"
+                v-model.number="issueModal.issueQty"
+                @input="issueModal.error = ''"
+                class="form-input"
+                style="width:100%;padding:6px 10px;border:1px solid #d1d5db;border-radius:4px"
+              />
+              <div v-if="issueModal.error" style="color:#b91c1c;font-size:11.5px;margin-top:6px">⚠️ {{ issueModal.error }}</div>
+              <div v-else-if="issueModal.demand?.centralAvailable != null && issueModal.demand.centralAvailable < issueModal.demand.detailQty"
+                   style="color:#92400e;font-size:11.5px;margin-top:6px">
+                Stock is short — partial fulfillment will be recorded.
+              </div>
+            </div>
           </div>
           <div class="modal-footer">
             <button class="btn btn-pri" type="button" @click="confirmIssue">
               <span class="btn-icon">📦</span> Confirm Issue
             </button>
-            <button class="btn btn-sec outline" type="button" @click="issueModal.open = false">Cancel</button>
+            <button v-write class="btn btn-sec outline" type="button" @click="issueModal.open = false">Cancel</button>
           </div>
         </div>
       </div>
@@ -367,7 +437,7 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
         <div class="modal-content" style="max-width:480px">
           <div class="modal-header">
             <h3>✗ Reject Demand</h3>
-            <button class="close-btn" type="button" @click="rejectModal.open = false">✕</button>
+            <button v-write class="close-btn" type="button" @click="rejectModal.open = false">✕</button>
           </div>
           <div class="modal-body">
             <p class="modal-desc">The field lab will be notified that this demand was rejected.</p>
@@ -383,7 +453,7 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
             <button class="btn btn-red" type="button" :disabled="!rejectModal.reason?.trim()" @click="confirmReject">
               <span class="btn-icon">✗</span> Confirm Reject
             </button>
-            <button class="btn btn-sec outline" type="button" @click="rejectModal.open = false">Cancel</button>
+            <button v-write class="btn btn-sec outline" type="button" @click="rejectModal.open = false">Cancel</button>
           </div>
         </div>
       </div>
@@ -667,4 +737,26 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
 .toast-slide-leave-active { transition: transform .25s ease, opacity .25s ease; }
 .toast-slide-enter-from,
 .toast-slide-leave-to { transform: translateX(40px); opacity: 0; }
+
+/* Skeleton loading rows — shared shimmer placeholder pattern. */
+.sk-row { td { padding: 10px 11px; } }
+.sk-bar {
+  display: inline-block;
+  height: 11px;
+  width: 70px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #eef2f7 0%, #f7fafc 50%, #eef2f7 100%);
+  background-size: 200% 100%;
+  animation: skShimmer 1.2s ease-in-out infinite;
+  vertical-align: middle;
+
+  &.sk-xs { width: 18px; }
+  &.sk-sm { width: 42px; }
+  &.sk-md { width: 70px; }
+  &.sk-lg { width: 140px; }
+}
+@keyframes skShimmer {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
 </style>

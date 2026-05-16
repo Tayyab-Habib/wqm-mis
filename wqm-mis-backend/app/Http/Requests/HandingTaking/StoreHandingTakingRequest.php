@@ -16,8 +16,10 @@ class StoreHandingTakingRequest extends FormRequest
      */
     public function authorize()
     {
-        return true;
-        return auth()->user()->can('add_handing_takings');
+        // The legacy `return true; return $user->can(...)` left the second
+        // statement dead — restore the intended permission check.
+        $u = auth()->user();
+        return $u && ($u->isUnscoped() || $u->can('add_handing_takings'));
     }
 
     /**

@@ -37,12 +37,13 @@ enum UserRoleEnum: string
      */
     public static function xenTierRoles(): array
     {
-        return [
-            self::XEN->value,
-            self::CE->value,
-            self::SE->value,
-            self::SECRETARY->value,
-        ];
+        // Only XEN receives the unfit-sample notification today: the dispatch
+        // query filters by phed_division_id which CE (region_id) and SE
+        // (circle_id) don't have, so listing them here was a no-op that also
+        // broke the query because the slugs ('ce','se','secretary') don't
+        // match the real role names in the DB. Add CE/SE escalation back
+        // when there's a separate region/circle-keyed dispatch path.
+        return [self::XEN->value];
     }
 
     /**

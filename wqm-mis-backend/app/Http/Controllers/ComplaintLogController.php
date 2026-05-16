@@ -32,7 +32,7 @@ class ComplaintLogController extends Controller
     public function store(StoreComplaintLogRequest $request)
     {
         $authUser = auth()->user();
-        if ($authUser->hasRole('system-administrator')) {
+        if ($authUser->isUnscoped()) {
             $complaint = Complaint::find($request->complaint_id);
         } else {
             $complaint = auth()->user()
