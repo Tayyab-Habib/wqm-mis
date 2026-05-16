@@ -91,17 +91,21 @@ async function handleLogin() {
       userStore.setUser(user)
 
       // Role-aware redirect (uses additive role_slug):
-      //  ce      → /ce/dashboard
-      //  xen/se/secretary → /xen/dashboard
-      //  everyone else    → /dashboard (main admin)
+      //  secretary → /secretary/dashboard
+      //  ce        → /ce/dashboard
+      //  xen / se  → /xen/dashboard
+      //  everyone else → /dashboard (main admin)
       const roleSlug = (userData.role_slug || '').toString().toLowerCase()
+      const secretaryRoles = ['secretary']
       const ceRoles  = ['ce']
-      const xenRoles = ['xen', 'se', 'secretary']
-      const target = ceRoles.includes(roleSlug)
-        ? '/ce/dashboard'
-        : xenRoles.includes(roleSlug)
-          ? '/xen/dashboard'
-          : '/dashboard'
+      const xenRoles = ['xen', 'se']
+      const target = secretaryRoles.includes(roleSlug)
+        ? '/secretary/dashboard'
+        : ceRoles.includes(roleSlug)
+          ? '/ce/dashboard'
+          : xenRoles.includes(roleSlug)
+            ? '/xen/dashboard'
+            : '/dashboard'
       router.push({ path: target, query: { loggedIn: '1' } })
     } else {
       error.value = 'Login failed. No token received.'

@@ -79,6 +79,21 @@ const routes = [
       { path: 'wss-register',     name: 'CeWssRegister',     meta: { title: 'WSS Register' },          component: () => import('../views/Ce/CeWssRegister.vue') },
     ],
   },
+  // ── Secretary Portal (Province-wide oversight, fate-decision approval) ─
+  {
+    path: '/secretary',
+    component: () => import('../layouts/SecretaryLayout.vue'),
+    meta: { requiresAuth: true, portal: 'secretary' },
+    children: [
+      { path: '', redirect: '/secretary/dashboard' },
+      { path: 'dashboard',        name: 'SecretaryDashboard',       meta: { title: 'Dashboard' },                 component: () => import('../views/Secretary/SecretaryDashboard.vue') },
+      { path: 'ce/:regionId',     name: 'SecretaryCeUnfit',         meta: { title: 'CE — Unfit Trail' },          component: () => import('../views/Secretary/SecretaryCeUnfit.vue') },
+      { path: 'fate-decisions',   name: 'SecretaryFateDecisions',   meta: { title: 'WSS Fate Decisions' },        component: () => import('../views/Secretary/SecretaryFateDecisions.vue') },
+      { path: 'persistent-unfit', name: 'SecretaryPersistentUnfit', meta: { title: 'Persistent Unfit WSS — Province-wide' }, component: () => import('../views/Secretary/SecretaryPersistentUnfit.vue') },
+      { path: 'gar',              name: 'SecretaryGar',             meta: { title: 'GAR — Province' },            component: () => import('../views/Secretary/SecretaryGar.vue') },
+      { path: 'wss-register',     name: 'SecretaryWssRegister',     meta: { title: 'WSS Register' },              component: () => import('../views/Secretary/SecretaryWssRegister.vue') },
+    ],
+  },
 ]
 
 const router = createRouter({
@@ -87,22 +102,21 @@ const router = createRouter({
 })
 
 // Auth guard
-const XEN_ROLES = ['xen', 'se', 'secretary']
-const CE_ROLES  = ['ce']
+const XEN_ROLES       = ['xen', 'se']
+const CE_ROLES        = ['ce']
+const SECRETARY_ROLES = ['secretary']
 
 router.beforeEach((to, from, next) => {
   const userStr = localStorage.getItem('user')
   const isAuthenticated = !!userStr
   let user = null
   try { user = userStr ? JSON.parse(userStr) : null } catch { user = null }
-  // Read role_slug (additive XEN field) — falls back to role for safety
   const roleSlug = (user?.role_slug || user?.role || '').toString().toLowerCase()
-  const isXen = XEN_ROLES.includes(roleSlug)
-  const isCe  = CE_ROLES.includes(roleSlug)
 
   const landingFor = (slug) => {
-    if (CE_ROLES.includes(slug))  return '/ce/dashboard'
-    if (XEN_ROLES.includes(slug)) return '/xen/dashboard'
+    if (SECRETARY_ROLES.includes(slug)) return '/secretary/dashboard'
+    if (CE_ROLES.includes(slug))        return '/ce/dashboard'
+    if (XEN_ROLES.includes(slug))       return '/xen/dashboard'
     return '/dashboard'
   }
 
