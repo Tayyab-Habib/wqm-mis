@@ -3,6 +3,9 @@ import { api } from './api.js'
 export const waterSchemeService = {
   // Water Schemes CRUD
   getAll: (params = {}) => api.post('/search-water-scheme', params),
+
+  // WSS Map — schemes with valid coordinates + last sample result/date
+  getMap: (params = {}) => api.post('/water-schemes-map', params),
   getById: (id) => api.get(`/water-schemes/${id}`),
   create: (data) => api.post('/water-schemes', data),
   update: (id, data) => api.put(`/water-schemes/${id}`, data),
