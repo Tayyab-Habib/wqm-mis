@@ -90,10 +90,18 @@ async function handleLogin() {
       localStorage.setItem('user', JSON.stringify(user))
       userStore.setUser(user)
 
-      // Role-aware redirect: XEN-tier officers go to the XEN portal (uses additive role_slug)
+      // Role-aware redirect (uses additive role_slug):
+      //  ce      → /ce/dashboard
+      //  xen/se/secretary → /xen/dashboard
+      //  everyone else    → /dashboard (main admin)
       const roleSlug = (userData.role_slug || '').toString().toLowerCase()
-      const xenRoles = ['xen', 'ce', 'se', 'secretary']
-      const target = xenRoles.includes(roleSlug) ? '/xen/dashboard' : '/dashboard'
+      const ceRoles  = ['ce']
+      const xenRoles = ['xen', 'se', 'secretary']
+      const target = ceRoles.includes(roleSlug)
+        ? '/ce/dashboard'
+        : xenRoles.includes(roleSlug)
+          ? '/xen/dashboard'
+          : '/dashboard'
       router.push({ path: target, query: { loggedIn: '1' } })
     } else {
       error.value = 'Login failed. No token received.'

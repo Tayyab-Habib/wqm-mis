@@ -64,6 +64,21 @@ const routes = [
       { path: 'settings',       name: 'XenSettings',     meta: { title: 'Settings' },          component: () => import('../views/Xen/XenSettings.vue') },
     ],
   },
+  // ── CE Portal (Chief Engineer — region-scoped oversight) ──────────────
+  {
+    path: '/ce',
+    component: () => import('../layouts/CeLayout.vue'),
+    meta: { requiresAuth: true, portal: 'ce' },
+    children: [
+      { path: '', redirect: '/ce/dashboard' },
+      { path: 'dashboard',        name: 'CeDashboard',       meta: { title: 'Dashboard' },             component: () => import('../views/Ce/CeDashboard.vue') },
+      { path: 'circles/:id',      name: 'CeCircleDetail',    meta: { title: 'SE Circle' },             component: () => import('../views/Ce/CeCircleDetail.vue') },
+      { path: 'escalated-cases',  name: 'CeEscalatedCases',  meta: { title: 'CE Escalated Cases' },    component: () => import('../views/Ce/CeEscalatedCases.vue') },
+      { path: 'persistent-unfit', name: 'CePersistentUnfit', meta: { title: 'Persistent Unfit WSS' },  component: () => import('../views/Ce/CePersistentUnfit.vue') },
+      { path: 'gar',              name: 'CeGar',             meta: { title: 'GAR — My Area' },         component: () => import('../views/Ce/CeGar.vue') },
+      { path: 'wss-register',     name: 'CeWssRegister',     meta: { title: 'WSS Register' },          component: () => import('../views/Ce/CeWssRegister.vue') },
+    ],
+  },
 ]
 
 const router = createRouter({
@@ -72,7 +87,8 @@ const router = createRouter({
 })
 
 // Auth guard
-const XEN_ROLES = ['xen', 'ce', 'se', 'secretary']
+const XEN_ROLES = ['xen', 'se', 'secretary']
+const CE_ROLES  = ['ce']
 
 router.beforeEach((to, from, next) => {
   const userStr = localStorage.getItem('user')
@@ -82,11 +98,18 @@ router.beforeEach((to, from, next) => {
   // Read role_slug (additive XEN field) — falls back to role for safety
   const roleSlug = (user?.role_slug || user?.role || '').toString().toLowerCase()
   const isXen = XEN_ROLES.includes(roleSlug)
+  const isCe  = CE_ROLES.includes(roleSlug)
+
+  const landingFor = (slug) => {
+    if (CE_ROLES.includes(slug))  return '/ce/dashboard'
+    if (XEN_ROLES.includes(slug)) return '/xen/dashboard'
+    return '/dashboard'
+  }
 
   if (to.meta.requiresAuth && !isAuthenticated) {
     next('/login')
   } else if (to.path === '/login' && isAuthenticated) {
-    next(isXen ? '/xen/dashboard' : '/dashboard')
+    next(landingFor(roleSlug))
   } else {
     next()
   }
