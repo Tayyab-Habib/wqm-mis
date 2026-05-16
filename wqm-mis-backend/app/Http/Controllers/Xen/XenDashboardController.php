@@ -265,16 +265,49 @@ class XenDashboardController extends Controller
             ]);
         }
 
+        // Only show samples whose CURRENT status is UNFIT — once a retest is registered
+        // the sample's current_status drops to PENDING/IN_PROGRESS and it disappears from
+        // this page; if the retest comes back UNFIT it lands back here.
         $samples = WaterSample::whereIn('id', $unfitSampleIds)
+            ->where('current_status', \App\Enums\WaterSampleCurrentStatusEnum::UNFIT->value)
             ->with([
                 'waterScheme:id,name',
+                'phedDivision:id,name',
+                'district:id,name',
                 'tests' => function ($q) {
                     $q->orderByDesc('round');
                 },
             ])
             ->get()
             ->map(function ($sample) {
-                return $this->formatUnfitSampleWithTimeline($sample);
+                $base = $this->formatUnfitSampleWithTimeline($sample);
+
+                // Enrich for parity with the admin Unfit Sample Trail page
+                // (display order = ascending by round, regardless of load order)
+                $tests = $sample->tests->sortBy('round')->values()->map(function ($t) {
+                    $statusVal = $t->status instanceof \BackedEnum ? $t->status->value : $t->status;
+                    $resultVal = $t->result instanceof \BackedEnum ? $t->result->value : $t->result;
+                    $statusEnum = \App\Enums\WaterSampleTestStatusEnum::tryFrom((int) $statusVal);
+                    $resultEnum = $resultVal !== null ? \App\Enums\WaterSampleTestResultEnum::tryFrom((int) $resultVal) : null;
+                    return [
+                        'id'          => $t->id,
+                        'round'       => $t->round,
+                        'status'      => $statusEnum?->label() ?? 'Pending',
+                        'result'      => $resultEnum?->label() ?? null,
+                        'sampled_at'  => $t->getRawOriginal('sampled_at'),
+                        'analyzed_at' => $t->getRawOriginal('analyzed_at'),
+                    ];
+                })->values();
+
+                $base['phed_division']   = $sample->phedDivision ? ['id' => $sample->phedDivision->id, 'name' => $sample->phedDivision->name] : null;
+                $base['district']        = $sample->district ? ['id' => $sample->district->id, 'name' => $sample->district->name] : null;
+                $base['water_scheme']    = $sample->waterScheme ? ['id' => $sample->waterScheme->id, 'name' => $sample->waterScheme->name] : null;
+                $base['sampled_at']      = $sample->getRawOriginal('sampled_at');
+                $base['current_status']  = (int) ($sample->current_status instanceof \BackedEnum ? $sample->current_status->value : $sample->current_status);
+                $base['is_closed']       = (bool) $sample->is_closed;
+                $base['tests']           = $tests;
+
+                return $base;
             });
 
         $stats = [
