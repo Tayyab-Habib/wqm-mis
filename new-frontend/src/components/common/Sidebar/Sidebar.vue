@@ -1,8 +1,7 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { computed } from 'vue'
 import { useUiStore } from '../../../stores/useUiStore.js'
 import { useUserStore } from '../../../stores/useUserStore.js'
-import { api } from '../../../services/api.js'
 
 const store     = useUiStore()
 const userStore = useUserStore()
@@ -19,34 +18,6 @@ const userStore = useUserStore()
 const UNSCOPED_ROLES = ['system-administrator', 'system-manager', 'view-only-admin', 'general-view-account']
 const isUnscoped = computed(() => UNSCOPED_ROLES.some(r => userStore.hasRole(r)))
 
-// ── Dynamic badge counts ──────────────────────────────────────────────
-const unfitCount = ref(0)
-
-async function fetchUnfitCount() {
-  try {
-    const res = await api.post('/search-water-sample', { result: 'Unfit' })
-    const data = res.data?.data
-    // Handle paginated response
-    if (data?.total !== undefined) {
-      unfitCount.value = data.total
-    } else if (Array.isArray(data)) {
-      unfitCount.value = data.length
-    } else if (data?.data) {
-      unfitCount.value = data.data.length
-    }
-  } catch (e) {
-    // Silently fail — badge just won't show
-  }
-}
-
-// Refresh every 2 minutes
-let refreshTimer = null
-onMounted(() => {
-  fetchUnfitCount()
-  refreshTimer = setInterval(fetchUnfitCount, 120_000)
-})
-onUnmounted(() => clearInterval(refreshTimer))
-
 // Each item declares `permissions: ['perm_name', ...]`. The item is visible
 // when the user has ANY of those permissions, OR when the user is unscoped.
 // Items / sections with no `permissions` key are visible to all authenticated
@@ -60,7 +31,8 @@ const navItems = [
   { section: 'Water Quality',                                                                          permissions: ['view_water_samples', 'add_water_samples', 'add_water_sample_details'] },
   { label: 'Sample Registration', icon: '🧪', route: '/water-quality/sample-registration',             permissions: ['add_water_samples'] },
   { label: 'Analysis Entry',      icon: '⚗️', route: '/water-quality/analysis-entry',                  permissions: ['add_water_sample_details', 'edit_water_sample_results'] },
-  { label: 'Unfit Sample Trail',  icon: '⚠️', route: '/water-quality/unfit-sample-trail', badgeKey: 'unfit', permissions: ['view_water_samples'] },
+  // Unfit Sample Trail is XEN/SE-only — they access it via the dedicated /xen
+  // portal (XenUnfitTrail). Hidden from the main-app sidebar entirely.
   { section: 'Reports',                                                                                permissions: ['view_water_samples', 'view_reports'] },
   { label: 'Individual Sample Report', icon: '🧪', route: '/reports/individual-sample',                permissions: ['view_water_samples'] },
   { label: 'GAR (Abstract)',      icon: '📄', route: '/reports/gar',                                   permissions: ['view_water_samples', 'view_reports'] },
@@ -78,10 +50,11 @@ const navItems = [
   { label: 'Demand & Issuance',   icon: '🔄', route: '/assets/demand-issuance',                        permissions: ['view_inventories'] },
   { section: 'Admin',                                                                                  adminOnly: true },
   { label: 'Users / HR',          icon: '👥', route: '/admin/users-hr',                                adminOnly: true },
-  { label: 'Roles & Permissions', icon: '🔐', route: '/admin/roles-permissions',                       adminOnly: true },
   { label: 'KPI Framework',       icon: '📊', route: '/admin/kpi-framework',                           adminOnly: true },
   { label: 'Diaries / Dispatches', icon: '📝', route: '/admin/diaries-dispatches',                     permissions: ['view_diaries', 'view_dispatches'] },
   { label: 'Water Scheme Details', icon: '💧', route: '/wss-details',                                  permissions: ['view_water_schemes'] },
+  { section: 'Settings',                                                                               adminOnly: true },
+  { label: 'Roles & Permissions', icon: '🔐', route: '/admin/roles-permissions',                       adminOnly: true },
 ]
 
 // Permission-based visibility. Unscoped admin roles see everything.
@@ -116,7 +89,6 @@ const visibleNavItems = computed(() => {
 })
 
 function getBadge(item) {
-  if (item.badgeKey === 'unfit') return unfitCount.value || null
   return item.badge || null
 }
 </script>

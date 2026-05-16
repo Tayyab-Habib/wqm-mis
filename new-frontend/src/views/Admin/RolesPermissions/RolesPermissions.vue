@@ -1,6 +1,9 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { adminService } from '../../../services/adminService.js'
+import { useUserStore } from '../../../stores/useUserStore.js'
+
+const userStore = useUserStore()
 
 // ── State ──────────────────────────────────────────────────────────────
 const loading      = ref(false)
@@ -65,8 +68,10 @@ const filteredModules = computed(() => {
 async function loadRoles() {
   try {
     const r = await adminService.getRoles()
-    // Backend sometimes returns data:null on empty list — coerce to [].
-    const list = r.data?.data
+    // The axios interceptor (src/services/axios.js) unwraps response.data,
+    // so `r` is already the response body { message, data: [...] }.
+    // Fall back to r itself if the shape varies.
+    const list = r?.data?.data || r?.data || (Array.isArray(r) ? r : [])
     roles.value = Array.isArray(list) ? list : []
   } catch (e) {
     showToast('❌ Failed to load roles: ' + (e?.response?.data?.message || e.message), 'error')
@@ -120,12 +125,27 @@ function hasPerm(permId) {
   return rolePerms.value.has(Number(permId))
 }
 
+// Count how many of a module's "Others" permissions are currently enabled
+// for the open role. Used to colour the chevron badge so admins know there's
+// active state hidden behind the accordion.
+function activeOthers(others) {
+  if (!others?.length) return 0
+  let n = 0
+  for (const p of others) if (rolePerms.value.has(Number(p.id))) n++
+  return n
+}
+
 async function savePermissions() {
   if (!selectedRole.value) return
   saving.value = true
   try {
     const ids = Array.from(rolePerms.value).map(Number)
     await adminService.syncRolePermissions(selectedRole.value.id, ids)
+    // If the admin just edited a role they themselves hold, refresh their
+    // own session so the sidebar / button gates reflect the change without
+    // forcing a logout. Force-bypass the throttle since this is a direct
+    // user action with intent.
+    await userStore.refreshSession({ force: true })
     showToast(`✅ Permissions updated for ${displayRole(selectedRole.value.name)}`)
     closeMatrix()
   } catch (e) {
@@ -146,7 +166,8 @@ async function createRole() {
     //   1. Append the server's response immediately for instant feedback
     //   2. Re-fetch the full list to reconcile (covers cases where backend
     //      normalises the name, or another admin added something concurrently).
-    const created = r.data?.data
+    // The axios interceptor unwraps response.data so `r` is the body.
+    const created = r?.data?.data || r?.data
     if (created?.id) {
       roles.value = [...roles.value, created]
     }
@@ -327,7 +348,16 @@ onMounted(async () => {
                 </td>
                 <td>
                   <details v-if="mod.others.length > 0">
-                    <summary>›</summary>
+                    <summary>
+                      <span class="rp-others-chev">›</span>
+                      <span
+                        class="rp-others-count"
+                        :class="{ 'rp-others-count-active': activeOthers(mod.others) > 0 }"
+                        :title="`${mod.others.length} extra permission(s)` + (activeOthers(mod.others) ? `, ${activeOthers(mod.others)} enabled` : '')"
+                      >
+                        {{ mod.others.length }}<template v-if="activeOthers(mod.others) > 0"> · {{ activeOthers(mod.others) }}</template>
+                      </span>
+                    </summary>
                     <div class="rp-others">
                       <label v-for="p in mod.others" :key="p.id" class="rp-other-row">
                         <input
@@ -487,8 +517,32 @@ onMounted(async () => {
 .rp-help        { font-size: 11.5px; color: #94a3b8; margin-top: 6px; }
 .rp-help code   { background: #f1f5f9; padding: 1px 5px; border-radius: 3px; font-family: monospace; font-size: 11px; }
 
-details summary { cursor: pointer; color: #64748b; font-size: 18px; line-height: 1; user-select: none; }
-details[open] summary { color: #2563eb; transform: rotate(90deg); }
+details summary {
+  cursor: pointer;
+  color: #64748b;
+  line-height: 1;
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  list-style: none;
+}
+details summary::-webkit-details-marker { display: none; }
+.rp-others-chev { font-size: 18px; display: inline-block; transition: transform .12s; }
+details[open] .rp-others-chev { transform: rotate(90deg); color: #2563eb; }
+
+/* Count pill — shows hidden permission count, turns blue when any are enabled. */
+.rp-others-count {
+  display: inline-flex; align-items: center;
+  background: #f1f5f9; color: #64748b;
+  border-radius: 999px; padding: 2px 8px;
+  font-size: 10.5px; font-weight: 700;
+  min-width: 18px; justify-content: center;
+  transition: background .12s, color .12s;
+}
+.rp-others-count-active {
+  background: #dbeafe; color: #1d4ed8;
+}
 
 /* ── Skeleton loading rows ───────────────────────────────────────── */
 .rp-skel {

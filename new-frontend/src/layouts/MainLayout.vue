@@ -1,9 +1,28 @@
 <script setup>
+import { onMounted, onUnmounted } from 'vue'
 import Sidebar from '../components/common/Sidebar/Sidebar.vue'
 import Topbar from '../components/common/Topbar/Topbar.vue'
 import { useUserStore } from '../stores/useUserStore.js'
 
 const userStore = useUserStore()
+
+// Live RBAC: when the tab regains focus, pull fresh roles + permissions
+// from /api/me so admin edits made elsewhere take effect without a logout.
+// useUserStore.refreshSession() is throttled to one call per 15s.
+function onVisible() {
+  if (document.visibilityState === 'visible') {
+    userStore.refreshSession()
+  }
+}
+onMounted(() => {
+  // First pull on mount so a user landing here after login picks up any
+  // changes made between login time and arrival.
+  userStore.refreshSession()
+  document.addEventListener('visibilitychange', onVisible)
+})
+onUnmounted(() => {
+  document.removeEventListener('visibilitychange', onVisible)
+})
 </script>
 
 <template>

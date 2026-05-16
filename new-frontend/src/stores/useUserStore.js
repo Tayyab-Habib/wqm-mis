@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { api } from '../services/api.js'
 
 export const useUserStore = defineStore('user', () => {
   // Load user from localStorage on init
@@ -83,12 +84,53 @@ export const useUserStore = defineStore('user', () => {
     localStorage.removeItem('user')
   }
 
+  // ── Live session refresh ─────────────────────────────────────────────
+  // GET /api/me returns a fresh UserResource (roles + permission_names)
+  // so we can react to admin role/permission edits without forcing the
+  // user to log out. The endpoint omits `token` (the User model has no
+  // such property), so we preserve the existing token from currentUser
+  // when merging.
+  //
+  // Throttled to one call per 15s so a tab that emits frequent focus
+  // events (e.g. window switching) doesn't spam the API.
+  let lastRefreshAt = 0
+  let refreshInFlight = null
+  async function refreshSession({ force = false } = {}) {
+    if (!currentUser.value?.token) return null
+    const now = Date.now()
+    if (!force && now - lastRefreshAt < 15_000) return null
+    if (refreshInFlight) return refreshInFlight
+
+    refreshInFlight = (async () => {
+      try {
+        const res = await api.get('/me')
+        // axios interceptor unwraps response.data → res IS the body
+        // /me returns a JsonResource, which Laravel wraps as { data: {...} }
+        const fresh = res?.data || res
+        if (!fresh || !fresh.id) return null
+        const merged = { ...fresh, token: currentUser.value?.token }
+        setUser(merged)
+        lastRefreshAt = Date.now()
+        return merged
+      } catch {
+        // Silent — don't disrupt the session if /me hiccups (e.g. offline).
+        // 401 will be caught elsewhere and bounce to /login on the next
+        // user-driven request via the axios error interceptor.
+        return null
+      } finally {
+        refreshInFlight = null
+      }
+    })()
+
+    return refreshInFlight
+  }
+
   return {
     currentUser, isLoggedIn,
     isSuperAdmin, isLabIncharge, isClient, isViewOnly, isDummy,
     permissions, allowedModules,
     regionId, circleId, phedDivisionId, districtId, laboratoryId,
     hasPermission, hasRole, hasAnyRole, canSeeModule,
-    token, setUser, logout,
+    token, setUser, logout, refreshSession,
   }
 })

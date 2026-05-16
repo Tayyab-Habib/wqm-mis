@@ -3,6 +3,15 @@ import { ref, computed, onMounted, watch } from 'vue'
 import axios from 'axios'
 import { financeService } from '../../../services/financeService.js'
 
+// ── Toast (matches the pattern in Topbar.vue / DiariesDispatches.vue) ─
+const toast = ref({ show: false, message: '', type: 'success' })
+let toastTimer = null
+function showToast(message, type = 'success') {
+  clearTimeout(toastTimer)
+  toast.value = { show: true, message, type }
+  toastTimer = setTimeout(() => { toast.value.show = false }, 4000)
+}
+
 // State
 const activeTab = ref('individual')
 const loading = ref(false)
@@ -76,7 +85,7 @@ const clubbedInvoicePreviewData = computed(() => {
 
 function nextClubbedStep() { 
   if (clubbedStep.value === 2 && selectedCount.value < 2) {
-    alert("Please select at least 2 samples to generate a clubbed invoice.");
+    showToast('⚠️ Please select at least 2 samples to generate a clubbed invoice.', 'error');
     return;
   }
   if (clubbedStep.value < 3) clubbedStep.value++;
@@ -91,11 +100,11 @@ async function saveClubbedInvoice() {
   const client = clubbedForm.value.client || {}
   const selected = unbilledSamples.value.filter(s => s.selected)
   if (selected.length < 2) {
-    alert('Please select at least 2 receipts to generate a clubbed invoice.')
+    showToast('⚠️ Please select at least 2 receipts to generate a clubbed invoice.', 'error')
     return
   }
   if (!client.invoiceable_id || !client.invoiceable_type) {
-    alert('Please pick a client first.')
+    showToast('⚠️ Please pick a client first.', 'error')
     return
   }
 
@@ -111,7 +120,7 @@ async function saveClubbedInvoice() {
     });
     showClubbedModal.value = false;
     const slug = res?.data?.clubbed_slug || res?.data?.data?.clubbed_slug || '(slug unavailable)'
-    alert('Clubbed Invoice generated successfully: ' + slug);
+    showToast('✅ Clubbed Invoice generated: ' + slug, 'success');
     fetchData();
   } catch (err) {
     console.error(err);
@@ -120,7 +129,7 @@ async function saveClubbedInvoice() {
     const msg = e?.errors
       ? Object.values(e.errors).flat().join('\n')
       : (e?.message || err.message)
-    alert('Failed to generate clubbed invoice: ' + msg);
+    showToast('❌ Failed to generate clubbed invoice: ' + msg, 'error');
   } finally {
     loading.value = false;
   }
@@ -179,10 +188,10 @@ const allDuesSelected = computed({
 
 function sendReminder() {
   if (selectedDues.value.length === 0) {
-    alert('Please select at least one invoice to send a reminder.');
+    showToast('⚠️ Please select at least one invoice to send a reminder.', 'error');
     return;
   }
-  alert(`Sending reminders for ${selectedDues.value.length} invoice(s)...`);
+  showToast(`📧 Sending reminders for ${selectedDues.value.length} invoice(s)…`, 'success');
 }
 
 const filteredInvoices = computed(() => {
@@ -434,16 +443,16 @@ async function submitPayment() {
   // F-03 — send the full audit payload the backend now persists:
   // amount, payment_mode, payment_date, receipt_no, received_by, remarks.
   if (!paymentForm.value.amount || paymentForm.value.amount <= 0) {
-    alert('Please enter a valid amount.')
+    showToast('⚠️ Please enter a valid amount.', 'error')
     return
   }
   if (paymentForm.value.amount > selectedInvoice.value.balance) {
-    alert('Amount cannot exceed outstanding balance.')
+    showToast('⚠️ Amount cannot exceed outstanding balance.', 'error')
     return
   }
   const allowedModes = ['Cash', 'Cheque', 'Bank Transfer', 'Online']
   if (!allowedModes.includes(paymentForm.value.payment_mode)) {
-    alert('Please select a valid payment mode: ' + allowedModes.join(', '))
+    showToast('⚠️ Please select a valid payment mode: ' + allowedModes.join(', '), 'error')
     return
   }
 
@@ -465,7 +474,7 @@ async function submitPayment() {
     const msg = e?.errors
       ? Object.values(e.errors).flat().join('\n')
       : (e?.message || 'Payment failed. Please try again.')
-    alert(msg)
+    showToast('❌ ' + msg, 'error')
   } finally {
     loading.value = false
   }
@@ -729,14 +738,30 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- Error & Loading States -->
+    <!-- Error state -->
     <div v-if="errorMsg" class="abar red print-hide">⚠ {{ errorMsg }}</div>
-    <div v-if="loading" class="loading-state print-hide">Loading data...</div>
+
+    <!-- Skeleton: header visible, 6 shimmer rows while loading. Matches
+         the pattern in DiariesDispatches / RolesPermissions. -->
+    <div v-if="loading" class="data-table-container print-hide">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th v-for="n in 10" :key="'skh-' + n"><div class="fin-skel" style="width:70%;height:10px"></div></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="r in 6" :key="'sk-' + r">
+            <td v-for="c in 10" :key="'sk-' + r + '-' + c"><div class="fin-skel" style="height:12px"></div></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
 
     <!-- Main Table -->
     <div v-if="!loading" class="data-table-container">
       <table class="data-table">
-        
+
         <!-- Headers based on active tab -->
         <thead v-if="activeTab === 'individual' || activeTab === 'clubbed'">
           <tr>
@@ -1191,19 +1216,21 @@ onMounted(() => {
   min-height: 100vh;
 }
 
-/* 1. KPI Cards matching image */
+/* 1. KPI Cards — sized to match the project-standard `.card` rule in
+   src/assets/styles/_global.scss so Finance doesn't feel oversized
+   compared to Dashboard / WSS / AssetManagement. */
 .kpi-cards {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-  margin-bottom: 24px;
+  gap: 10px;
+  margin-bottom: 14px;
 }
 
 .kpi-card {
   background: #ffffff;
   border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  padding: 16px 20px;
+  border-radius: 6px;
+  padding: 12px 14px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.04);
   position: relative;
   overflow: hidden;
@@ -1214,7 +1241,7 @@ onMounted(() => {
     top: 0;
     left: 0;
     right: 0;
-    height: 4px;
+    height: 3px;
   }
 
   &.top-orange::before { background-color: #d97706; }
@@ -1224,24 +1251,25 @@ onMounted(() => {
 }
 
 .kpi-label {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
   color: #64748b;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  margin-bottom: 8px;
+  margin-bottom: 5px;
 }
 
 .kpi-value {
-  font-size: 28px;
+  font-size: 21px;
   font-weight: 700;
   font-family: 'DM Mono', monospace;
   display: flex;
   align-items: baseline;
-  gap: 4px;
+  gap: 3px;
+  line-height: 1;
 
   span {
-    font-size: 18px;
+    font-size: 12px;
     font-weight: 600;
   }
 
@@ -1301,21 +1329,21 @@ onMounted(() => {
   }
 }
 
-/* 3. Toolbar Filters */
+/* 3. Toolbar Filters — tightened paddings/fonts to match other modules */
 .filters-toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 24px;
-  padding: 16px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
   background: #f8fafc;
-  border-radius: 8px;
+  border-radius: 6px;
   border: 1px solid #e2e8f0;
 }
 
 .left-filters {
   display: flex;
-  gap: 12px;
+  gap: 8px;
 }
 
 .search-box {
@@ -1330,11 +1358,11 @@ onMounted(() => {
   }
 
   input {
-    padding: 8px 12px 8px 34px;
+    padding: 6px 10px 6px 30px;
     border: 1px solid #cbd5e1;
-    border-radius: 6px;
-    font-size: 13px;
-    width: 240px;
+    border-radius: 5px;
+    font-size: 12.5px;
+    width: 220px;
     color: #334155;
     background: #fff;
     outline: none;
@@ -1347,10 +1375,10 @@ onMounted(() => {
 }
 
 .status-select {
-  padding: 8px 32px 8px 12px;
+  padding: 6px 28px 6px 10px;
   border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  font-size: 13px;
+  border-radius: 5px;
+  font-size: 12.5px;
   color: #334155;
   background: #fff;
   cursor: pointer;
@@ -1363,16 +1391,16 @@ onMounted(() => {
 
 .right-actions {
   display: flex;
-  gap: 10px;
+  gap: 8px;
 }
 
 .btn-blue {
   background: #1e5ba3;
   color: #fff;
   border: none;
-  padding: 8px 16px;
+  padding: 6px 12px;
   border-radius: 4px;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.2s;
@@ -1384,9 +1412,9 @@ onMounted(() => {
   background: #fff;
   color: #334155;
   border: 1px solid #cbd5e1;
-  padding: 8px 16px;
+  padding: 6px 12px;
   border-radius: 4px;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
@@ -1499,43 +1527,52 @@ onMounted(() => {
   }
 }
 
-/* Modals & Forms */
+/* Modals & Forms — tightened to match other modules in the app.
+   Flex column + capped height so on short viewports the footer (Save
+   Payment button) stays visible and the body scrolls internally. */
 .payment-modal {
-  width: 580px;
+  width: 520px;
   padding: 0;
+  border-radius: 6px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
-  border-radius: 8px;
 
   .modal-header {
     background: #1f2937;
     color: #fff;
-    padding: 18px 24px;
+    padding: 12px 18px;
     position: relative;
+    flex-shrink: 0;
 
     .header-top {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      
-      h2 { color: #fff; margin: 0; font-size: 18px; display: flex; align-items: center; }
+
+      h2 { color: #fff; margin: 0; font-size: 15px; display: flex; align-items: center; }
     }
-    .modal-subtitle { font-size: 13px; color: #9ca3af; margin-top: 6px; }
-    
+    .modal-subtitle { font-size: 11.5px; color: #9ca3af; margin-top: 3px; }
+
     .btn-close-modal {
       background: #374151;
       color: #fff;
       border: 1px solid #4b5563;
-      padding: 4px 10px;
+      padding: 3px 9px;
       border-radius: 4px;
-      font-size: 13px;
+      font-size: 12px;
       cursor: pointer;
       &:hover { background: #4b5563; }
     }
   }
 
   .modal-body {
-    padding: 24px;
+    padding: 16px 18px;
     background: #fff;
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
   }
 
   .payment-info-box {
@@ -1543,17 +1580,17 @@ onMounted(() => {
     justify-content: space-between;
     background: #f8fafc;
     border: 1px solid #e2e8f0;
-    border-radius: 6px;
-    padding: 16px 20px;
-    margin-bottom: 24px;
+    border-radius: 5px;
+    padding: 10px 14px;
+    margin-bottom: 14px;
 
     .info-col {
       display: flex;
       flex-direction: column;
       align-items: center;
-      
-      .info-label { font-size: 12px; color: #64748b; margin-bottom: 6px; }
-      .info-value { font-size: 16px; font-weight: 700; }
+
+      .info-label { font-size: 11px; color: #64748b; margin-bottom: 3px; }
+      .info-value { font-size: 13.5px; font-weight: 700; }
     }
   }
 
@@ -1561,21 +1598,21 @@ onMounted(() => {
     &.c2 {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 16px 24px;
+      gap: 10px 16px;
     }
     label {
       display: block;
-      font-size: 13px;
+      font-size: 11.5px;
       font-weight: 600;
       color: #475569;
-      margin-bottom: 6px;
+      margin-bottom: 4px;
     }
     .form-input {
       width: 100%;
-      padding: 8px 12px;
+      padding: 6px 10px;
       border: 1px solid #cbd5e1;
       border-radius: 4px;
-      font-size: 14px;
+      font-size: 12.5px;
       color: #0f172a;
       outline: none;
       &:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1); }
@@ -1586,33 +1623,35 @@ onMounted(() => {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 12px 16px;
-    border-radius: 6px;
+    padding: 8px 12px;
+    border-radius: 5px;
     border: 1px solid #e2e8f0;
-    
+    margin-top: 10px;
+
     &.bg-green-light { background: #f0fdf4; border-color: #bbf7d0; }
     &.bg-gray-light { background: #f8fafc; }
 
-    .remaining-label { font-size: 13px; color: #475569; }
-    .remaining-value { font-size: 16px; font-weight: 700; }
-    
+    .remaining-label { font-size: 12px; color: #475569; }
+    .remaining-value { font-size: 13.5px; font-weight: 700; }
+
     .badge-paid {
       background: #bbf7d0;
       color: #166534;
-      padding: 4px 10px;
-      border-radius: 20px;
-      font-size: 12px;
+      padding: 3px 8px;
+      border-radius: 16px;
+      font-size: 11px;
       font-weight: 600;
     }
   }
 
   .modal-footer {
-    padding: 16px 24px;
+    padding: 10px 18px;
     background: #fff;
-    border-top: none;
+    border-top: 1px solid #e2e8f0;
     display: flex;
-    justify-content: flex-start; /* Changed from right aligned */
-    gap: 12px;
+    justify-content: flex-start;
+    gap: 8px;
+    flex-shrink: 0;
   }
 }
 
@@ -1627,13 +1666,13 @@ onMounted(() => {
 .mt-3 { margin-top: 12px; }
 .mt-4 { margin-top: 16px; }
 
-/* Clubbed Invoice Modal Styles */
+/* Clubbed Invoice Modal Styles — sized down to match other module modals */
 .clubbed-modal {
-  width: 900px !important;
+  width: 760px !important;
   max-width: 95vw;
 }
 .clubbed-modal.step3-modal {
-  width: 800px !important;
+  width: 680px !important;
 }
 .modal-subtitle {
   color: #94a3b8;
@@ -1885,5 +1924,20 @@ onMounted(() => {
 .ageing-badge.success { background: #dcfce7; color: #166534; }
 .ageing-badge.warning { background: #fee2e2; color: #991b1b; }
 .ageing-badge.danger { background: #991b1b; color: #fff; }
+
+/* Skeleton shimmer for loading tables — matches the pattern used in
+   DiariesDispatches / RolesPermissions across the project. */
+.fin-skel {
+  background: linear-gradient(90deg, #f1f5f9 0%, #e2e8f0 50%, #f1f5f9 100%);
+  background-size: 200% 100%;
+  animation: fin-shimmer 1.4s infinite ease-in-out;
+  border-radius: 4px;
+  width: 100%;
+  height: 14px;
+}
+@keyframes fin-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
 
 </style>

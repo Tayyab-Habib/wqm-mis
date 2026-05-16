@@ -373,8 +373,7 @@ onMounted(loadQueue)
 
     <!-- Queue table -->
     <div class="tbl-wrap" style="margin-bottom:14px">
-      <div v-if="loading" style="text-align:center;padding:30px;color:var(--muted);font-size:13px">⏳ Loading queue…</div>
-      <table v-else style="font-size:12px">
+      <table style="font-size:12px">
         <thead>
           <tr style="background:var(--navy);color:#fff">
             <th style="color:#fff">Sample ID</th>
@@ -388,14 +387,27 @@ onMounted(loadQueue)
           </tr>
         </thead>
         <tbody>
+          <!-- Skeleton shimmer rows while queue is loading -->
+          <template v-if="loading">
+            <tr v-for="n in 6" :key="'ae-sk-' + n" class="ae-sk-row">
+              <td><div class="ae-sk" style="width:80px"></div></td>
+              <td><div class="ae-sk" style="width:160px"></div></td>
+              <td><div class="ae-sk" style="width:80px"></div></td>
+              <td style="text-align:center"><div class="ae-sk ae-sk-pill" style="margin:0 auto"></div></td>
+              <td><div class="ae-sk" style="width:90px"></div></td>
+              <td><div class="ae-sk" style="width:100px"></div></td>
+              <td><div class="ae-sk" style="width:80px"></div></td>
+              <td><div class="ae-sk ae-sk-btn"></div></td>
+            </tr>
+          </template>
           <!-- Empty state row -->
-          <tr v-if="!filtered.length">
+          <tr v-else-if="!filtered.length">
             <td colspan="8" style="text-align:center;padding:32px;color:var(--muted);font-size:13px">
-              {{ loading ? '' : 'No samples in queue. Register a sample first.' }}
+              No samples in queue. Register a sample first.
             </td>
           </tr>
 
-          <tr v-for="(row, i) in filtered" :key="row.id"
+          <tr v-if="!loading" v-for="(row, i) in filtered" :key="row.id"
               :class="i % 2 === 1 ? 'alt' : ''"
               :style="row.isPT ? 'background:#f5f0ff' : ''">
 
@@ -484,9 +496,36 @@ onMounted(loadQueue)
             {{ errorMsg }}
           </div>
 
-          <!-- Loading state -->
-          <div v-if="modalLoading" style="text-align:center;padding:40px;color:var(--muted)">
-            ⏳ Loading sample details…
+          <!-- Skeleton placeholders while sample detail + tests fetch.
+               Mirrors the layout the real content will land in:
+               an info bar, two columns of form fields, and a results table. -->
+          <div v-if="modalLoading" style="padding:14px">
+            <!-- Info bar shimmer -->
+            <div style="background:var(--sky2);border:1px solid var(--sky);border-radius:5px;padding:8px 14px;margin-bottom:14px;display:flex;gap:16px;flex-wrap:wrap">
+              <div class="ae-sk" style="width:80px"></div>
+              <div class="ae-sk" style="width:130px"></div>
+              <div class="ae-sk" style="width:90px"></div>
+              <div class="ae-sk" style="width:120px"></div>
+              <div class="ae-sk" style="width:110px"></div>
+            </div>
+            <!-- Two-column form-field shimmer -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+              <div v-for="n in 6" :key="'ae-msk-fld-' + n">
+                <div class="ae-sk" style="width:90px;height:10px;margin-bottom:6px"></div>
+                <div class="ae-sk" style="width:100%;height:24px;border-radius:4px"></div>
+              </div>
+            </div>
+            <!-- Results-table shimmer -->
+            <div class="ae-sk" style="width:140px;height:14px;margin-bottom:8px"></div>
+            <div style="border:1px solid var(--border);border-radius:5px;overflow:hidden">
+              <div v-for="n in 5" :key="'ae-msk-row-' + n"
+                   style="display:grid;grid-template-columns:1.6fr 1fr 1fr 1fr;gap:10px;padding:9px 12px;border-bottom:1px solid var(--border)">
+                <div class="ae-sk" style="width:140px"></div>
+                <div class="ae-sk" style="width:90px"></div>
+                <div class="ae-sk" style="width:80px"></div>
+                <div class="ae-sk ae-sk-pill"></div>
+              </div>
+            </div>
           </div>
 
           <template v-else-if="sampleDetail">
@@ -708,3 +747,26 @@ onMounted(loadQueue)
     </Teleport>
   </div>
 </template>
+
+<style>
+/* ── Skeleton loaders for queue table + sample detail modal ────────────
+   Inline to keep the view self-contained — the project doesn't have a
+   shared shimmer system outside the Xen module's xen-shared.scss. */
+.ae-sk-row { background: transparent !important; }
+.ae-sk-row:hover { background: transparent !important; }
+.ae-sk {
+  display: inline-block;
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #eef2f7 0%, #f7fafc 50%, #eef2f7 100%);
+  background-size: 200% 100%;
+  animation: ae-shimmer 1.4s infinite ease-in-out;
+}
+.ae-sk-pill { width: 60px; height: 16px; border-radius: 10px; }
+.ae-sk-btn  { width: 100px; height: 22px; border-radius: 4px; }
+
+@keyframes ae-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+</style>

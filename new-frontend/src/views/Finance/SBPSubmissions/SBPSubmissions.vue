@@ -219,24 +219,33 @@ onMounted(fetchData)
           </tr>
         </thead>
         <tbody>
-          <tr v-for="sub in sbpSubmissions" :key="sub.id">
-            <td class="mono-id">{{ sub.submission_slug }}</td>
-            <td>{{ formatDate(sub.deposit_date) }}</td>
-            <td class="mono-text">{{ sub.challan_no || '—' }}</td>
-            <td class="fw-700">{{ formatNum(sub.amount) }}</td>
-            <td>{{ sub.laboratory?.name || 'Central Lab' }}</td>
-            <td>{{ sub.submitted_by_name }}</td>
-            <td>{{ sub.invoice_logs_count || 0 }} invoices</td>
-            <td class="text-center">
-              <span class="badge-verified" :class="sub.status">{{ sub.status === 'verified' ? 'Verified' : 'Submitted' }}</span>
-            </td>
-            <td class="text-center">
-              <span class="locked-text">—</span>
-            </td>
-          </tr>
-          <tr v-if="sbpSubmissions.length === 0 && !loading">
-            <td colspan="9" style="padding: 40px; text-align: center; color: #64748b; font-style: italic;">No submission history found.</td>
-          </tr>
+          <!-- Skeleton: 5 shimmer rows while loading. Matches the project
+               pattern (DiariesDispatches / RolesPermissions / Invoices). -->
+          <template v-if="loading">
+            <tr v-for="r in 5" :key="'sk-' + r">
+              <td v-for="c in 9" :key="'sk-' + r + '-' + c"><div class="sbp-skel"></div></td>
+            </tr>
+          </template>
+          <template v-else>
+            <tr v-for="sub in sbpSubmissions" :key="sub.id">
+              <td class="mono-id">{{ sub.submission_slug }}</td>
+              <td>{{ formatDate(sub.deposit_date) }}</td>
+              <td class="mono-text">{{ sub.challan_no || '—' }}</td>
+              <td class="fw-700">{{ formatNum(sub.amount) }}</td>
+              <td>{{ sub.laboratory?.name || 'Central Lab' }}</td>
+              <td>{{ sub.submitted_by_name }}</td>
+              <td>{{ sub.invoice_logs_count || 0 }} invoices</td>
+              <td class="text-center">
+                <span class="badge-verified" :class="sub.status">{{ sub.status === 'verified' ? 'Verified' : 'Submitted' }}</span>
+              </td>
+              <td class="text-center">
+                <span class="locked-text">—</span>
+              </td>
+            </tr>
+            <tr v-if="sbpSubmissions.length === 0">
+              <td colspan="9" style="padding: 30px; text-align: center; color: #64748b; font-style: italic;">No submission history found.</td>
+            </tr>
+          </template>
         </tbody>
       </table>
     </div>
@@ -485,38 +494,38 @@ onMounted(fetchData)
   font-family: 'Inter', sans-serif;
 }
 
-/* ── SUMMARY BAR ── */
+/* ── SUMMARY BAR — sized to match project standard ── */
 .summary-bar-navy {
   background: #2b5292;
   color: #fff;
   display: flex;
-  padding: 24px 0;
-  border-radius: 8px;
-  margin-bottom: 24px;
+  padding: 14px 0;
+  border-radius: 6px;
+  margin-bottom: 14px;
 }
 .sum-item { flex: 1; text-align: center; border-right: 1px solid rgba(255,255,255,0.1); }
 .sum-item:last-child { border-right: none; }
-.sum-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.7; margin-bottom: 8px; font-weight: 600; }
-.sum-val { font-size: 28px; font-weight: 700; font-family: 'DM Mono', monospace; }
+.sum-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.7; margin-bottom: 5px; font-weight: 600; }
+.sum-val { font-size: 21px; font-weight: 700; font-family: 'DM Mono', monospace; line-height: 1; }
 .text-blue-light { color: #93c5fd; }
 .text-red-light { color: #fca5a5; }
 .text-green-light { color: #86efac; }
-.check { font-size: 20px; margin-right: 8px; }
+.check { font-size: 16px; margin-right: 6px; }
 
 /* ── TOOLBAR ── */
-.sbp-toolbar { display: flex; margin-bottom: 16px; }
+.sbp-toolbar { display: flex; margin-bottom: 12px; }
 .spacer { flex: 1; }
-.actions { display: flex; gap: 12px; }
-.btn-new-sbp { background: #1e40af; color: #fff; border: none; padding: 9px 20px; border-radius: 6px; font-weight: 700; font-size: 13px; cursor: pointer; transition: background 0.2s; }
+.actions { display: flex; gap: 8px; }
+.btn-new-sbp { background: #1e40af; color: #fff; border: none; padding: 6px 14px; border-radius: 5px; font-weight: 700; font-size: 12.5px; cursor: pointer; transition: background 0.2s; }
 .btn-new-sbp:hover { background: #1e3a8a; }
-.btn-report { background: #fff; color: #1e293b; border: 1px solid #cbd5e1; padding: 9px 20px; border-radius: 6px; font-weight: 700; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 8px; }
-.btn-report .icon { font-size: 16px; }
+.btn-report { background: #fff; color: #1e293b; border: 1px solid #cbd5e1; padding: 6px 14px; border-radius: 5px; font-weight: 700; font-size: 12.5px; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+.btn-report .icon { font-size: 14px; }
 
 /* ── TABLE ── */
-.sbp-table-wrap { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+.sbp-table-wrap { background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
 .sbp-table { width: 100%; border-collapse: collapse; }
-.sbp-table th { background: #203764; color: #fff; text-align: left; padding: 14px 16px; font-size: 12.5px; font-weight: 600; }
-.sbp-table td { padding: 12px 16px; border-bottom: 1px solid #f1f5f9; font-size: 13.5px; color: #334155; }
+.sbp-table th { background: #203764; color: #fff; text-align: left; padding: 10px 12px; font-size: 11.5px; font-weight: 600; }
+.sbp-table td { padding: 8px 12px; border-bottom: 1px solid #f1f5f9; font-size: 12.5px; color: #334155; }
 .mono-id { font-family: 'DM Mono', monospace; font-weight: 700; color: #1e3a8a; }
 .badge-verified { background: #dcfce7; color: #166534; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
 .badge-verified.submitted { background: #fef3c7; color: #92400e; }
@@ -538,16 +547,16 @@ onMounted(fetchData)
 .filter-group input, .filter-group select { padding: 8px 12px; border: 1.5px solid #cbd5e1; border-radius: 6px; font-size: 13.5px; min-width: 150px; }
 .btn-generate { background: #2563eb; color: #fff; border: none; padding: 9px 18px; border-radius: 6px; font-weight: 700; font-size: 13px; cursor: pointer; }
 
-.report-scroll-area { padding: 24px; max-height: 70vh; overflow-y: auto; background: #fff; }
-.recon-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 30px; }
-.kpi-card { padding: 16px; border-radius: 10px; border: 1.5px solid #e2e8f0; text-align: center; }
+.report-scroll-area { padding: 16px 18px; max-height: 72vh; overflow-y: auto; background: #fff; }
+.recon-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 18px; }
+.kpi-card { padding: 12px 14px; border-radius: 6px; border: 1px solid #e2e8f0; text-align: center; }
 .kpi-blue { background: #eff6ff; border-color: #bfdbfe; color: #1e3a8a; }
 .kpi-green { background: #f0fdf4; border-color: #bbf7d0; color: #166534; }
 .kpi-orange { background: #fff7ed; border-color: #fed7aa; color: #9a3412; }
 .kpi-check { background: #f0fdf4; border-color: #bbf7d0; color: #166534; }
-.kpi-card .label { font-size: 11px; font-weight: 700; opacity: 0.7; text-transform: uppercase; margin-bottom: 8px; }
-.kpi-card .value { font-size: 22px; font-weight: 800; margin-bottom: 4px; }
-.kpi-card .sub { font-size: 12px; opacity: 0.8; }
+.kpi-card .label { font-size: 10px; font-weight: 700; opacity: 0.7; text-transform: uppercase; margin-bottom: 5px; }
+.kpi-card .value { font-size: 18px; font-weight: 800; margin-bottom: 3px; line-height: 1; }
+.kpi-card .sub { font-size: 11px; opacity: 0.8; }
 .green-text { color: #10b981; }
 
 .section-title { font-size: 15px; font-weight: 800; color: #1e293b; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
@@ -570,22 +579,22 @@ onMounted(fetchData)
 
 .report-footer-meta { margin-top: 30px; padding-top: 16px; border-top: 1px solid #f1f5f9; font-size: 12px; color: #64748b; text-align: left; }
 
-/* ── OTHER MODALS ── */
+/* ── OTHER MODALS — sized down to match other module modals ── */
 .sbp-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 9999; padding: 20px; }
-.sbp-modal-content { background: #fff; width: 880px; max-width: 95vw; border-radius: 12px; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); }
-.sbp-modal-header { background: #203764; color: #fff; padding: 18px 24px; display: flex; justify-content: space-between; align-items: center; }
-.sbp-modal-header h3 { margin: 0; font-size: 19px; }
-.sbp-modal-header p { margin: 4px 0 0; font-size: 12px; opacity: 0.8; }
-.btn-close { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 13px; }
-.sbp-modal-body { padding: 24px; max-height: 75vh; overflow-y: auto; }
-.id-bar { background: #f1f5f9; padding: 12px 20px; border-radius: 8px; display: flex; justify-content: space-between; margin-bottom: 24px; border: 1px solid #e2e8f0; }
-.sbp-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px 40px; margin-bottom: 24px; }
-.field label { display: block; font-size: 13px; font-weight: 700; color: #475569; margin-bottom: 8px; }
-.field input, .field select, .field textarea { width: 100%; padding: 10px 12px; border: 1.5px solid #cbd5e1; border-radius: 6px; font-size: 14px; }
-.range { display: flex; align-items: center; gap: 10px; }
-.sbp-modal-footer { padding: 18px 24px; background: #f8fafc; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end; gap: 12px; }
-.btn-cancel { background: #fff; border: 1px solid #d1d5db; padding: 10px 24px; border-radius: 6px; cursor: pointer; font-weight: 600; }
-.btn-save { background: #2563eb; color: #fff; border: none; padding: 10px 24px; border-radius: 6px; cursor: pointer; font-weight: 700; display: flex; gap: 8px; }
+.sbp-modal-content { background: #fff; width: 720px; max-width: 95vw; border-radius: 8px; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); }
+.sbp-modal-header { background: #203764; color: #fff; padding: 12px 18px; display: flex; justify-content: space-between; align-items: center; }
+.sbp-modal-header h3 { margin: 0; font-size: 15px; }
+.sbp-modal-header p { margin: 3px 0 0; font-size: 11px; opacity: 0.8; }
+.btn-close { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 4px 10px; border-radius: 5px; cursor: pointer; font-size: 12px; }
+.sbp-modal-body { padding: 16px 18px; max-height: 72vh; overflow-y: auto; }
+.id-bar { background: #f1f5f9; padding: 8px 14px; border-radius: 5px; display: flex; justify-content: space-between; margin-bottom: 14px; border: 1px solid #e2e8f0; font-size: 12px; }
+.sbp-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 18px; margin-bottom: 14px; }
+.field label { display: block; font-size: 11.5px; font-weight: 700; color: #475569; margin-bottom: 4px; }
+.field input, .field select, .field textarea { width: 100%; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 12.5px; }
+.range { display: flex; align-items: center; gap: 8px; }
+.sbp-modal-footer { padding: 10px 18px; background: #f8fafc; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end; gap: 8px; }
+.btn-cancel { background: #fff; border: 1px solid #d1d5db; padding: 6px 14px; border-radius: 5px; cursor: pointer; font-weight: 600; font-size: 12.5px; }
+.btn-save { background: #2563eb; color: #fff; border: none; padding: 6px 14px; border-radius: 5px; cursor: pointer; font-weight: 700; display: flex; gap: 6px; font-size: 12.5px; align-items: center; }
 .btn-save:disabled { opacity: 0.6; cursor: not-allowed; }
 
 .mt-4 { margin-top: 24px; }
@@ -593,4 +602,19 @@ onMounted(fetchData)
 .text-right { text-align: right; }
 .text-center { text-align: center; }
 .mono { font-family: monospace; }
+
+/* Skeleton shimmer for the SBP table while loading — matches the
+   pattern used in DiariesDispatches / RolesPermissions / Invoices. */
+.sbp-skel {
+  background: linear-gradient(90deg, #f1f5f9 0%, #e2e8f0 50%, #f1f5f9 100%);
+  background-size: 200% 100%;
+  animation: sbp-shimmer 1.4s infinite ease-in-out;
+  border-radius: 4px;
+  width: 100%;
+  height: 12px;
+}
+@keyframes sbp-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
 </style>

@@ -18,7 +18,9 @@ const routes = [
       // Water Quality
       { path: 'water-quality/sample-registration', name: 'SampleRegistration', meta: { title: 'Water Quality / Sample Registration' }, component: () => import('../views/WaterQuality/SampleRegistration/SampleRegistration.vue') },
       { path: 'water-quality/analysis-entry',      name: 'AnalysisEntry',      meta: { title: 'Water Quality / Analysis Entry', roles: ['system-administrator','system-manager','lab-incharge','laboratory-assistant'] },       component: () => import('../views/WaterQuality/AnalysisEntry/AnalysisEntry.vue') },
-      { path: 'water-quality/unfit-sample-trail',  name: 'UnfitSampleTrail',   meta: { title: 'Water Quality / Unfit Sample Trail' },    component: () => import('../views/WaterQuality/UnfitSampleTrail/UnfitSampleTrail.vue') },
+      // Unfit Sample Trail: XEN/SE-only by design (notifications + retest workflow
+      // are theirs). Other roles, including admins, cannot reach this URL.
+      { path: 'water-quality/unfit-sample-trail',  name: 'UnfitSampleTrail',   meta: { title: 'Water Quality / Unfit Sample Trail', roles: ['xen', 'superintending-engineer', 'se', 'secretary'] },    component: () => import('../views/WaterQuality/UnfitSampleTrail/UnfitSampleTrail.vue') },
 
       // Reports
       { path: 'reports/individual-sample', name: 'IndividualSampleReport', meta: { title: 'Reports / Individual Sample Report' }, component: () => import('../views/Reports/IndividualSampleReport/IndividualSampleReport.vue') },

@@ -23,9 +23,11 @@ use Spatie\Permission\Models\Role;
  *               └─ District ('Peshawar')
  *                    └─ Laboratory ('Centreal lab Peshawar')
  *
- * Exception — lab-incharge sits on the Abbottabad hub slice instead so
- * catchment routing (district→circle→laboratory_id) can be exercised
- * against a non-default lab:
+ * A second hub slice is seeded on Abbottabad so the end-to-end XEN →
+ * lab-incharge → lab-assistant → clerk flow can be exercised against a
+ * non-default lab. Members of that slice carry the `.abbottabad` email
+ * suffix (xen.abbottabad / labincharge.abbottabad / labassistant.abbottabad
+ * / clerk.abbottabad):
  *
  *   Region ('Chief Engineer (East)')
  *     └─ Circle ('SE Abbottabad')
@@ -91,6 +93,15 @@ class RbacTestUsersSeeder extends Seeder
                 'district_id'      => $abbDistrictId,
             ]);
 
+            // Legacy email rename — the Abbottabad lab-incharge originally
+            // shipped as `labincharge.test@mis.com` (misleading, since the
+            // .test naming implies the default Peshawar slice). Rename in
+            // place so updateOrCreate below updates the same row rather than
+            // creating a duplicate. Idempotent — no-op once renamed.
+            DB::table('users')
+                ->where('email', 'labincharge.test@mis.com')
+                ->update(['email' => 'labincharge.abbottabad@mis.com']);
+
             // Each entry: [role-slug, email, role-specific overrides/flags, lab-override-id|null]
             $testUsers = [
                 ['system-administrator',     'admin.test@mis.com',        [], null],
@@ -100,13 +111,24 @@ class RbacTestUsersSeeder extends Seeder
                 ['chief-engineer',           'ce.test@mis.com',           [], null],
                 ['superintending-engineer',  'se.test@mis.com',           [], null],
                 ['xen',                      'xen.test@mis.com',          [], null],
-                ['lab-incharge',             'labincharge.test@mis.com',  $abbottabadScope, $abbLabId],
+                // Abbottabad-hub XEN — closes the upstream catchment so unfit-
+                // sample notifications and retest requests for samples
+                // registered by clerk.abbottabad have a real recipient.
+                ['xen',                      'xen.abbottabad@mis.com',    $abbottabadScope, $abbLabId],
+                ['lab-incharge',             'labincharge.abbottabad@mis.com', $abbottabadScope, $abbLabId],
                 // Central Lab Peshawar lab-incharge — distinct test user so the
                 // asset / material catalogue CRUD perms (granted per-user to
                 // central-lab users only) can be exercised end-to-end.
                 ['lab-incharge',             'labincharge.central@mis.com', [], $labId],
                 ['junior-clerk',             'clerk.test@mis.com',        [], null],
+                // Abbottabad-hub junior-clerk — for testing sample registration
+                // and catchment scoping outside the default Peshawar slice.
+                ['junior-clerk',             'clerk.abbottabad@mis.com',  $abbottabadScope, $abbLabId],
                 ['laboratory-assistant',     'labassistant.test@mis.com', [], null],
+                // Abbottabad-hub laboratory-assistant — pairs with the
+                // Abbottabad clerk so the registration→analysis handoff can
+                // be exercised at the Abbottabad lab.
+                ['laboratory-assistant',     'labassistant.abbottabad@mis.com', $abbottabadScope, $abbLabId],
             ];
 
             $lab = $labId ? Laboratory::find($labId) : null;

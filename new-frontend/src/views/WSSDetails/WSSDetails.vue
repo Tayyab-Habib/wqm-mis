@@ -626,7 +626,25 @@ function closeAddModal() {
             <button @click="showTrailModal = false" style="background:rgba(255,255,255,.15);border:none;color:#fff;border-radius:5px;padding:5px 12px;cursor:pointer">✕</button>
           </div>
           <div style="padding:20px 24px">
-            <div v-if="!trailData.length" style="text-align:center;color:var(--muted);padding:20px">No samples recorded yet.</div>
+            <!-- Skeleton shimmer rows while the trail fetches.
+                 Reuses the .skel-bar style already defined in this file. -->
+            <div class="tbl-wrap" v-if="trailLoading">
+              <table style="font-size:11.5px">
+                <thead>
+                  <tr><th>Date</th><th>Sample ID</th><th style="text-align:center">Result</th><th>Cause</th><th>Detail</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-for="n in 4" :key="'wd-trail-sk-' + n">
+                    <td><span class="skel-bar" style="width:70%"></span></td>
+                    <td><span class="skel-bar" style="width:60%"></span></td>
+                    <td style="text-align:center"><span class="skel-bar" style="width:40px;display:inline-block"></span></td>
+                    <td><span class="skel-bar" style="width:80%"></span></td>
+                    <td><span class="skel-bar" style="width:75%"></span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div v-else-if="!trailData.length" style="text-align:center;color:var(--muted);padding:20px">No samples recorded yet.</div>
             <div class="tbl-wrap" v-else>
               <table style="font-size:11.5px">
                 <thead>

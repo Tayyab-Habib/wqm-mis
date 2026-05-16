@@ -200,6 +200,29 @@ class RbacRolePermissionsSeeder extends Seeder
             $li = Role::query()->where('name', 'lab-incharge')->first();
             if ($li) { $li->givePermissionTo('view_all_lab_samples'); }
 
+            // ── junior-clerk: strip analysis-side perms ───────────────────────
+            // Per SRS §1.2 junior-clerk handles sample REGISTRATION and
+            // diary/dispatch only — analysis is the lab-assistant's job. The
+            // legacy AssignRolePermissionsSeeder historically granted analysis
+            // perms to clerks too; we revoke them here so existing DBs are
+            // corrected without a full re-seed. revokePermissionTo is a no-op
+            // when the role doesn't hold the perm, so this is idempotent.
+            if ($jc) {
+                $clerkAnalysisStrip = [
+                    'add_water_sample_details',
+                    'edit_water_sample_details',
+                    'delete_water_sample_details',
+                    'edit_water_sample_results',
+                    'edit_test_report',
+                ];
+                $existing = Permission::whereIn('name', $clerkAnalysisStrip)->pluck('name')->toArray();
+                foreach ($existing as $permName) {
+                    if ($jc->hasPermissionTo($permName)) {
+                        $jc->revokePermissionTo($permName);
+                    }
+                }
+            }
+
             // Grant SBP perms by role. lab-incharge can submit but not verify
             // (SoD: same person can't submit + verify the same record).
             // Also backfills add_payments / add_invoices to lab-incharge —

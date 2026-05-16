@@ -25,7 +25,11 @@ function openGSR(districtId, labId = null) {
   router.push({ name: 'GSR', query })
 }
 
-const loading    = ref(false)
+// Start true so the skeleton renders immediately on mount. Without this
+// the page paints with empty KPI cards + table for ~1s while loadDropdowns()
+// runs, and only after that does generateReport() flip loading on — looking
+// like the empty report appears first and the skeleton appears late.
+const loading    = ref(true)
 const errorMsg   = ref('')
 const divisions  = ref([])
 const laboratories = ref([])
@@ -508,35 +512,51 @@ onMounted(async () => {
       {{ errorMsg }}
     </div>
 
-    <div class="abar green" style="margin-bottom:12px">
-      General Abstract Report (GAR) | {{ bannerSummary }} | Annexure-1
-    </div>
+    <!-- Banner + KPI cards: hidden during initial load. The skeleton block
+         below mirrors this section so the page doesn't render empty zeros
+         before generateReport() flips loading off. -->
+    <template v-if="!loading">
+      <div class="abar green" style="margin-bottom:12px">
+        General Abstract Report (GAR) | {{ bannerSummary }} | Annexure-1
+      </div>
 
-    <!-- KP-Level Summary Cards -->
-    <div class="cards" style="grid-template-columns:repeat(6,1fr);margin-bottom:14px">
-      <div class="card">
-        <div class="c-lbl">Total Tested</div>
-        <div class="c-val">{{ totals.tested.toLocaleString() }}</div>
+      <!-- KP-Level Summary Cards -->
+      <div class="cards" style="grid-template-columns:repeat(6,1fr);margin-bottom:14px">
+        <div class="card">
+          <div class="c-lbl">Total Tested</div>
+          <div class="c-val">{{ totals.tested.toLocaleString() }}</div>
+        </div>
+        <div class="card c-green">
+          <div class="c-lbl">Fit</div>
+          <div class="c-val">{{ totals.fit.toLocaleString() }}</div>
+        </div>
+        <div class="card c-red">
+          <div class="c-lbl">Unfit</div>
+          <div class="c-val">{{ totals.unfit.toLocaleString() }}</div>
+        </div>
+        <div class="card c-amber">
+          <div class="c-lbl">% Unfit</div>
+          <div class="c-val">{{ totals.tested > 0 ? ((totals.unfit/totals.tested)*100).toFixed(1) + '%' : '—' }}</div>
+        </div>
+        <div class="card">
+          <div class="c-lbl">Labs Reporting</div>
+          <div class="c-val">{{ totals.labs }}</div>
+        </div>
+        <div class="card">
+          <div class="c-lbl" :title="'Distinct districts that submitted at least one sample in this period'">Districts with Samples</div>
+          <div class="c-val">{{ totals.districtsCovered }}</div>
+        </div>
       </div>
-      <div class="card c-green">
-        <div class="c-lbl">Fit</div>
-        <div class="c-val">{{ totals.fit.toLocaleString() }}</div>
-      </div>
-      <div class="card c-red">
-        <div class="c-lbl">Unfit</div>
-        <div class="c-val">{{ totals.unfit.toLocaleString() }}</div>
-      </div>
-      <div class="card c-amber">
-        <div class="c-lbl">% Unfit</div>
-        <div class="c-val">{{ totals.tested > 0 ? ((totals.unfit/totals.tested)*100).toFixed(1) + '%' : '—' }}</div>
-      </div>
-      <div class="card">
-        <div class="c-lbl">Labs Reporting</div>
-        <div class="c-val">{{ totals.labs }}</div>
-      </div>
-      <div class="card">
-        <div class="c-lbl" :title="'Distinct districts that submitted at least one sample in this period'">Districts with Samples</div>
-        <div class="c-val">{{ totals.districtsCovered }}</div>
+    </template>
+
+    <!-- Skeleton banner + cards while the report loads -->
+    <div v-if="loading" class="gar-sk" style="margin-bottom:14px">
+      <div class="sk sk-banner" style="margin-bottom:12px"></div>
+      <div class="sk-cards" style="grid-template-columns:repeat(6,1fr)">
+        <div class="sk-card" v-for="i in 6" :key="'gar-sc'+i">
+          <div class="sk sk-lbl"></div>
+          <div class="sk sk-val"></div>
+        </div>
       </div>
     </div>
 
@@ -875,6 +895,22 @@ onMounted(async () => {
 .gar-page .gar-sk .sk-tbl-row + .sk-tbl-row { border-top: 1px solid #f3f4f6; }
 .gar-page .gar-sk .sk-th,
 .gar-page .gar-sk .sk-td { height: 12px; }
+
+/* Banner + KPI card skeletons — sized to match the real banner and the
+   six-card grid the report renders once loading completes. */
+.gar-page .gar-sk .sk-banner { width: 100%; height: 32px; border-radius: 6px; }
+.gar-page .gar-sk .sk-cards  { display: grid; gap: 10px; }
+.gar-page .gar-sk .sk-card   {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.gar-page .gar-sk .sk-lbl    { width: 70%; height: 11px; }
+.gar-page .gar-sk .sk-val    { width: 50%; height: 22px; }
 
 /* ── Print rules (A3 landscape; preserve background colors for RAG/headers) */
 @page {

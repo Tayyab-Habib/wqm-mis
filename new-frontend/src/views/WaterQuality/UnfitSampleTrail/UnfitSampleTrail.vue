@@ -473,8 +473,7 @@ onMounted(async () => {
 
     <!-- Main table grouped by district -->
     <div class="tbl-wrap">
-      <div v-if="loading" style="text-align:center;padding:32px;color:var(--muted)">⏳ Loading unfit samples…</div>
-      <table v-else style="font-size:12px">
+      <table style="font-size:12px">
         <thead>
           <tr style="background:var(--navy);color:#fff">
             <th style="color:#fff">Sample ID</th>
@@ -491,12 +490,30 @@ onMounted(async () => {
           </tr>
         </thead>
         <tbody>
-          <tr v-if="!filteredRows.length">
+          <!-- Skeleton shimmer rows while data is loading. 6 rows feels like
+               enough to communicate "this is a table" without taking over
+               the page. -->
+          <template v-if="loading">
+            <tr v-for="n in 6" :key="'ust-sk-' + n" class="ust-sk-row">
+              <td><div class="ust-sk" style="width:70px"></div></td>
+              <td><div class="ust-sk" style="width:140px"></div></td>
+              <td><div class="ust-sk" style="width:90px"></div></td>
+              <td><div class="ust-sk" style="width:70px"></div></td>
+              <td><div class="ust-sk" style="width:90px"></div></td>
+              <td><div class="ust-sk" style="width:80px"></div></td>
+              <td><div class="ust-sk ust-sk-pill"></div></td>
+              <td style="text-align:center"><div class="ust-sk" style="width:30px;margin:0 auto"></div></td>
+              <td style="text-align:center"><div class="ust-sk ust-sk-pill" style="margin:0 auto"></div></td>
+              <td style="text-align:center"><div class="ust-sk ust-sk-circle" style="margin:0 auto"></div></td>
+              <td><div class="ust-sk" style="width:130px"></div></td>
+            </tr>
+          </template>
+          <tr v-else-if="!filteredRows.length">
             <td colspan="11" style="text-align:center;padding:32px;color:var(--muted)">
-              {{ loading ? '' : 'No unfit samples found.' }}
+              No unfit samples found.
             </td>
           </tr>
-          <template v-for="(rows, district) in groupedRows" :key="district">
+          <template v-if="!loading" v-for="(rows, district) in groupedRows" :key="district">
             <tr style="background:#f0f4ff;border-top:2px solid var(--sky)">
               <td colspan="11" style="font-size:11px;font-weight:700;color:var(--navy2);padding:6px 12px;text-transform:uppercase;letter-spacing:.05em">
                 📍 {{ district }} District
@@ -615,7 +632,29 @@ onMounted(async () => {
             <button @click="showTrailModal = false" style="background:rgba(255,255,255,.15);border:none;color:#fff;border-radius:5px;padding:5px 12px;cursor:pointer">✕</button>
           </div>
           <div style="padding:20px 24px">
-            <div v-if="trailLoading" style="text-align:center;padding:24px;color:var(--muted)">⏳ Loading trail…</div>
+            <!-- Skeleton trail rows while sample detail is fetching -->
+            <div v-if="trailLoading" class="tbl-wrap">
+              <table style="font-size:11.5px">
+                <thead>
+                  <tr style="background:var(--navy);color:#fff">
+                    <th style="color:#fff">Round</th>
+                    <th style="color:#fff">Sampled At</th>
+                    <th style="color:#fff">Analyzed At</th>
+                    <th style="color:#fff;text-align:center">Status</th>
+                    <th style="color:#fff;text-align:center">Result</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="n in 3" :key="'ust-trail-sk-' + n" class="ust-sk-row">
+                    <td><div class="ust-sk" style="width:30px"></div></td>
+                    <td><div class="ust-sk" style="width:120px"></div></td>
+                    <td><div class="ust-sk" style="width:120px"></div></td>
+                    <td style="text-align:center"><div class="ust-sk ust-sk-pill" style="margin:0 auto"></div></td>
+                    <td style="text-align:center"><div class="ust-sk ust-sk-pill" style="margin:0 auto"></div></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
             <template v-else-if="trailDetail">
               <div class="tbl-wrap">
                 <table style="font-size:11.5px">
@@ -715,4 +754,25 @@ onMounted(async () => {
 .toast-slide-leave-active { transition: all 0.3s ease; }
 .toast-slide-enter-from,
 .toast-slide-leave-to     { opacity: 0; transform: translateX(60px); }
+
+/* ── Skeleton loaders for the main table and the trail modal ──────────
+   Matches the look used in Invoices.vue / SBPSubmissions.vue so the
+   project's "loading" feel stays consistent across modules. */
+.ust-sk-row { background: transparent !important; }
+.ust-sk-row:hover { background: transparent !important; }
+.ust-sk {
+  display: inline-block;
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #eef2f7 0%, #f7fafc 50%, #eef2f7 100%);
+  background-size: 200% 100%;
+  animation: ust-shimmer 1.4s infinite ease-in-out;
+}
+.ust-sk-pill   { width: 70px; height: 16px; border-radius: 10px; }
+.ust-sk-circle { width: 14px; height: 14px; border-radius: 50%; }
+
+@keyframes ust-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
 </style>

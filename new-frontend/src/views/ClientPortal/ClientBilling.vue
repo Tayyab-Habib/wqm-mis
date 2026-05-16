@@ -70,10 +70,24 @@ onMounted(load)
       </div>
     </div>
 
-    <!-- Loading -->
-    <div v-if="loading" class="cp-loading">
-      <div class="cp-spinner"></div>
-      <span>Loading billing data…</span>
+    <!-- Skeleton placeholder while billing data loads. Mirrors the layout
+         underneath — three summary cards above a 9-column invoice table —
+         so the page doesn't jump when the real content lands. -->
+    <div v-if="loading" class="cb-sk-wrap">
+      <div class="cb-sk-cards">
+        <div v-for="n in 3" :key="'cb-sc-' + n" class="cb-sk-card">
+          <div class="cb-sk cb-sk-lbl"></div>
+          <div class="cb-sk cb-sk-val"></div>
+        </div>
+      </div>
+      <div class="cb-sk-tbl">
+        <div class="cb-sk-th">
+          <div v-for="n in 9" :key="'cb-th-' + n" class="cb-sk cb-sk-h"></div>
+        </div>
+        <div v-for="r in 5" :key="'cb-row-' + r" class="cb-sk-tr">
+          <div v-for="c in 9" :key="'cb-tr' + r + '-' + c" class="cb-sk cb-sk-c"></div>
+        </div>
+      </div>
     </div>
 
     <!-- Error -->
@@ -196,5 +210,35 @@ onMounted(load)
   font-weight: 700;
   font-size: 12px;
   padding: 10px 14px;
+}
+
+/* ── Billing skeleton ─────────────────────────────────────────────── */
+.cb-sk-wrap   { display: flex; flex-direction: column; gap: 14px; padding: 4px; }
+.cb-sk-cards  { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.cb-sk-card   {
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;
+  padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;
+}
+.cb-sk-tbl    { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; }
+.cb-sk-th     { display: grid; grid-template-columns: repeat(9, 1fr); gap: 10px; padding: 12px 14px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; }
+.cb-sk-tr     { display: grid; grid-template-columns: repeat(9, 1fr); gap: 10px; padding: 12px 14px; border-bottom: 1px solid #f1f5f9; }
+.cb-sk-tr:last-child { border-bottom: none; }
+
+.cb-sk {
+  display: inline-block;
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #eef2f7 0%, #f7fafc 50%, #eef2f7 100%);
+  background-size: 200% 100%;
+  animation: cb-shimmer 1.4s infinite ease-in-out;
+}
+.cb-sk-lbl { width: 60%; height: 10px; }
+.cb-sk-val { width: 80%; height: 22px; border-radius: 6px; }
+.cb-sk-h   { height: 11px; }
+.cb-sk-c   { height: 12px; }
+
+@keyframes cb-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
 }
 </style>
