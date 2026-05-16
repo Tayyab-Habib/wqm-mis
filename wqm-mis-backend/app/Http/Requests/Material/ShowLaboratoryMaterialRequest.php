@@ -13,7 +13,8 @@ class ShowLaboratoryMaterialRequest extends FormRequest
      */
     public function authorize()
     {
-        return true;
+        $u = auth()->user();
+        return $u && ($u->isUnscoped() || $u->can('show_material') || $u->can('view_materials'));
     }
 
     /**

@@ -1604,7 +1604,7 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
           <button class="btn btn-sec outline clear-btn" type="button" @click="clearInventoryOutFilters">✕ Clear</button>
           <div class="tsp"></div>
           <button class="btn btn-sec outline" type="button">↓ Export</button>
-          <button v-write class="btn btn-pri add-btn" @click="openLogOutModal">+ Log Out</button>
+          <button v-write="['edit_inventory_issue_status','add_material_logs']" class="btn btn-pri add-btn" @click="openLogOutModal">+ Log Out</button>
         </div>
 
         <!-- Skeleton loading -->
@@ -1789,7 +1789,7 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
           </div>
         </div>
         <div class="modal-footer">
-          <button v-write class="btn btn-pri" type="button" :disabled="newInventorySaving" @click="saveNewInventoryItem">
+          <button v-write="'add_inventories'" class="btn btn-pri" type="button" :disabled="newInventorySaving" @click="saveNewInventoryItem">
             <span class="btn-icon">💾</span> {{ newInventorySaving ? 'Saving…' : 'Save Item' }}
           </button>
           <button class="btn btn-sec outline" type="button" :disabled="newInventorySaving" @click="showAddInventoryModal = false">Cancel</button>
@@ -1873,7 +1873,7 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
           </div>
         </div>
         <div class="modal-footer">
-          <button v-write class="btn btn-pri" type="button" :disabled="logOutSaving" @click="saveLogOut">
+          <button v-write="['edit_inventory_issue_status','add_material_logs']" class="btn btn-pri" type="button" :disabled="logOutSaving" @click="saveLogOut">
             <span class="btn-icon">💾</span> {{ logOutSaving ? 'Saving…' : 'Save' }}
           </button>
           <button class="btn btn-sec outline" type="button" :disabled="logOutSaving" @click="showLogOutModal = false">Cancel</button>
@@ -1956,7 +1956,7 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
           </div>
         </div>
         <div class="modal-footer">
-          <button v-write class="btn btn-pri" type="button" :disabled="newItemSaving" @click="saveNewItem">
+          <button v-write="['add_material','add_inventories']" class="btn btn-pri" type="button" :disabled="newItemSaving" @click="saveNewItem">
             <span class="btn-icon">💾</span> {{ newItemSaving ? 'Saving…' : 'Save Item' }}
           </button>
           <button class="btn btn-sec outline" type="button" :disabled="newItemSaving" @click="showNewItemModal = false">Cancel</button>
@@ -2123,7 +2123,7 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
         </div>
         <div class="modal-footer justify-end">
           <button v-write class="btn btn-sec outline" type="button" :disabled="raiseDemandSaving" @click="showRaiseDemandModal = false">Cancel</button>
-          <button v-write class="btn btn-pri" type="button" :disabled="raiseDemandSaving" @click="submitRaiseDemand">
+          <button v-write="'add_inventories'" class="btn btn-pri" type="button" :disabled="raiseDemandSaving" @click="submitRaiseDemand">
             <span class="btn-icon">📨</span> {{ raiseDemandSaving ? 'Submitting…' : 'Submit Demand' }}
           </button>
         </div>
@@ -2200,7 +2200,7 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
         </div>
         <div class="modal-footer justify-end">
           <button v-write class="btn btn-sec outline" type="button" :disabled="editItemSaving" @click="showEditItemModal = false">Cancel</button>
-          <button v-write class="btn btn-pri" type="button" :disabled="editItemSaving" @click="saveEditItem">
+          <button v-write="['edit_material','edit_inventories']" class="btn btn-pri" type="button" :disabled="editItemSaving" @click="saveEditItem">
             <span class="btn-icon">💾</span> {{ editItemSaving ? 'Saving…' : 'Save Changes' }}
           </button>
         </div>
@@ -2267,7 +2267,7 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
         </div>
         <div class="modal-footer justify-end">
           <button class="btn btn-sec outline" type="button" @click="showExistingItemModal = false">Cancel</button>
-          <button v-write class="btn btn-pri" type="button" @click="saveExistingQty">💾 Save</button>
+          <button v-write="['inventory_received','edit_inventory_approve_status']" class="btn btn-pri" type="button" @click="saveExistingQty">💾 Save</button>
         </div>
       </div>
     </div>
@@ -2347,7 +2347,7 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
           </div>
         </div>
         <div class="modal-footer">
-          <button v-write class="btn btn-pri" type="button" :disabled="logIssueSaving" @click="saveLogIssue">
+          <button v-write="'edit_inventory_issue_status'" class="btn btn-pri" type="button" :disabled="logIssueSaving" @click="saveLogIssue">
             <span class="btn-icon">💾</span> {{ logIssueSaving ? 'Saving…' : 'Save' }}
           </button>
           <button class="btn btn-sec outline" type="button" :disabled="logIssueSaving" @click="showLogIssueModal = false">Cancel</button>

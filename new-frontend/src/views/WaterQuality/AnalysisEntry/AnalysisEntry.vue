@@ -647,10 +647,10 @@ onMounted(loadQueue)
 
             <!-- Actions -->
             <div style="display:flex;gap:8px;border-top:1px solid var(--border);padding-top:12px;align-items:center;flex-wrap:wrap">
-              <button v-write class="btn btn-pri" @click="saveAnalysis" :disabled="saveLoading">
+              <button v-write="['edit_water_sample_results','add_water_sample_details']" class="btn btn-pri" @click="saveAnalysis" :disabled="saveLoading">
                 {{ saveLoading ? '⏳ Saving…' : '💾 Save & Run QC Check' }}
               </button>
-              <button v-write class="btn btn-sec" @click="saveDraft" :disabled="saveLoading" style="font-size:11.5px">
+              <button v-write="['edit_water_sample_results','add_water_sample_details']" class="btn btn-sec" @click="saveDraft" :disabled="saveLoading" style="font-size:11.5px">
                 📋 Save as Draft
               </button>
               <button class="btn btn-sec" @click="showModal = false">✕ Cancel</button>
@@ -688,15 +688,15 @@ onMounted(loadQueue)
               {{ qc.pass.value ? '(within ±3% tolerance)' : '(exceeds ±3% threshold)' }}
             </div>
             <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">
-              <button v-if="!qc.pass.value" class="btn" style="background:#dc2626;color:#fff;border-color:#dc2626;font-weight:700"
+              <button v-if="!qc.pass.value" v-write="'edit_water_sample_results'" class="btn" style="background:#dc2626;color:#fff;border-color:#dc2626;font-weight:700"
                 @click="sendForReanalysis" :disabled="saveLoading">
                 🔄 Send for Re-Analysis
               </button>
-              <button v-if="!qc.pass.value" class="btn btn-sec" style="font-size:11px"
+              <button v-if="!qc.pass.value" v-write="'edit_water_sample_results'" class="btn btn-sec" style="font-size:11px"
                 @click="overrideAndAccept" :disabled="saveLoading">
                 ⚠ Override &amp; Accept
               </button>
-              <button v-if="qc.pass.value" v-write class="btn" style="background:#16a34a;color:#fff;border-color:#16a34a;font-weight:700"
+              <button v-if="qc.pass.value" v-write="'edit_water_sample_results'" class="btn" style="background:#16a34a;color:#fff;border-color:#16a34a;font-weight:700"
                 @click="submitResults" :disabled="saveLoading">
                 {{ saveLoading ? '⏳ Saving…' : '✅ Accept & Submit' }}
               </button>

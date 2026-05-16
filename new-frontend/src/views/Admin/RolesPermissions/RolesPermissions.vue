@@ -4,28 +4,33 @@ import { adminService } from '../../../services/adminService.js'
 
 // ── State ──────────────────────────────────────────────────────────────
 const loading      = ref(false)
-const errorMsg     = ref('')
-const successMsg   = ref('')
 const roles        = ref([])
 const permissions  = ref([])         // all permissions (with module info)
 const selectedRole = ref(null)       // role whose matrix is open
 const rolePerms    = ref(new Set())  // permission ids currently checked
+const matrixLoading = ref(false)
 const saving       = ref(false)
 
-// Add role modal state
+// Add role modal
 const showAddRole  = ref(false)
 const newRoleName  = ref('')
 
-// Edit role state
+// Inline edit role
 const editingRoleId = ref(null)
 const editRoleName  = ref('')
+
+// ── Toast (matches the pattern in Topbar.vue / DiariesDispatches.vue) ─
+const toast = ref({ show: false, message: '', type: 'success' })
+let toastTimer = null
+function showToast(message, type = 'success') {
+  clearTimeout(toastTimer)
+  toast.value = { show: true, message, type }
+  toastTimer = setTimeout(() => { toast.value.show = false }, 4000)
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────
 const CRUD_PREFIXES = ['add', 'edit', 'show', 'view', 'delete']
 
-/**
- * Convert "Director Labs" / "director-labs" / "director_labs" → display label.
- */
 function displayRole(name) {
   if (!name) return '—'
   return String(name)
@@ -35,27 +40,16 @@ function displayRole(name) {
     .join(' ')
 }
 
-function flash(msg, isError = false) {
-  if (isError) { errorMsg.value = msg; successMsg.value = '' }
-  else         { successMsg.value = msg; errorMsg.value = '' }
-  setTimeout(() => { errorMsg.value = ''; successMsg.value = '' }, 4000)
-}
-
-// Build a {moduleName: {add: perm|null, edit: perm|null, ...}} map for the role matrix
+// Build a [{name, slots: {add, edit, ...}, others: [...]}] for the matrix
 const matrixModules = computed(() => {
   const byMod = new Map()
   for (const p of permissions.value) {
     const modName = p.module?.name || p.module_name || 'misc'
     if (!byMod.has(modName)) byMod.set(modName, { name: modName, slots: {}, others: [] })
     const entry = byMod.get(modName)
-
-    // Identify CRUD slot by prefix match on permission name (add_*, edit_*, etc)
     const slot = CRUD_PREFIXES.find(pre => p.name.startsWith(pre + '_'))
-    if (slot && !entry.slots[slot]) {
-      entry.slots[slot] = p
-    } else {
-      entry.others.push(p)
-    }
+    if (slot && !entry.slots[slot]) entry.slots[slot] = p
+    else entry.others.push(p)
   }
   return Array.from(byMod.values()).sort((a, b) => a.name.localeCompare(b.name))
 })
@@ -71,38 +65,42 @@ const filteredModules = computed(() => {
 async function loadRoles() {
   try {
     const r = await adminService.getRoles()
-    roles.value = r.data?.data || []
+    // Backend sometimes returns data:null on empty list — coerce to [].
+    const list = r.data?.data
+    roles.value = Array.isArray(list) ? list : []
   } catch (e) {
-    flash('Failed to load roles: ' + (e?.response?.data?.message || e.message), true)
+    showToast('❌ Failed to load roles: ' + (e?.response?.data?.message || e.message), 'error')
   }
 }
 
 async function loadPermissions() {
   try {
     const p = await adminService.getPermissions()
-    // Permissions endpoint may return data as array directly, or { data: [...] }
     const list = p.data?.data || p.data || []
     permissions.value = Array.isArray(list) ? list : []
   } catch (e) {
-    flash('Failed to load permissions: ' + (e?.response?.data?.message || e.message), true)
+    showToast('❌ Failed to load permissions: ' + (e?.response?.data?.message || e.message), 'error')
   }
 }
 
 async function openMatrix(role) {
   selectedRole.value = role
   rolePerms.value = new Set()
+  matrixLoading.value = true
   try {
-    // GET /roles/{id} returns the role with eager-loaded permissions
-    // (id + name on each). Simpler than the module-grouped endpoint.
     const r = await adminService.getRole(role.id)
     const data = r.data?.data || r.data || {}
     const perms = data?.permissions || []
+    const next = new Set()
     for (const p of perms) {
       const id = p?.id ?? p?.permission_id ?? p
-      if (id != null) rolePerms.value.add(Number(id))
+      if (id != null) next.add(Number(id))
     }
+    rolePerms.value = next
   } catch (e) {
-    flash('Failed to load role permissions: ' + (e?.response?.data?.message || e.message), true)
+    showToast('❌ Failed to load role permissions: ' + (e?.response?.data?.message || e.message), 'error')
+  } finally {
+    matrixLoading.value = false
   }
 }
 
@@ -115,7 +113,6 @@ function togglePerm(permId) {
   const id = Number(permId)
   if (rolePerms.value.has(id)) rolePerms.value.delete(id)
   else rolePerms.value.add(id)
-  // Trigger reactivity since Set mutation isn't observed by default
   rolePerms.value = new Set(rolePerms.value)
 }
 
@@ -129,10 +126,10 @@ async function savePermissions() {
   try {
     const ids = Array.from(rolePerms.value).map(Number)
     await adminService.syncRolePermissions(selectedRole.value.id, ids)
-    flash(`Permissions updated for ${displayRole(selectedRole.value.name)}.`)
+    showToast(`✅ Permissions updated for ${displayRole(selectedRole.value.name)}`)
     closeMatrix()
   } catch (e) {
-    flash('Save failed: ' + (e?.response?.data?.message || e.message), true)
+    showToast('❌ Save failed: ' + (e?.response?.data?.message || e.message), 'error')
   } finally {
     saving.value = false
   }
@@ -144,13 +141,22 @@ async function createRole() {
   if (!name) return
   saving.value = true
   try {
-    await adminService.createRole({ name })
+    const r = await adminService.createRole({ name })
+    // Two-stage update for reliability:
+    //   1. Append the server's response immediately for instant feedback
+    //   2. Re-fetch the full list to reconcile (covers cases where backend
+    //      normalises the name, or another admin added something concurrently).
+    const created = r.data?.data
+    if (created?.id) {
+      roles.value = [...roles.value, created]
+    }
     showAddRole.value = false
     newRoleName.value = ''
-    flash(`Role "${displayRole(name)}" created.`)
-    await loadRoles()
+    showToast(`✅ Role "${displayRole(name)}" created`)
+    // Reconcile against server (non-blocking on UX).
+    loadRoles()
   } catch (e) {
-    flash('Create failed: ' + (e?.response?.data?.message || e.message), true)
+    showToast('❌ Create failed: ' + (e?.response?.data?.message || e.message), 'error')
   } finally {
     saving.value = false
   }
@@ -168,11 +174,13 @@ async function saveEditRole() {
   saving.value = true
   try {
     await adminService.updateRole(editingRoleId.value, { name })
-    flash('Role renamed.')
+    // Reactively update the row in place
+    const idx = roles.value.findIndex(r => r.id === editingRoleId.value)
+    if (idx >= 0) roles.value[idx] = { ...roles.value[idx], name }
+    showToast('✅ Role renamed')
     editingRoleId.value = null
-    await loadRoles()
   } catch (e) {
-    flash('Update failed: ' + (e?.response?.data?.message || e.message), true)
+    showToast('❌ Update failed: ' + (e?.response?.data?.message || e.message), 'error')
   } finally {
     saving.value = false
   }
@@ -182,10 +190,10 @@ async function deleteRole(role) {
   if (!confirm(`Delete role "${displayRole(role.name)}"? Users still holding it will lose its permissions.`)) return
   try {
     await adminService.deleteRole(role.id)
-    flash('Role deleted.')
-    await loadRoles()
+    roles.value = roles.value.filter(r => r.id !== role.id)
+    showToast('✅ Role deleted')
   } catch (e) {
-    flash('Delete failed: ' + (e?.response?.data?.message || e.message), true)
+    showToast('❌ Delete failed: ' + (e?.response?.data?.message || e.message), 'error')
   }
 }
 
@@ -199,7 +207,23 @@ onMounted(async () => {
 
 <template>
   <div class="rp-page">
-    <!-- Breadcrumbs / Header ------------------------------------------ -->
+    <!-- ── Toast notification (matches project pattern) ── -->
+    <Teleport to="body">
+      <Transition name="toast-slide">
+        <div v-if="toast.show"
+             :style="`position:fixed;top:22px;right:24px;z-index:9999;min-width:300px;max-width:460px;
+                      background:${toast.type === 'success' ? '#065f46' : '#991b1b'};
+                      color:#fff;border-radius:8px;padding:14px 18px;
+                      box-shadow:0 6px 32px rgba(0,0,0,.28);font-size:13px;display:flex;align-items:flex-start;gap:10px`">
+          <span style="flex:1;line-height:1.5">{{ toast.message }}</span>
+          <button @click="toast.show = false"
+                  style="background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:4px;
+                         padding:2px 8px;cursor:pointer;font-size:13px;margin-left:4px">✕</button>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- Breadcrumbs -->
     <div class="rp-breadcrumbs">
       <span>🏠</span>
       <span>›</span>
@@ -208,10 +232,6 @@ onMounted(async () => {
       <span class="active">Roles &amp; Permissions</span>
     </div>
 
-    <!-- ── Toast ---------------------------------------------------- -->
-    <div v-if="errorMsg" class="rp-toast error">{{ errorMsg }}</div>
-    <div v-if="successMsg" class="rp-toast success">{{ successMsg }}</div>
-
     <!-- ── Roles list panel ------------------------------------------ -->
     <div class="rp-card">
       <div class="rp-card-header">
@@ -219,8 +239,17 @@ onMounted(async () => {
         <button class="rp-btn rp-btn-pri" @click="showAddRole = true">+ Add Role</button>
       </div>
 
-      <div v-if="loading" class="rp-empty">Loading roles…</div>
-      <div v-else-if="roles.length === 0" class="rp-empty">No roles yet — click "+ Add Role" to create one.</div>
+      <!-- Skeleton loading: 4 shimmer rows while the role list loads. -->
+      <div v-if="loading" class="rp-roles-list">
+        <div v-for="n in 4" :key="'sk-' + n" class="rp-role-row rp-skel-row">
+          <div class="rp-skel rp-skel-name"></div>
+          <div class="rp-skel rp-skel-btn"></div>
+        </div>
+      </div>
+
+      <div v-else-if="roles.length === 0" class="rp-empty">
+        No roles yet — click "+ Add Role" to create one.
+      </div>
 
       <div v-else class="rp-roles-list">
         <div v-for="role in roles" :key="role.id" class="rp-role-row">
@@ -262,7 +291,16 @@ onMounted(async () => {
           <input v-model="moduleSearch" class="rp-input" placeholder="Search modules…" />
         </div>
 
-        <div class="rp-matrix-wrap">
+        <!-- Skeleton matrix while permissions load for the selected role -->
+        <div v-if="matrixLoading" class="rp-matrix-wrap">
+          <div v-for="n in 6" :key="'mskel-' + n" class="rp-matrix-skel">
+            <div class="rp-skel" style="width:40px;height:14px"></div>
+            <div class="rp-skel" style="flex:1;height:14px"></div>
+            <div v-for="m in 5" :key="m" class="rp-skel" style="width:36px;height:20px;border-radius:10px"></div>
+          </div>
+        </div>
+
+        <div v-else class="rp-matrix-wrap">
           <table class="rp-matrix">
             <thead>
               <tr>
@@ -273,8 +311,8 @@ onMounted(async () => {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="mod in filteredModules" :key="mod.name">
-                <td>{{ permissions.findIndex(p => (p.module?.name || p.module_name) === mod.name) + 1 }}</td>
+              <tr v-for="(mod, idx) in filteredModules" :key="mod.name">
+                <td>{{ idx + 1 }}</td>
                 <td>{{ displayRole(mod.name) }}</td>
                 <td v-for="col in CRUD_PREFIXES" :key="col">
                   <label v-if="mod.slots[col]" class="rp-switch">
@@ -310,7 +348,7 @@ onMounted(async () => {
 
         <div class="rp-modal-footer">
           <button class="rp-btn rp-btn-ghost" @click="closeMatrix">Cancel</button>
-          <button class="rp-btn rp-btn-pri" :disabled="saving" @click="savePermissions">
+          <button class="rp-btn rp-btn-pri" :disabled="saving || matrixLoading" @click="savePermissions">
             {{ saving ? 'Saving…' : 'Save Permissions' }}
           </button>
         </div>
@@ -359,14 +397,6 @@ onMounted(async () => {
 }
 .rp-breadcrumbs .active { color: #0f172a; font-weight: 600; }
 
-.rp-toast {
-  position: fixed; top: 18px; right: 18px; z-index: 9999;
-  padding: 10px 14px; border-radius: 8px; font-size: 13px; font-weight: 600;
-  box-shadow: 0 4px 14px rgba(0,0,0,.08);
-}
-.rp-toast.error   { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
-.rp-toast.success { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
-
 .rp-card {
   background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
   padding: 18px 22px; box-shadow: 0 1px 2px rgba(0,0,0,.02);
@@ -392,8 +422,8 @@ onMounted(async () => {
 }
 .rp-btn-sm { padding: 5px 10px; font-size: 11.5px; }
 .rp-btn-pri    { background: #2563eb; color: #fff; }
-.rp-btn-pri:hover:not(:disabled)    { background: #1d4ed8; }
-.rp-btn-pri:disabled  { background: #94a3b8; cursor: not-allowed; }
+.rp-btn-pri:hover:not(:disabled) { background: #1d4ed8; }
+.rp-btn-pri:disabled { background: #94a3b8; cursor: not-allowed; }
 .rp-btn-ghost  { background: #f1f5f9; color: #334155; }
 .rp-btn-ghost:hover  { background: #e2e8f0; }
 .rp-btn-danger { background: #fee2e2; color: #991b1b; }
@@ -459,4 +489,30 @@ onMounted(async () => {
 
 details summary { cursor: pointer; color: #64748b; font-size: 18px; line-height: 1; user-select: none; }
 details[open] summary { color: #2563eb; transform: rotate(90deg); }
+
+/* ── Skeleton loading rows ───────────────────────────────────────── */
+.rp-skel {
+  background: linear-gradient(90deg, #f1f5f9 0%, #e2e8f0 50%, #f1f5f9 100%);
+  background-size: 200% 100%;
+  animation: rp-shimmer 1.4s infinite ease-in-out;
+  border-radius: 6px;
+}
+.rp-skel-row { animation: none; }
+.rp-skel-name { width: 220px; height: 14px; }
+.rp-skel-btn  { width: 130px; height: 30px; border-radius: 6px; }
+.rp-matrix-skel { display: flex; gap: 16px; align-items: center; padding: 8px 0; border-bottom: 1px solid #f1f5f9; }
+
+@keyframes rp-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+</style>
+
+<style>
+/* Global so the toast in <Teleport to="body"> picks it up — matches the
+   project pattern used by DiariesDispatches / Topbar / UsersHR. */
+.toast-slide-enter-active,
+.toast-slide-leave-active { transition: all 0.3s ease; }
+.toast-slide-enter-from,
+.toast-slide-leave-to { opacity: 0; transform: translateY(-20px); }
 </style>

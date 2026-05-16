@@ -451,7 +451,7 @@ onMounted(loadData)
           </div>
           <div style="padding:14px 24px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px;background:#fafbfc">
             <button class="btn btn-sec" @click="showDiaryModal = false">Cancel</button>
-            <button v-write class="btn btn-pri" @click="saveDiary">Save Diary Entry</button>
+            <button v-write="['add_diaries','edit_diaries']" class="btn btn-pri" @click="saveDiary">Save Diary Entry</button>
           </div>
         </div>
       </div>
@@ -507,7 +507,7 @@ onMounted(loadData)
           </div>
           <div style="padding:14px 24px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px;background:#fafbfc">
             <button class="btn btn-sec" @click="showDispatchModal = false">Cancel</button>
-            <button v-write class="btn btn-pri" @click="saveDispatch">Save Dispatch</button>
+            <button v-write="['add_dispatches','edit_dispatches']" class="btn btn-pri" @click="saveDispatch">Save Dispatch</button>
           </div>
         </div>
       </div>

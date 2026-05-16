@@ -15,7 +15,10 @@ class StockableRequest extends FormRequest
      */
     public function authorize()
     {
-        return true;
+        // Stockable list populates dropdowns (assets / materials) for stock
+        // operations — gated on whichever read perm the user holds.
+        $u = auth()->user();
+        return $u && ($u->isUnscoped() || $u->can('view_assets') || $u->can('view_materials') || $u->can('view_inventories'));
     }
 
     /**

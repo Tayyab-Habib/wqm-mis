@@ -942,7 +942,7 @@ onMounted(() => {
           </div>
           <div class="modal-footer">
             <button class="btn btn-outline" @click="showPaymentModal = false">Cancel</button>
-            <button class="btn btn-blue" @click="submitPayment" :disabled="loading">
+            <button v-write="'add_payments'" class="btn btn-blue" @click="submitPayment" :disabled="loading">
                💾 {{ loading ? 'Saving...' : 'Save Payment' }}
             </button>
           </div>
@@ -1169,7 +1169,7 @@ onMounted(() => {
               <button v-if="clubbedStep < 3" class="btn btn-blue" @click="nextClubbedStep">
                  Next: {{ clubbedStep === 1 ? 'Select Samples' : 'Preview' }} →
               </button>
-              <button v-if="clubbedStep === 3" class="btn btn-blue" style="background: #0ea5e9; border-color: #0284c7;" @click="saveClubbedInvoice">
+              <button v-if="clubbedStep === 3" v-write="'add_invoices'" class="btn btn-blue" style="background: #0ea5e9; border-color: #0284c7;" @click="saveClubbedInvoice">
                  ✅ Confirm & Save Invoice
               </button>
             </div>

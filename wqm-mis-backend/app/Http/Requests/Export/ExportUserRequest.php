@@ -14,7 +14,10 @@ class ExportUserRequest extends FormRequest
      */
     public function authorize()
     {
-        return true;
+        // User exports include PII (phone, salary scale) — restrict to admin
+        // tier. view_users perm allows custom roles via the admin UI.
+        $u = auth()->user();
+        return $u && ($u->isUnscoped() || $u->can('view_users'));
     }
 
     /**

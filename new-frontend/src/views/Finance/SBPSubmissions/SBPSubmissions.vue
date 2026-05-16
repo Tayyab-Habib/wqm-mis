@@ -468,7 +468,7 @@ onMounted(fetchData)
 
           <div class="sbp-modal-footer">
             <button class="btn-cancel" @click="showSbpModal = false">Cancel</button>
-            <button class="btn-save" @click="submitSbp" :disabled="selectedSbpLogs.length === 0">
+            <button v-write="'submit_sbp_submissions'" class="btn-save" @click="submitSbp" :disabled="selectedSbpLogs.length === 0">
               <span class="icon">💾</span> {{ sbpSubmitting ? 'Saving...' : 'Save Submission' }}
             </button>
           </div>

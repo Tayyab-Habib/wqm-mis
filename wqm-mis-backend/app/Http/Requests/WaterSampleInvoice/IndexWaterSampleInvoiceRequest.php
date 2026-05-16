@@ -13,7 +13,8 @@ class IndexWaterSampleInvoiceRequest extends FormRequest
      */
     public function authorize()
     {
-        return true;
+        $u = auth()->user();
+        return $u && ($u->isUnscoped() || $u->can('view_invoices') || $u->can('show_water_sample_invoices'));
     }
 
     /**

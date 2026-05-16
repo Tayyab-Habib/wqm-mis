@@ -307,7 +307,7 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
             <td><span class="rag" :class="statusClass(d.detailStatus)">{{ prettyStatus(d.detailStatus) }}</span></td>
             <td>
               <template v-if="String(d.detailStatus).toLowerCase() === 'pending'">
-                <button v-write class="btn btn-green btn-xs" :disabled="savingId === d.id" @click="approveDemand(d)">✓ Approve</button>
+                <button v-write="'edit_inventory_approve_status'" class="btn btn-green btn-xs" :disabled="savingId === d.id" @click="approveDemand(d)">✓ Approve</button>
                 <button class="btn btn-red btn-xs" :disabled="savingId === d.id" @click="openReject(d)">✗ Reject</button>
               </template>
               <template v-else-if="String(d.detailStatus).toLowerCase() === 'approved'">
@@ -373,7 +373,7 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
             </div>
           </div>
           <div class="modal-footer">
-            <button v-write class="btn btn-pri" type="button" :disabled="demandSaving" @click="saveDemand">
+            <button v-write="'add_inventories'" class="btn btn-pri" type="button" :disabled="demandSaving" @click="saveDemand">
               <span class="btn-icon">📤</span> {{ demandSaving ? 'Submitting…' : 'Submit Demand' }}
             </button>
             <button class="btn btn-sec outline" type="button" :disabled="demandSaving" @click="showDemandModal = false">Cancel</button>

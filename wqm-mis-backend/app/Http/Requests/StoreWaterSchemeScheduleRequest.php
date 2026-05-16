@@ -16,7 +16,8 @@ class StoreWaterSchemeScheduleRequest extends FormRequest
      */
     public function authorize()
     {
-        return true;
+        $u = auth()->user();
+        return $u && ($u->isUnscoped() || $u->can('edit_water_schemes') || $u->can('add_water_schemes'));
     }
 
     /**

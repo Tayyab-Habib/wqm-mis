@@ -101,6 +101,10 @@ class RbacTestUsersSeeder extends Seeder
                 ['superintending-engineer',  'se.test@mis.com',           [], null],
                 ['xen',                      'xen.test@mis.com',          [], null],
                 ['lab-incharge',             'labincharge.test@mis.com',  $abbottabadScope, $abbLabId],
+                // Central Lab Peshawar lab-incharge — distinct test user so the
+                // asset / material catalogue CRUD perms (granted per-user to
+                // central-lab users only) can be exercised end-to-end.
+                ['lab-incharge',             'labincharge.central@mis.com', [], $labId],
                 ['junior-clerk',             'clerk.test@mis.com',        [], null],
                 ['laboratory-assistant',     'labassistant.test@mis.com', [], null],
             ];

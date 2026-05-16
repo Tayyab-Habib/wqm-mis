@@ -507,7 +507,7 @@ function closeAddModal() {
 
       <div class="tsp"></div>
       <button class="btn btn-sec btn-sm" @click="exportWss">⬇ Export</button>
-      <button v-write class="btn btn-pri btn-sm" @click="openAddModal">+ Add WSS</button>
+      <button v-write="'add_water_schemes'" class="btn btn-pri btn-sm" @click="openAddModal">+ Add WSS</button>
     </div>
 
     <!-- Row 2 removed — Add WSS is now in the toolbar -->
@@ -606,7 +606,7 @@ function closeAddModal() {
             </div>
             <div style="display:flex;justify-content:flex-end;gap:10px">
               <button class="btn btn-sec" @click="showSchedModal = false">Cancel</button>
-              <button v-write class="btn btn-pri" @click="saveSchedule">💾 Save Schedule</button>
+              <button v-write="'edit_water_schemes'" class="btn btn-pri" @click="saveSchedule">💾 Save Schedule</button>
             </div>
           </div>
         </div>
@@ -848,7 +848,7 @@ function closeAddModal() {
             <!-- Footer actions -->
             <div style="display:flex;justify-content:flex-end;gap:10px;padding-top:6px;border-top:1px solid var(--border)">
               <button v-write class="btn btn-sec" @click="closeAddModal" :disabled="addLoading">Cancel</button>
-              <button v-write class="btn btn-pri" @click="submitAddWss" :disabled="addLoading">
+              <button v-write="'add_water_schemes'" class="btn btn-pri" @click="submitAddWss" :disabled="addLoading">
                 <span v-if="addLoading">⏳ Saving…</span>
                 <span v-else>💾 Create Water Scheme</span>
               </button>
