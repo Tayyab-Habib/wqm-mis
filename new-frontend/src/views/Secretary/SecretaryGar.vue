@@ -63,10 +63,6 @@ function exportCsv() {
           <option v-for="r in (data?.regions || [])" :key="r.id" :value="r.id">{{ r.name }}</option>
         </select>
       </div>
-      <div class="fg">
-        <label>Sample Type</label>
-        <select><option value="">All</option></select>
-      </div>
       <div class="spacer"></div>
       <button class="sd-btn sd-btn-sec" @click="exportCsv">📥 Export .xlsx</button>
       <button class="sd-btn sd-btn-sec" @click="() => window.print()">🖨 Print PDF</button>
@@ -113,9 +109,6 @@ function exportCsv() {
     </div>
 
     <h3 style="font-size:13px;font-weight:700;color:#0f172a;margin:8px 0">CE-wise Abstract — FY {{ filters.from_date ? new Date(filters.from_date).getFullYear() : '' }}-{{ filters.to_date ? String(new Date(filters.to_date).getFullYear()).slice(2) : '' }}</h3>
-    <div class="sd-scope" style="background:#f8fafc;border-color:#e2e8f0;border-left-color:#94a3b8;font-size:11.5px">
-      Click ▶ to expand CE → SE Circle → District → PHE Division
-    </div>
 
     <table class="sd-tbl">
       <thead>
@@ -128,9 +121,8 @@ function exportCsv() {
         <template v-else>
           <tr v-for="r in (data?.ce_abstract || [])" :key="r.region_id">
             <td>
-              <span style="color:#1d4ed8;cursor:pointer">▶</span>
-              <RouterLink :to="`/secretary/ce/${r.region_id}`" style="color:#1d4ed8;font-weight:700;text-decoration:none;margin-left:6px">{{ r.ce }}</RouterLink>
-              <div style="font-size:10.5px;color:#64748b;margin-top:2px;padding-left:18px">{{ r.ce_name }}</div>
+              <RouterLink :to="`/secretary/ce/${r.region_id}`" style="color:#1d4ed8;font-weight:700;text-decoration:none">{{ r.ce }}</RouterLink>
+              <div style="font-size:10.5px;color:#64748b;margin-top:2px">{{ r.ce_name }}</div>
             </td>
             <td>{{ r.tested.toLocaleString() }}</td>
             <td style="color:#16a34a;font-weight:600">{{ r.fit }}</td>

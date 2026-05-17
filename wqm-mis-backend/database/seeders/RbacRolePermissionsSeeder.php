@@ -219,6 +219,34 @@ class RbacRolePermissionsSeeder extends Seeder
                 }
             }
 
+            // CE portal perms — added 2026-05-17 (RBAC-Updated branch).
+            // Same pattern as Secretary: 1 umbrella + 6 per-screen perms
+            // gating every CE portal endpoint and frontend route. The
+            // chief-engineer role gets all 7 by default. Admin can revoke
+            // individual screens via the Module Access grid.
+            $reportsModuleIdForCe = DB::table('modules')->where('name', 'reports')->value('id');
+            $cePortalPerms = [
+                'view_ce_portal',
+                'view_ce_dashboard',
+                'view_ce_circle_detail',
+                'view_ce_escalated_cases',
+                'view_ce_persistent_unfit',
+                'view_ce_gar',
+                'view_ce_wss_register',
+            ];
+            foreach ($cePortalPerms as $name) {
+                Permission::firstOrCreate(
+                    ['name' => $name, 'guard_name' => 'web'],
+                    ['module_id' => $reportsModuleIdForCe]
+                );
+            }
+            $ceRole = Role::firstOrCreate(['name' => 'chief-engineer', 'guard_name' => 'web']);
+            foreach ($cePortalPerms as $p) {
+                if (!$ceRole->hasPermissionTo($p)) {
+                    $ceRole->givePermissionTo($p);
+                }
+            }
+
             // Dedicated per-report view perms — added 2026-05-17. The reports
             // used to share view_water_samples + view_reports, which made
             // granular per-report grants impossible (granting one revealed

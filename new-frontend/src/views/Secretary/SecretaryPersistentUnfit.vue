@@ -59,31 +59,30 @@ function statusClass(s) {
 
     <table class="sd-tbl">
       <thead>
-        <tr><th>WSS Name</th><th>District</th><th>CE</th><th>SE Circle</th><th>Contaminant</th><th>Original</th><th>R1</th><th>R2</th><th>WHO Limit</th><th>Stage</th><th>Status</th></tr>
+        <tr><th>Sample ID</th><th>WSS Name</th><th>District</th><th>CE</th><th>SE Circle</th><th>R0 Remarks</th><th>R1 Remarks</th><th>R2 Remarks</th><th>Stage</th><th>Status</th></tr>
       </thead>
       <tbody>
         <template v-if="loading">
-          <SecSkelRow v-for="n in 5" :key="'pu' + n" :cols="[160, 80, 110, 110, 80, 70, 70, 70, 70, 60, 80]" />
+          <SecSkelRow v-for="n in 5" :key="'pu' + n" :cols="[100, 160, 80, 110, 110, 140, 140, 140, 60, 80]" />
         </template>
         <template v-else>
           <template v-for="grp in (data?.groups || [])" :key="grp.ce">
-            <tr class="group-h"><td colspan="11">{{ grp.ce.toUpperCase() }}</td></tr>
+            <tr class="group-h"><td colspan="10">{{ grp.ce.toUpperCase() }}</td></tr>
             <tr v-for="r in grp.rows" :key="r.id" style="background:#fff0f5">
+              <td class="sid">{{ r.slug }}</td>
               <td><b>{{ r.wss_name }}</b></td>
               <td>{{ r.district }}</td>
               <td>{{ r.ce }}</td>
               <td>{{ r.se_circle }}</td>
-              <td><span class="sd-pill p-amber">{{ r.contaminant }}</span></td>
-              <td>{{ r.original }}</td>
-              <td>{{ r.r1 }}</td>
-              <td>{{ r.r2 }}</td>
-              <td>{{ r.who_limit }}</td>
+              <td style="font-size:11px;color:#475569">{{ r.original }}</td>
+              <td style="font-size:11px;color:#475569">{{ r.r1 }}</td>
+              <td style="font-size:11px;color:#475569">{{ r.r2 }}</td>
               <td><span class="sd-pill p-red">{{ r.stage }}</span></td>
               <td><span class="sd-pill" :class="statusClass(r.status)">{{ r.status }}</span></td>
             </tr>
           </template>
           <tr v-if="!(data?.groups || []).length">
-            <td colspan="11" class="empty">No persistent unfit WSS.</td>
+            <td colspan="10" class="empty">No persistent unfit WSS.</td>
           </tr>
         </template>
       </tbody>

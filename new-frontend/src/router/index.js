@@ -76,18 +76,23 @@ const routes = [
   // ── CE Portal (Chief Engineer — region-scoped oversight) ──────────────
   // Full nested portal from the ce-dashboard branch. Replaces the earlier
   // standalone placeholder at /ce/dashboard.
+  //
+  // Every child route is permission-gated so admin can lock individual
+  // screens for the CE via the Module Access grid. The umbrella
+  // view_ce_portal grants entry; per-screen perms control which tabs
+  // they can open.
   {
     path: '/ce',
     component: () => import('../layouts/CeLayout.vue'),
-    meta: { requiresAuth: true, portal: 'ce' },
+    meta: { requiresAuth: true, portal: 'ce', permissions: ['view_ce_portal'] },
     children: [
       { path: '', redirect: '/ce/dashboard' },
-      { path: 'dashboard',        name: 'CeDashboard',       meta: { title: 'Dashboard' },             component: () => import('../views/Ce/CeDashboard.vue') },
-      { path: 'circles/:id',      name: 'CeCircleDetail',    meta: { title: 'SE Circle' },             component: () => import('../views/Ce/CeCircleDetail.vue') },
-      { path: 'escalated-cases',  name: 'CeEscalatedCases',  meta: { title: 'CE Escalated Cases' },    component: () => import('../views/Ce/CeEscalatedCases.vue') },
-      { path: 'persistent-unfit', name: 'CePersistentUnfit', meta: { title: 'Persistent Unfit WSS' },  component: () => import('../views/Ce/CePersistentUnfit.vue') },
-      { path: 'gar',              name: 'CeGar',             meta: { title: 'GAR — My Area' },         component: () => import('../views/Ce/CeGar.vue') },
-      { path: 'wss-register',     name: 'CeWssRegister',     meta: { title: 'WSS Register' },          component: () => import('../views/Ce/CeWssRegister.vue') },
+      { path: 'dashboard',        name: 'CeDashboard',       meta: { title: 'Dashboard',             permissions: ['view_ce_dashboard'] },         component: () => import('../views/Ce/CeDashboard.vue') },
+      { path: 'circles/:id',      name: 'CeCircleDetail',    meta: { title: 'SE Circle',             permissions: ['view_ce_circle_detail'] },     component: () => import('../views/Ce/CeCircleDetail.vue') },
+      { path: 'escalated-cases',  name: 'CeEscalatedCases',  meta: { title: 'CE Escalated Cases',    permissions: ['view_ce_escalated_cases'] },   component: () => import('../views/Ce/CeEscalatedCases.vue') },
+      { path: 'persistent-unfit', name: 'CePersistentUnfit', meta: { title: 'Persistent Unfit WSS',  permissions: ['view_ce_persistent_unfit'] },  component: () => import('../views/Ce/CePersistentUnfit.vue') },
+      { path: 'gar',              name: 'CeGar',             meta: { title: 'GAR — My Area',         permissions: ['view_ce_gar'] },               component: () => import('../views/Ce/CeGar.vue') },
+      { path: 'wss-register',     name: 'CeWssRegister',     meta: { title: 'WSS Register',          permissions: ['view_ce_wss_register'] },      component: () => import('../views/Ce/CeWssRegister.vue') },
     ],
   },
 
@@ -188,12 +193,25 @@ router.beforeEach((to, from, next) => {
   const isUnscopedUser = userRoles.some(r => UNSCOPED_ROLES.includes(r))
   const userPerms = Array.isArray(user?.permission_names) ? user.permission_names : []
 
+  // Loop-safe redirect-home. If the home target IS the route the user was
+  // trying to reach (e.g. secretary lacks view_secretary_dashboard, but
+  // /secretary/dashboard is also their home), don't loop — log them out so
+  // they can sign back in with a fresh session. Without this, a stale
+  // localStorage cache or a mis-configured perm bundle would cause Vue
+  // Router's "infinite redirect" abort.
   const redirectHome = () => {
-    if (isSecretary) return next('/secretary/dashboard')
-    if (isCe)        return next('/ce/dashboard')
-    if (isXen)       return next('/xen/dashboard')
-    if (isClient)    return next('/client-portal/results')
-    return next('/dashboard')
+    let home = '/dashboard'
+    if (isSecretary) home = '/secretary/dashboard'
+    else if (isCe)        home = '/ce/dashboard'
+    else if (isXen)       home = '/xen/dashboard'
+    else if (isClient)    home = '/client-portal/results'
+
+    if (to.path === home) {
+      // Would loop — bail to login. Caller likely needs a session refresh.
+      try { localStorage.removeItem('user') } catch (_) { /* ignore */ }
+      return next('/login')
+    }
+    return next(home)
   }
 
   if (!isUnscopedUser) {

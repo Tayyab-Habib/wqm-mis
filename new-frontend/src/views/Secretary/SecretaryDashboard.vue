@@ -30,9 +30,6 @@ function ragBadge(rag) {
   return 'low'
 }
 
-function decide(row) {
-  router.push('/secretary/fate-decisions')
-}
 </script>
 
 <template>
@@ -71,7 +68,6 @@ function decide(row) {
         <div v-if="loading" class="sd-skel sd-val-skel"></div>
         <div v-else class="val">{{ row1.functional_wss?.total?.toLocaleString() ?? 0 }}</div>
         <div class="sub" v-if="!loading">🟡 Solar: {{ row1.functional_wss?.solar ?? 0 }} &nbsp; ⚡ Non-Solar: {{ row1.functional_wss?.non_solar ?? 0 }}</div>
-        <div class="sub" v-if="!loading">Live from PHED MIS API</div>
         <RouterLink to="/secretary/wss-register" class="link">→ WSS Register</RouterLink>
       </div>
       <div class="c">
@@ -86,14 +82,13 @@ function decide(row) {
         <div class="lbl">TESTED SAMPLES</div>
         <div v-if="loading" class="sd-skel sd-val-skel"></div>
         <div v-else class="val">{{ row1.tested_samples?.toLocaleString() ?? 0 }}</div>
-        <div class="sub" v-if="!loading">🧪 Micro: {{ Math.floor((row1.tested_samples ?? 0) * 0.8) }} &nbsp; PCM: {{ Math.floor((row1.tested_samples ?? 0) * 0.2) }}</div>
+        <div class="sub" v-if="!loading">✅ Fit: {{ row1.fit_samples ?? 0 }} &nbsp; ❌ Unfit: {{ row1.unfit_samples ?? 0 }} &nbsp; ⏳ Other: {{ Math.max(0, (row1.tested_samples ?? 0) - (row1.fit_samples ?? 0) - (row1.unfit_samples ?? 0)) }}</div>
         <RouterLink to="/secretary/gar" class="link">→ GAR Report</RouterLink>
       </div>
       <div class="c c-red">
         <div class="lbl">UNFIT SAMPLES</div>
         <div v-if="loading" class="sd-skel sd-val-skel"></div>
         <div v-else class="val">{{ row1.unfit_samples?.toLocaleString() ?? 0 }}</div>
-        <div class="sub" v-if="!loading">Micro: {{ Math.floor((row1.unfit_samples ?? 0) * 0.75) }} &nbsp; Chem: {{ Math.floor((row1.unfit_samples ?? 0) * 0.2) }} &nbsp; Phys: {{ Math.max(0, (row1.unfit_samples ?? 0) - Math.floor((row1.unfit_samples ?? 0) * 0.95)) }}</div>
         <div class="sub" v-if="!loading && row1.tested_samples > 0">{{ ((row1.unfit_samples / row1.tested_samples) * 100).toFixed(1) }}% of tested</div>
         <a class="link" @click="router.push('/secretary/fate-decisions')">→ Unfit Trail</a>
       </div>
@@ -258,23 +253,22 @@ function decide(row) {
       </div>
       <table class="sd-tbl">
         <thead>
-          <tr><th>WSS Name</th><th>District</th><th>CE</th><th>Contaminant</th><th>R2 Value</th><th>Limit</th><th>Decision</th></tr>
+          <tr><th>Sample ID</th><th>WSS Name</th><th>District</th><th>CE</th><th>Stage</th><th>R2 Remarks</th></tr>
         </thead>
         <tbody>
           <template v-if="loading">
-            <SecSkelRow v-for="n in 3" :key="'fd' + n" :cols="[160, 80, 110, 80, 70, 70, 80]" />
+            <SecSkelRow v-for="n in 3" :key="'fd' + n" :cols="[100, 160, 80, 110, 70, 200]" />
           </template>
           <template v-else>
             <tr v-for="r in fate.slice(0, 5)" :key="r.id" style="background:#fdf2f8">
+              <td class="sid">{{ r.slug }}</td>
               <td><b>{{ r.wss_name }}</b></td>
               <td>{{ r.district }}</td>
               <td><span class="sd-pill p-blue">{{ r.ce }}</span></td>
-              <td><span class="sd-pill p-amber">{{ r.contaminant }}</span></td>
-              <td>{{ r.r2_value }}</td>
-              <td>{{ r.who_limit }}</td>
-              <td><button class="sd-btn sd-btn-rose" @click="decide(r)">⬇ Decide</button></td>
+              <td><span class="sd-pill p-red">{{ r.stage }}</span></td>
+              <td style="font-size:11px;color:#475569">{{ r.r2 }}</td>
             </tr>
-            <tr v-if="!fate.length"><td colspan="7" class="empty">No fate decisions pending.</td></tr>
+            <tr v-if="!fate.length"><td colspan="6" class="empty">No fate decisions pending.</td></tr>
           </template>
         </tbody>
       </table>

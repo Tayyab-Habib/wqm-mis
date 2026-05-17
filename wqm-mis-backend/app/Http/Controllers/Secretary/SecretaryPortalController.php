@@ -240,6 +240,7 @@ class SecretaryPortalController extends Controller
                     $status = $s->fate_decision === 'advisory' ? 'Public Advisory' : ($s->fate_decision === 'monitor' ? 'Monitoring' : 'Implemented');
                 }
 
+                // contaminant + who_limit dropped — no schema backing.
                 $items[] = [
                     'id'           => $s->id,
                     'slug'         => $s->slug,
@@ -247,11 +248,9 @@ class SecretaryPortalController extends Controller
                     'district'     => $s->district?->name ?? '—',
                     'ce'           => $regions[$regionId] ?? '—',
                     'se_circle'    => $circle?->name ? 'SE ' . $circle->name : '—',
-                    'contaminant'  => 'Chemical',
                     'original'     => $original?->remarks ?? '—',
                     'r1'           => $r1?->remarks ?? '—',
                     'r2'           => $r2?->remarks ?? '—',
-                    'who_limit'    => '50 µg/L',
                     'stage'        => $stage,
                     'status'       => $status,
                 ];
@@ -473,7 +472,10 @@ class SecretaryPortalController extends Controller
 
     private function row1(): array
     {
+        // FUNCTIONAL WSS must filter by water_schemes.is_active = 1 — the
+        // label promises "functional" not "all schemes ever created".
         $schemes = WaterScheme::query()
+            ->where('is_active', 1)
             ->select(DB::raw('COUNT(*) as total, SUM(CASE WHEN LOWER(power_input) LIKE "%solar%" THEN 1 ELSE 0 END) as solar'))
             ->first();
         $solar = (int) ($schemes->solar ?? 0);
@@ -516,10 +518,15 @@ class SecretaryPortalController extends Controller
     private function row2(): array
     {
         $fatePending = $this->countFatePending();
+        // "Persistent Unfit WSS" must count distinct schemes, not samples.
+        // A single scheme can have multiple unfit samples at R2; counting
+        // samples would inflate this number once real data lands.
         $persistent  = WaterSample::query()
             ->where('current_status', WaterSampleCurrentStatusEnum::UNFIT->value)
             ->where('current_round', '>=', 2)
-            ->count();
+            ->whereNotNull('water_scheme_id')
+            ->distinct('water_scheme_id')
+            ->count('water_scheme_id');
 
         $ceEscalated = $this->daysSinceUnfit([], minDays: 20);
 
@@ -626,6 +633,10 @@ class SecretaryPortalController extends Controller
             $circle = $s->phedDivision?->circle;
             $regionName = $circle ? ($regions[$circle->region_id] ?? '—') : '—';
 
+            // contaminant / who_limit are NOT in the schema — removed rather
+            // than hardcoded. r2_value used to alias `remarks` which is free
+            // text, not a concentration value; frontend now reads `r2`
+            // directly and labels it as "R2 Remarks" honestly.
             return [
                 'id'           => $s->id,
                 'slug'         => $s->slug,
@@ -633,12 +644,9 @@ class SecretaryPortalController extends Controller
                 'district'     => $s->district?->name ?? '—',
                 'ce'           => $regionName,
                 'ce_short'     => preg_replace('/^CE\s*[\x{2014}\x{2013}-]?\s*/u', '', $regionName),
-                'contaminant'  => 'Chemical',
                 'original'     => $r0?->remarks ?? '—',
                 'r1'           => $r1?->remarks ?? '—',
                 'r2'           => $r2?->remarks ?? '—',
-                'r2_value'     => $r2?->remarks ?? '—',
-                'who_limit'    => '50 µg/L',
                 'stage'        => $s->current_round >= 3 ? 'R3 Fail' : 'R2 Fail',
             ];
         })->all();
@@ -672,12 +680,13 @@ class SecretaryPortalController extends Controller
                 default        => 'Recorded',
             };
             $rawUpdated = $s->getRawOriginal('updated_at');
+            // contaminant dropped — was hardcoded 'Chemical' for every row;
+            // the schema has no contaminant_type column to source from.
             return [
                 'id'        => $s->id,
                 'wss_name'  => $s->waterScheme?->name ?? '—',
                 'district'  => $s->district?->name ?? '—',
                 'ce'        => $regionName,
-                'contaminant'=> 'Chemical',
                 'decision'  => $decisionLabel,
                 'date'      => $rawUpdated ? Carbon::parse($rawUpdated)->toDateString() : null,
                 'status'    => $statusLabel,
@@ -711,6 +720,11 @@ class SecretaryPortalController extends Controller
             ];
         }
 
+        // Pad with CE-escalated alert if there's still room AND the alert is
+        // actually meaningful (>0 unresolved cases). The previous version
+        // also padded with a synthetic "Monthly Report Ready" info — removed,
+        // because it surfaced every time the real list was short, masking
+        // the fact that there was nothing to notify about.
         if (count($out) < $limit) {
             $ceEscalated = $this->daysSinceUnfit([], minDays: 20);
             if ($ceEscalated > 0) {
@@ -722,13 +736,6 @@ class SecretaryPortalController extends Controller
                     'badge' => 'Alert',
                 ];
             }
-            $out[] = [
-                'type'  => 'info',
-                'label' => 'Monthly Report Ready',
-                'title' => 'GAR — ' . now()->format('M Y') . ' · Province',
-                'meta'  => now()->startOfMonth()->addDay()->format('d-M-y H:i') . ' · Auto-generated',
-                'badge' => 'Info',
-            ];
         }
 
         return array_slice($out, 0, $limit);
@@ -772,8 +779,8 @@ class SecretaryPortalController extends Controller
 
     private function monthlyCoverage(): array
     {
-        // 15% of Functional WSS must be tested per month
-        $totalWss = WaterScheme::count();
+        // 15% of Functional WSS must be tested per month (SRS KPI).
+        $totalWss = WaterScheme::query()->where('is_active', 1)->count();
         $target = (int) ceil($totalWss * 0.15);
         $monthStart = now()->startOfMonth()->toDateTimeString();
         $tested = WaterSample::query()
@@ -782,25 +789,24 @@ class SecretaryPortalController extends Controller
             ->distinct('water_scheme_id')
             ->count('water_scheme_id');
 
-        // Labs hitting their share — split target across distinct labs
-        $labCount = DB::table('laboratories')->count();
-        $labsOnTarget = 0;
-        if ($labCount > 0 && $target > 0) {
-            $perLab = max(1, (int) ceil($target / $labCount));
-            $labStats = DB::table('water_samples')
-                ->whereNotNull('laboratory_id')
-                ->where('sampled_at', '>=', $monthStart)
-                ->whereNotNull('water_scheme_id')
-                ->select('laboratory_id', DB::raw('COUNT(DISTINCT water_scheme_id) as cnt'))
-                ->groupBy('laboratory_id')
-                ->get();
-            $labsOnTarget = $labStats->where('cnt', '>=', $perLab)->count();
-        }
+        // "Labs on target" — previously split the province-wide target equally
+        // across all labs, which over-credited small labs and penalised large
+        // ones (labs serve regions of very different sizes — Centre vs Hub).
+        // Honest metric: count labs that actually tested ANY WSS this month
+        // (i.e. labs that submitted samples). Total = all registered labs.
+        $labCount = DB::table('laboratories')->whereNull('deleted_at')->count();
+        $labsActive = DB::table('water_samples')
+            ->whereNotNull('laboratory_id')
+            ->whereNotNull('water_scheme_id')
+            ->where('sampled_at', '>=', $monthStart)
+            ->distinct('laboratory_id')
+            ->count('laboratory_id');
+
         return [
             'target_pct'      => 15,
             'tested_wss'      => $tested,
             'target_wss'      => $target,
-            'labs_on_target'  => $labsOnTarget,
+            'labs_on_target'  => $labsActive,  // labs that submitted samples this month
             'total_labs'      => $labCount,
         ];
     }

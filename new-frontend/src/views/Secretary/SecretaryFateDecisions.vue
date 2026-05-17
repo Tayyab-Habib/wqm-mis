@@ -70,28 +70,25 @@ function decisionClass(d) {
 
     <table class="sd-tbl" style="margin-bottom:18px">
       <thead>
-        <tr><th>WSS Name</th><th>District</th><th>CE</th><th>Contaminant</th><th>Original</th><th>R1</th><th>R2</th><th>WHO Limit</th><th>Contamination History</th><th>Stage</th><th>Secretary Decision</th></tr>
+        <tr><th>Sample ID</th><th>WSS Name</th><th>District</th><th>CE</th><th>R0 Remarks</th><th>R1 Remarks</th><th>R2 Remarks</th><th>Stage</th></tr>
       </thead>
       <tbody>
         <template v-if="loading">
-          <SecSkelRow v-for="n in 3" :key="'fp' + n" :cols="[160, 80, 110, 80, 70, 70, 70, 70, 180, 60, 80]" />
+          <SecSkelRow v-for="n in 3" :key="'fp' + n" :cols="[100, 160, 80, 110, 140, 140, 140, 60]" />
         </template>
         <template v-else>
           <tr v-for="r in (data?.pending || [])" :key="r.id" style="background:#fdf2f8">
+            <td class="sid">{{ r.slug }}</td>
             <td><b>{{ r.wss_name }}</b></td>
             <td>{{ r.district }}</td>
             <td><span class="sd-pill p-blue">{{ r.ce }}</span></td>
-            <td><span class="sd-pill p-amber">{{ r.contaminant }}</span></td>
-            <td>{{ r.original }}</td>
-            <td>{{ r.r1 }}</td>
-            <td>{{ r.r2 }}</td>
-            <td>{{ r.who_limit }}</td>
-            <td style="font-size:11px;color:#64748b">Trend: based on R0 → R1 → R2 values.</td>
+            <td style="font-size:11px;color:#475569">{{ r.original }}</td>
+            <td style="font-size:11px;color:#475569">{{ r.r1 }}</td>
+            <td style="font-size:11px;color:#475569">{{ r.r2 }}</td>
             <td><span class="sd-pill p-red">{{ r.stage }}</span></td>
-            <td><button class="sd-btn sd-btn-rose">⬇ Decide</button></td>
           </tr>
           <tr v-if="!(data?.pending || []).length">
-            <td colspan="11" class="empty">No pending fate decisions.</td>
+            <td colspan="8" class="empty">No pending fate decisions.</td>
           </tr>
         </template>
       </tbody>
@@ -100,24 +97,23 @@ function decisionClass(d) {
     <h3 style="font-size:13px;font-weight:700;color:#0f172a;margin:6px 0">Past Fate Decisions — Issued by Secretary</h3>
     <table class="sd-tbl">
       <thead>
-        <tr><th>WSS Name</th><th>District</th><th>CE</th><th>Contaminant</th><th>Decision</th><th>Date</th><th>Status</th></tr>
+        <tr><th>WSS Name</th><th>District</th><th>CE</th><th>Decision</th><th>Date</th><th>Status</th></tr>
       </thead>
       <tbody>
         <template v-if="loading">
-          <SecSkelRow v-for="n in 4" :key="'pa' + n" :cols="[160, 80, 110, 80, 110, 90, 90]" />
+          <SecSkelRow v-for="n in 4" :key="'pa' + n" :cols="[160, 80, 110, 110, 90, 90]" />
         </template>
         <template v-else>
           <tr v-for="r in (data?.past || [])" :key="r.id">
             <td><b>{{ r.wss_name }}</b></td>
             <td>{{ r.district }}</td>
             <td>{{ r.ce }}</td>
-            <td><span class="sd-pill p-amber">{{ r.contaminant }}</span></td>
             <td><span class="sd-pill" :class="decisionClass(r.decision)">{{ r.decision }}</span></td>
             <td>{{ fmtDate(r.date) }}</td>
             <td><span class="sd-pill" :class="statusClass(r.status)">{{ r.status }}</span></td>
           </tr>
           <tr v-if="!(data?.past || []).length">
-            <td colspan="7" class="empty">No past fate decisions yet.</td>
+            <td colspan="6" class="empty">No past fate decisions yet.</td>
           </tr>
         </template>
       </tbody>

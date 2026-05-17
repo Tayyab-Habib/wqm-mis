@@ -15,6 +15,7 @@ use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Symfony\Component\HttpFoundation\Response as Http;
 
 /**
  * Chief Engineer (CE) portal — region-scoped oversight.
@@ -22,9 +23,31 @@ use Illuminate\Support\Facades\DB;
  * A CE oversees a Region, which contains multiple SE Circles, which contain
  * PHE Divisions (XEN scope). All endpoints here filter samples by the
  * CE's region_id (via circles → phed_divisions) so a CE only sees their area.
+ *
+ * RBAC: every endpoint gated by a dedicated `view_ce_*` permission
+ * (see permissions ids 218-224). The chief-engineer role gets all 7 by
+ * default; admins can revoke individual screens via the Module Access grid.
  */
 class CePortalController extends Controller
 {
+    /**
+     * 403 helper — unscoped admins bypass; everyone else must hold $perm.
+     * Mirrors the gating pattern in SecretaryPortalController.
+     */
+    private function gate(string $perm): ?JsonResponse
+    {
+        $user = auth()->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated'], Http::HTTP_UNAUTHORIZED);
+        }
+        if ($user->isUnscoped() || $user->can($perm)) {
+            return null;
+        }
+        return response()->json([
+            'message' => 'Not authorized to access this CE portal screen',
+        ], Http::HTTP_FORBIDDEN);
+    }
+
     /* ──────────────────────────────────────────────────────────────────
      |  Scope helpers
      |──────────────────────────────────────────────────────────────────*/
@@ -64,6 +87,7 @@ class CePortalController extends Controller
      |──────────────────────────────────────────────────────────────────*/
     public function me(): JsonResponse
     {
+        if ($r = $this->gate('view_ce_portal')) return $r;
         $user = auth()->user()->load(['region', 'circle', 'district', 'designation']);
 
         $circles = Circle::query()
@@ -87,6 +111,7 @@ class CePortalController extends Controller
      |──────────────────────────────────────────────────────────────────*/
     public function dashboard(): JsonResponse
     {
+        if ($r = $this->gate('view_ce_dashboard')) return $r;
         $user = auth()->user();
         $phedIds = $this->phedDivisionIds();
 
@@ -171,6 +196,7 @@ class CePortalController extends Controller
      |──────────────────────────────────────────────────────────────────*/
     public function circleDetail(int $circleId): JsonResponse
     {
+        if ($r = $this->gate('view_ce_circle_detail')) return $r;
         $user = auth()->user();
         $circle = Circle::query()
             ->when($user->region_id, fn ($q) => $q->where('region_id', $user->region_id))
@@ -217,6 +243,7 @@ class CePortalController extends Controller
      |──────────────────────────────────────────────────────────────────*/
     public function escalatedCases(): JsonResponse
     {
+        if ($r = $this->gate('view_ce_escalated_cases')) return $r;
         $phedIds = $this->phedDivisionIds();
         $escalated  = $this->buildCeEscalatedList($phedIds, limit: 100);
         $approaching = $this->buildApproachingCeList($phedIds, limit: 100);
@@ -248,6 +275,7 @@ class CePortalController extends Controller
      |──────────────────────────────────────────────────────────────────*/
     public function persistentUnfit(): JsonResponse
     {
+        if ($r = $this->gate('view_ce_persistent_unfit')) return $r;
         $phedIds = $this->phedDivisionIds();
         $list = $this->buildPersistentUnfit($phedIds, limit: 100);
 
@@ -267,6 +295,7 @@ class CePortalController extends Controller
      |──────────────────────────────────────────────────────────────────*/
     public function gar(Request $request): JsonResponse
     {
+        if ($r = $this->gate('view_ce_gar')) return $r;
         $user = auth()->user();
         $phedIds = $this->phedDivisionIds();
 
@@ -373,6 +402,7 @@ class CePortalController extends Controller
      |──────────────────────────────────────────────────────────────────*/
     public function wssRegister(Request $request): JsonResponse
     {
+        if ($r = $this->gate('view_ce_wss_register')) return $r;
         $user = auth()->user();
         $phedIds = $this->phedDivisionIds();
         $circleIds = $this->circleIds();

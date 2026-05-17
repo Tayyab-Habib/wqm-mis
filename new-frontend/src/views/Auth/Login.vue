@@ -105,6 +105,12 @@ async function handleLogin() {
           // RBAC pass); fall back to the legacy encrypted 'permissions' only
           // if the new field isn't present.
           permissions: userData.permission_names || userData.permissions || [],
+          // Also persist the canonical permission_names array under its own
+          // key — the router auth guard reads `user.permission_names`
+          // directly when checking route meta.permissions, so leaving this
+          // off causes silent route-gate failures (e.g. secretary login
+          // landing on /secretary/dashboard which requires view_secretary_*).
+          permission_names: Array.isArray(userData.permission_names) ? userData.permission_names : [],
           laboratory:  userData.laboratory  || null,
           district:    userData.district    || null,
           district_id: userData.district_id || userData.district?.id || null,

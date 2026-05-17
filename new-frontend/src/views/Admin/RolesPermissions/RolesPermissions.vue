@@ -66,6 +66,18 @@ const SIDEBAR_MODULES = [
   { label: 'Secretary Persistent Unfit', icon: '🔴', perms: ['view_secretary_persistent_unfit'] },
   { label: 'Secretary GAR',              icon: '📄', perms: ['view_secretary_gar'] },
   { label: 'Secretary WSS Register',     icon: '💧', perms: ['view_secretary_wss_register'] },
+
+  // ── CE portal screens ───────────────────────────────────────────────
+  // Same pattern as Secretary: umbrella + 6 per-screen perms. The
+  // chief-engineer role gets all 7 by default; admin can revoke per-screen
+  // via this grid.
+  { label: 'CE Portal',                  icon: '🏢', perms: ['view_ce_portal'] },
+  { label: 'CE Dashboard',               icon: '📊', perms: ['view_ce_dashboard'] },
+  { label: 'CE Circle Detail',           icon: '📍', perms: ['view_ce_circle_detail'] },
+  { label: 'CE Escalated Cases',         icon: '⚠️', perms: ['view_ce_escalated_cases'] },
+  { label: 'CE Persistent Unfit',        icon: '🔴', perms: ['view_ce_persistent_unfit'] },
+  { label: 'CE GAR',                     icon: '📄', perms: ['view_ce_gar'] },
+  { label: 'CE WSS Register',            icon: '💧', perms: ['view_ce_wss_register'] },
 ]
 // Roles whose access is router/middleware-bypassed (isUnscoped) — toggling
 // module perms for them has no UI effect, so they're hidden from the grid

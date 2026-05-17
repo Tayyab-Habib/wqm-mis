@@ -49,25 +49,55 @@ function logout() {
 const regionLabel = computed(() => me.value?.region?.name || 'Region —')
 const ceName      = computed(() => me.value?.name || 'CE Officer')
 
+// RBAC: every nav item carries the perm that gates its route. Items the
+// user lacks the perm for get filtered out, and any section header that
+// loses all its children disappears too. Unscoped admins bypass via
+// userStore.hasPermission().
 const navItems = computed(() => {
   const circles = me.value?.circles || []
-  return [
+  const all = [
     { kind: 'section', label: 'Overview' },
-    { kind: 'item',    label: 'Dashboard',         icon: '📊', route: '/ce/dashboard' },
+    { kind: 'item',    label: 'Dashboard', icon: '📊', route: '/ce/dashboard', perm: 'view_ce_dashboard' },
     { kind: 'section', label: 'Unfit Trail — By SE Circle' },
     ...circles.map(c => ({
       kind: 'item',
       label: c.label,
       icon: '📍',
       route: `/ce/circles/${c.id}`,
+      perm: 'view_ce_circle_detail',
     })),
     { kind: 'section', label: 'Escalations' },
-    { kind: 'item', label: 'CE Escalated Cases', icon: '⚠️', route: '/ce/escalated-cases', badgeRef: 'ce' },
-    { kind: 'item', label: 'Persistent Unfit WSS', icon: '🔴', route: '/ce/persistent-unfit' },
+    { kind: 'item', label: 'CE Escalated Cases',   icon: '⚠️', route: '/ce/escalated-cases',  badgeRef: 'ce', perm: 'view_ce_escalated_cases' },
+    { kind: 'item', label: 'Persistent Unfit WSS', icon: '🔴', route: '/ce/persistent-unfit', perm: 'view_ce_persistent_unfit' },
     { kind: 'section', label: 'Reports' },
-    { kind: 'item', label: 'GAR — My Area',   icon: '📄', route: '/ce/gar' },
-    { kind: 'item', label: 'WSS Register',    icon: '💧', route: '/ce/wss-register' },
+    { kind: 'item', label: 'GAR — My Area',  icon: '📄', route: '/ce/gar',          perm: 'view_ce_gar' },
+    { kind: 'item', label: 'WSS Register',   icon: '💧', route: '/ce/wss-register', perm: 'view_ce_wss_register' },
   ]
+
+  // Step 1: drop items the user lacks the perm for.
+  const visible = all.filter(it => {
+    if (it.kind !== 'item') return true
+    if (!it.perm) return true
+    return userStore.hasPermission(it.perm)
+  })
+
+  // Step 2: drop section headers that no longer have any items beneath them.
+  const out = []
+  for (let i = 0; i < visible.length; i++) {
+    const it = visible[i]
+    if (it.kind === 'section') {
+      let hasChild = false
+      for (let j = i + 1; j < visible.length; j++) {
+        if (visible[j].kind === 'section') break
+        hasChild = true
+        break
+      }
+      if (hasChild) out.push(it)
+    } else {
+      out.push(it)
+    }
+  }
+  return out
 })
 
 const scopeChips = computed(() => {
