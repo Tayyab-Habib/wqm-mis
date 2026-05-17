@@ -215,6 +215,17 @@ Route::middleware(['auth:sanctum', 'dummy.account', 'view.only'])->group(callbac
         Route::put('settings',        [\App\Http\Controllers\Xen\XenPortalController::class, 'updateSettings']);
     });
 
+    // Secretary Portal Routes — top of the hierarchy, province-wide oversight
+    Route::prefix('secretary')->group(function () {
+        Route::get('me',                [\App\Http\Controllers\Secretary\SecretaryPortalController::class, 'me']);
+        Route::get('dashboard',         [\App\Http\Controllers\Secretary\SecretaryPortalController::class, 'dashboard']);
+        Route::get('ce/{regionId}',     [\App\Http\Controllers\Secretary\SecretaryPortalController::class, 'ceUnfit']);
+        Route::get('fate-decisions',    [\App\Http\Controllers\Secretary\SecretaryPortalController::class, 'fateDecisions']);
+        Route::get('persistent-unfit',  [\App\Http\Controllers\Secretary\SecretaryPortalController::class, 'persistentUnfit']);
+        Route::get('gar',               [\App\Http\Controllers\Secretary\SecretaryPortalController::class, 'gar']);
+        Route::get('wss-register',      [\App\Http\Controllers\Secretary\SecretaryPortalController::class, 'wssRegister']);
+    });
+
     // CE Portal Routes — Chief Engineer (region-scoped oversight)
     Route::prefix('ce')->group(function () {
         Route::get('me',                [\App\Http\Controllers\Ce\CePortalController::class, 'me']);

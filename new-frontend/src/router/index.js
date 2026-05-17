@@ -91,6 +91,22 @@ const routes = [
     ],
   },
 
+  // ── Secretary Portal (Province-wide oversight, fate-decision approval) ─
+  {
+    path: '/secretary',
+    component: () => import('../layouts/SecretaryLayout.vue'),
+    meta: { requiresAuth: true, portal: 'secretary' },
+    children: [
+      { path: '', redirect: '/secretary/dashboard' },
+      { path: 'dashboard',        name: 'SecretaryDashboard',       meta: { title: 'Dashboard' },                 component: () => import('../views/Secretary/SecretaryDashboard.vue') },
+      { path: 'ce/:regionId',     name: 'SecretaryCeUnfit',         meta: { title: 'CE — Unfit Trail' },          component: () => import('../views/Secretary/SecretaryCeUnfit.vue') },
+      { path: 'fate-decisions',   name: 'SecretaryFateDecisions',   meta: { title: 'WSS Fate Decisions' },        component: () => import('../views/Secretary/SecretaryFateDecisions.vue') },
+      { path: 'persistent-unfit', name: 'SecretaryPersistentUnfit', meta: { title: 'Persistent Unfit WSS — Province-wide' }, component: () => import('../views/Secretary/SecretaryPersistentUnfit.vue') },
+      { path: 'gar',              name: 'SecretaryGar',             meta: { title: 'GAR — Province' },            component: () => import('../views/Secretary/SecretaryGar.vue') },
+      { path: 'wss-register',     name: 'SecretaryWssRegister',     meta: { title: 'WSS Register' },              component: () => import('../views/Secretary/SecretaryWssRegister.vue') },
+    ],
+  },
+
   // ── Client Portal ──────────────────────────────────────────────────
   {
     path: '/client-portal',
@@ -112,21 +128,24 @@ const router = createRouter({
 })
 
 // Auth guard
-// XEN portal is shared by SE and XEN (and the legacy short slugs for back-compat).
-// CE has its own dedicated portal at /ce/* with the CeLayout.
-const XEN_ROLES = ['xen', 'se', 'secretary', 'superintending-engineer']
-const CE_ROLES  = ['chief-engineer', 'ce']
+// XEN portal is shared by SE and XEN. CE has its own portal at /ce/*.
+// Secretary now has its own dedicated portal at /secretary/* (province-wide
+// oversight + fate-decision authority), so 'secretary' is no longer routed
+// through XEN_ROLES.
+const XEN_ROLES       = ['xen', 'se', 'superintending-engineer']
+const CE_ROLES        = ['chief-engineer', 'ce']
+const SECRETARY_ROLES = ['secretary']
 
 router.beforeEach((to, from, next) => {
   const userStr = localStorage.getItem('user')
   const isAuthenticated = !!userStr
   let user = null
   try { user = userStr ? JSON.parse(userStr) : null } catch { user = null }
-  // Read role_slug (additive XEN field) — falls back to role for safety
-  const roleSlug = (user?.role_slug || user?.role || '').toString().toLowerCase()
-  const isXen    = XEN_ROLES.includes(roleSlug)
-  const isCe     = CE_ROLES.includes(roleSlug)
-  const isClient = user?.user_type === 'client'
+  const roleSlug   = (user?.role_slug || user?.role || '').toString().toLowerCase()
+  const isXen       = XEN_ROLES.includes(roleSlug)
+  const isCe        = CE_ROLES.includes(roleSlug)
+  const isSecretary = SECRETARY_ROLES.includes(roleSlug)
+  const isClient    = user?.user_type === 'client'
 
   // Not logged in — redirect to login
   if (to.meta.requiresAuth && !isAuthenticated) {
@@ -135,9 +154,10 @@ router.beforeEach((to, from, next) => {
 
   // Already logged in — redirect away from login page based on user type
   if (to.path === '/login' && isAuthenticated) {
-    if (isCe)     return next('/ce/dashboard')
-    if (isXen)    return next('/xen/dashboard')
-    if (isClient) return next('/client-portal/results')
+    if (isSecretary) return next('/secretary/dashboard')
+    if (isCe)        return next('/ce/dashboard')
+    if (isXen)       return next('/xen/dashboard')
+    if (isClient)    return next('/client-portal/results')
     return next('/dashboard')
   }
 
@@ -165,9 +185,10 @@ router.beforeEach((to, from, next) => {
   const userPerms = Array.isArray(user?.permission_names) ? user.permission_names : []
 
   const redirectHome = () => {
-    if (isCe)     return next('/ce/dashboard')
-    if (isXen)    return next('/xen/dashboard')
-    if (isClient) return next('/client-portal/results')
+    if (isSecretary) return next('/secretary/dashboard')
+    if (isCe)        return next('/ce/dashboard')
+    if (isXen)       return next('/xen/dashboard')
+    if (isClient)    return next('/client-portal/results')
     return next('/dashboard')
   }
 

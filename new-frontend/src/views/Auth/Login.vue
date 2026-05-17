@@ -126,16 +126,19 @@ async function handleLogin() {
         userStore.setUser(user)
 
         // Role-aware redirect:
-        //   chief-engineer / ce           → CE portal (full nested portal)
+        //   secretary                     → Secretary portal (province-wide oversight)
+        //   chief-engineer / ce           → CE portal (region-scoped oversight)
         //   superintending-engineer / xen → XEN portal (shared layout, scoped queries)
-        //   legacy short slugs (se/secretary) → XEN portal (back-compat)
+        //   legacy short slug (se)        → XEN portal (back-compat)
         //   everyone else                 → main /dashboard
         const roleSlug = (userData.role_slug || '').toString().toLowerCase()
         let target = '/dashboard'
-        if (roleSlug === 'chief-engineer' || roleSlug === 'ce') {
+        if (roleSlug === 'secretary') {
+          target = '/secretary/dashboard'
+        } else if (roleSlug === 'chief-engineer' || roleSlug === 'ce') {
           target = '/ce/dashboard'
         } else if (roleSlug === 'superintending-engineer' || roleSlug === 'xen' ||
-                   roleSlug === 'se' || roleSlug === 'secretary') {
+                   roleSlug === 'se') {
           target = '/xen/dashboard'
         }
         router.push({ path: target, query: { loggedIn: '1' } })
