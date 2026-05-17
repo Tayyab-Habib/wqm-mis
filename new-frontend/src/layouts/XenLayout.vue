@@ -135,19 +135,48 @@ const districtLabel = computed(() => me.value?.district?.name || '—')
 const xenName       = computed(() => me.value?.name || 'XEN Officer')
 const xenPhone      = computed(() => me.value?.phone || '—')
 
-const navItems = [
+// RBAC: every nav item carries the perm that gates its route. Items the
+// user lacks the perm for are filtered out, and any section header that
+// loses all its children disappears too. Same pattern as CE + Secretary
+// layouts. Unscoped admins bypass via userStore.hasPermission().
+const navItemsRaw = [
   { kind: 'section', label: 'My Division' },
-  { kind: 'item', label: 'Dashboard',      icon: '📊', route: '/xen/dashboard' },
-  { kind: 'item', label: 'Unfit Trail',    icon: '⚠️', route: '/xen/unfit-trail',    badgeRef: 'unfit' },
-  { kind: 'item', label: 'Retest Samples', icon: '🧪', route: '/xen/retest-samples', badgeRef: 'retest' },
+  { kind: 'item', label: 'Dashboard',      icon: '📊', route: '/xen/dashboard',      perm: 'view_xen_dashboard' },
+  { kind: 'item', label: 'Unfit Trail',    icon: '⚠️', route: '/xen/unfit-trail',    badgeRef: 'unfit',  perm: 'view_xen_unfit_trail' },
+  { kind: 'item', label: 'Retest Samples', icon: '🧪', route: '/xen/retest-samples', badgeRef: 'retest', perm: 'view_xen_retest_samples' },
   { kind: 'section', label: 'Reports — My Division' },
-  { kind: 'item', label: 'GSR — My Division',    icon: '📄', route: '/xen/gsr' },
-  { kind: 'item', label: 'Individual Report (ISR)', icon: '📋', route: '/xen/isr' },
+  { kind: 'item', label: 'GSR — My Division',       icon: '📄', route: '/xen/gsr', perm: 'view_xen_gsr' },
+  { kind: 'item', label: 'Individual Report (ISR)', icon: '📋', route: '/xen/isr', perm: 'view_xen_isr' },
   { kind: 'section', label: 'WSS' },
-  { kind: 'item', label: 'WSS Register',   icon: '💧', route: '/xen/wss-register' },
+  { kind: 'item', label: 'WSS Register',   icon: '💧', route: '/xen/wss-register', perm: 'view_xen_wss_register' },
   { kind: 'section', label: 'System' },
-  { kind: 'item', label: 'Settings',       icon: '⚙️', route: '/xen/settings' },
+  { kind: 'item', label: 'Settings',       icon: '⚙️', route: '/xen/settings',     perm: 'view_xen_settings' },
 ]
+const navItems = computed(() => {
+  // Step 1: drop items the user lacks the perm for.
+  const visible = navItemsRaw.filter(it => {
+    if (it.kind !== 'item') return true
+    if (!it.perm) return true
+    return userStore.hasPermission(it.perm)
+  })
+  // Step 2: drop section headers that no longer have children.
+  const out = []
+  for (let i = 0; i < visible.length; i++) {
+    const it = visible[i]
+    if (it.kind === 'section') {
+      let hasChild = false
+      for (let j = i + 1; j < visible.length; j++) {
+        if (visible[j].kind === 'section') break
+        hasChild = true
+        break
+      }
+      if (hasChild) out.push(it)
+    } else {
+      out.push(it)
+    }
+  }
+  return out
+})
 
 function badgeFor(ref) {
   if (ref === 'unfit')  return unfitCount.value  || null

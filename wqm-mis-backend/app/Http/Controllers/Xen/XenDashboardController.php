@@ -13,9 +13,29 @@ use App\Enums\WaterSampleTestResultEnum;
 use App\Enums\WaterSampleTestStatusEnum;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
+use Illuminate\Http\JsonResponse;
+use Symfony\Component\HttpFoundation\Response as Http;
 
 class XenDashboardController extends Controller
 {
+    /**
+     * 403 helper — unscoped admins bypass; everyone else must hold $perm.
+     * Mirrors the gating pattern in Secretary/CE portal controllers.
+     */
+    private function gate(string $perm): ?JsonResponse
+    {
+        $user = auth()->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated'], Http::HTTP_UNAUTHORIZED);
+        }
+        if ($user->isUnscoped() || $user->can($perm)) {
+            return null;
+        }
+        return response()->json([
+            'message' => 'Not authorized to access this XEN portal screen',
+        ], Http::HTTP_FORBIDDEN);
+    }
+
 
     /**
      * Get the unfit sample IDs for a given division by looking at water_sample_tests.
@@ -39,6 +59,7 @@ class XenDashboardController extends Controller
 
     public function index(Request $request)
     {
+        if ($r = $this->gate('view_xen_dashboard')) return $r;
         $user = auth()->user();
         $user->load(['phedDivision', 'district', 'circle', 'region']);
         $phedDivisionId = $user->phed_division_id;
@@ -200,6 +221,7 @@ class XenDashboardController extends Controller
 
     public function trail(Request $request)
     {
+        if ($r = $this->gate('view_xen_unfit_trail')) return $r;
         $user = auth()->user();
         $phedDivisionId = $user->phed_division_id;
         $type = $request->query('type', 'unfit');
@@ -325,6 +347,11 @@ class XenDashboardController extends Controller
 
     public function requestRetest(Request $request)
     {
+        // WRITE — gated on submit_xen_retest (separate perm from view ones
+        // so admins can grant read-only access to XEN screens without
+        // letting the user actually trigger a retest).
+        if ($r = $this->gate('submit_xen_retest')) return $r;
+
         $request->validate([
             'water_sample_id' => 'required|exists:water_samples,id',
             'action_type' => 'required|string',
@@ -394,6 +421,8 @@ class XenDashboardController extends Controller
      */
     public function trailDetail($id)
     {
+        if ($r = $this->gate('view_xen_unfit_trail')) return $r;
+
         $user = auth()->user()->load(['phedDivision', 'district']);
 
         $sample = WaterSample::query()

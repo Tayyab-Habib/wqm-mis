@@ -191,7 +191,7 @@ const actionTypes = computed(() => data.value?.action_types || ['Chlorination Do
               </label>
               <div v-if="error && timeline.length" class="xt-err small">{{ error }}</div>
               <div class="xt-actions">
-                <button class="xt-btn xt-btn-pri" :disabled="saving" @click="saveAction">
+                <button v-write="'submit_xen_retest'" class="xt-btn xt-btn-pri" :disabled="saving" @click="saveAction">
                   ✅ {{ saving ? 'Saving…' : 'Save Action' }}
                 </button>
               </div>

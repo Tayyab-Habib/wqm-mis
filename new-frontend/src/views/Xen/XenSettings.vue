@@ -138,7 +138,7 @@ const preview = computed(() => ({
           </div>
           <div class="form-actions">
             <button class="btn btn-sec" @click="reset" :disabled="saving">↶ Reset to Current</button>
-            <button class="btn btn-pri" @click="save" :disabled="saving">{{ saving ? 'Saving…' : '✅ Save Changes' }}</button>
+            <button v-write="'update_xen_settings'" class="btn btn-pri" @click="save" :disabled="saving">{{ saving ? 'Saving…' : '✅ Save Changes' }}</button>
           </div>
         </div>
       </div>

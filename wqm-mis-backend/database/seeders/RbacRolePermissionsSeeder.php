@@ -247,6 +247,38 @@ class RbacRolePermissionsSeeder extends Seeder
                 }
             }
 
+            // XEN portal perms — added 2026-05-17 (RBAC-Updated branch).
+            // Largest portal: 1 umbrella + 7 per-screen view + 2 write perms
+            // (submit_xen_retest for POST /actions/request-retest, and
+            // update_xen_settings for PUT /settings). The XEN portal is
+            // shared by both xen and superintending-engineer roles (per
+            // XEN_ROLES in router/index.js), so both get the bundle.
+            $reportsModuleIdForXen = DB::table('modules')->where('name', 'reports')->value('id');
+            $xenPortalPerms = [
+                'view_xen_portal',
+                'view_xen_dashboard',
+                'view_xen_unfit_trail',
+                'view_xen_retest_samples',
+                'view_xen_gsr',
+                'view_xen_isr',
+                'view_xen_wss_register',
+                'view_xen_settings',
+                'submit_xen_retest',
+                'update_xen_settings',
+            ];
+            foreach ($xenPortalPerms as $name) {
+                Permission::firstOrCreate(
+                    ['name' => $name, 'guard_name' => 'web'],
+                    ['module_id' => $reportsModuleIdForXen]
+                );
+            }
+            foreach (['xen', 'superintending-engineer'] as $xenRoleName) {
+                $r = Role::firstOrCreate(['name' => $xenRoleName, 'guard_name' => 'web']);
+                foreach ($xenPortalPerms as $p) {
+                    if (!$r->hasPermissionTo($p)) $r->givePermissionTo($p);
+                }
+            }
+
             // Dedicated per-report view perms — added 2026-05-17. The reports
             // used to share view_water_samples + view_reports, which made
             // granular per-report grants impossible (granting one revealed

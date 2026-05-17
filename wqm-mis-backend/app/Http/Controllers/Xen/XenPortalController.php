@@ -15,9 +15,29 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Http\JsonResponse;
+use Symfony\Component\HttpFoundation\Response as Http;
 
 class XenPortalController extends Controller
 {
+    /**
+     * 403 helper — unscoped admins bypass; everyone else must hold $perm.
+     * Mirrors XenDashboardController + Secretary/CE portal controllers.
+     */
+    private function gate(string $perm): ?JsonResponse
+    {
+        $user = auth()->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated'], Http::HTTP_UNAUTHORIZED);
+        }
+        if ($user->isUnscoped() || $user->can($perm)) {
+            return null;
+        }
+        return response()->json([
+            'message' => 'Not authorized to access this XEN portal screen',
+        ], Http::HTTP_FORBIDDEN);
+    }
+
     private function scopedUser(): User
     {
         return auth()->user()->loadMissing(['phedDivision', 'district', 'circle', 'region']);
@@ -33,6 +53,7 @@ class XenPortalController extends Controller
      |──────────────────────────────────────────────────────────────────*/
     public function me(Request $request)
     {
+        if ($r = $this->gate('view_xen_portal')) return $r;
         $user = $this->scopedUser();
 
         return response()->json([
@@ -60,6 +81,7 @@ class XenPortalController extends Controller
      |──────────────────────────────────────────────────────────────────*/
     public function wssRegister(Request $request)
     {
+        if ($r = $this->gate('view_xen_wss_register')) return $r;
         $divisionId = $this->divisionId();
         $search     = trim((string) $request->query('q', ''));
         $resultFilter = $request->query('result');
@@ -141,6 +163,7 @@ class XenPortalController extends Controller
      |──────────────────────────────────────────────────────────────────*/
     public function gsr(Request $request)
     {
+        if ($r = $this->gate('view_xen_gsr')) return $r;
         $divisionId = $this->divisionId();
         $from = $request->query('from');
         $to   = $request->query('to');
@@ -209,6 +232,7 @@ class XenPortalController extends Controller
      |──────────────────────────────────────────────────────────────────*/
     public function isrList(Request $request)
     {
+        if ($r = $this->gate('view_xen_isr')) return $r;
         $divisionId = $this->divisionId();
         $search = trim((string) $request->query('q', ''));
         $resultFilter = $request->query('result');
@@ -261,6 +285,7 @@ class XenPortalController extends Controller
 
     public function isrShow(Request $request, $id)
     {
+        if ($r = $this->gate('view_xen_isr')) return $r;
         $divisionId = $this->divisionId();
 
         $sample = WaterSample::with([
@@ -323,6 +348,7 @@ class XenPortalController extends Controller
      |──────────────────────────────────────────────────────────────────*/
     public function retestSamples(Request $request)
     {
+        if ($r = $this->gate('view_xen_retest_samples')) return $r;
         $divisionId = $this->divisionId();
 
         // Sample IDs that have UNFIT tests
@@ -388,6 +414,9 @@ class XenPortalController extends Controller
      |──────────────────────────────────────────────────────────────────*/
     public function overdueWss(Request $request)
     {
+        // Bundled under the umbrella perm — overdue-wss is an ambient
+        // layout-side call (used for badge counts), not a dedicated screen.
+        if ($r = $this->gate('view_xen_portal')) return $r;
         $divisionId = $this->divisionId();
 
         $rows = WaterScheme::query()
@@ -427,6 +456,9 @@ class XenPortalController extends Controller
      |──────────────────────────────────────────────────────────────────*/
     public function notifications(Request $request)
     {
+        // Bundled under the umbrella perm — notifications are an ambient
+        // layout-side call (used for badge counts and the bell icon).
+        if ($r = $this->gate('view_xen_portal')) return $r;
         $user = $this->scopedUser();
 
         $rows = DB::table('notifications')
@@ -475,6 +507,10 @@ class XenPortalController extends Controller
      |──────────────────────────────────────────────────────────────────*/
     public function updateSettings(Request $request)
     {
+        // WRITE — gated on update_xen_settings (separate from
+        // view_xen_settings so admins can grant read-only settings view
+        // without letting the user mutate them).
+        if ($r = $this->gate('update_xen_settings')) return $r;
         $request->validate([
             'name'  => 'required|string|max:120',
             'phone' => 'nullable|string|max:30',

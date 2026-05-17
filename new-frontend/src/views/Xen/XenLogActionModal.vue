@@ -129,7 +129,7 @@ async function save() {
         </div>
         <div class="xl-foot">
           <button class="xl-btn xl-btn-sec" @click="close" :disabled="saving">Cancel</button>
-          <button class="xl-btn xl-btn-pri" @click="save" :disabled="saving">
+          <button v-write="'submit_xen_retest'" class="xl-btn xl-btn-pri" @click="save" :disabled="saving">
             ✅ {{ saving ? 'Saving…' : 'Save Action' }}
           </button>
         </div>

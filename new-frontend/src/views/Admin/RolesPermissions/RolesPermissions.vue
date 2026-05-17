@@ -78,6 +78,23 @@ const SIDEBAR_MODULES = [
   { label: 'CE Persistent Unfit',        icon: '🔴', perms: ['view_ce_persistent_unfit'] },
   { label: 'CE GAR',                     icon: '📄', perms: ['view_ce_gar'] },
   { label: 'CE WSS Register',            icon: '💧', perms: ['view_ce_wss_register'] },
+
+  // ── XEN portal screens ──────────────────────────────────────────────
+  // Largest portal: umbrella + 7 view + 2 write perms. The xen and
+  // superintending-engineer roles get the full bundle by default.
+  // Write perms (submit_xen_retest, update_xen_settings) sit alongside
+  // view perms so admin can grant read-only view of a screen and
+  // separately disable the write action.
+  { label: 'XEN Portal',                 icon: '🛠', perms: ['view_xen_portal'] },
+  { label: 'XEN Dashboard',              icon: '📊', perms: ['view_xen_dashboard'] },
+  { label: 'XEN Unfit Trail',            icon: '⚠️', perms: ['view_xen_unfit_trail'] },
+  { label: 'XEN Retest Samples',         icon: '🧪', perms: ['view_xen_retest_samples'] },
+  { label: 'XEN GSR',                    icon: '📄', perms: ['view_xen_gsr'] },
+  { label: 'XEN ISR',                    icon: '📋', perms: ['view_xen_isr'] },
+  { label: 'XEN WSS Register',           icon: '💧', perms: ['view_xen_wss_register'] },
+  { label: 'XEN Settings',               icon: '⚙️', perms: ['view_xen_settings'] },
+  { label: 'XEN: Submit Retest',         icon: '🔁', perms: ['submit_xen_retest'] },
+  { label: 'XEN: Update Settings',       icon: '✏️', perms: ['update_xen_settings'] },
 ]
 // Roles whose access is router/middleware-bypassed (isUnscoped) — toggling
 // module perms for them has no UI effect, so they're hidden from the grid

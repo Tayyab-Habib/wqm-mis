@@ -56,20 +56,26 @@ const routes = [
     ],
   },
   // ── XEN Portal (separate layout, same login) ──────────────────────────
+  // Shared by xen and superintending-engineer roles. Every child route is
+  // permission-gated; admin can lock individual screens via the Module
+  // Access grid. The umbrella view_xen_portal grants entry; per-screen
+  // perms control which tabs they can open. ISR list + detail share one
+  // perm (view_xen_isr). Settings page gated by view_xen_settings, but
+  // the actual PUT call is separately gated by update_xen_settings.
   {
     path: '/xen',
     component: () => import('../layouts/XenLayout.vue'),
-    meta: { requiresAuth: true, portal: 'xen' },
+    meta: { requiresAuth: true, portal: 'xen', permissions: ['view_xen_portal'] },
     children: [
       { path: '', redirect: '/xen/dashboard' },
-      { path: 'dashboard',      name: 'XenDashboard',    meta: { title: 'XEN Dashboard' },     component: () => import('../views/Xen/XenDashboard.vue') },
-      { path: 'unfit-trail',    name: 'XenUnfitTrail',   meta: { title: 'Unfit Trail' },       component: () => import('../views/Xen/XenUnfitTrail.vue') },
-      { path: 'retest-samples', name: 'XenRetestSamples',meta: { title: 'Retest Samples' },    component: () => import('../views/Xen/XenRetestSamples.vue') },
-      { path: 'gsr',            name: 'XenGsr',          meta: { title: 'GSR — My Division' }, component: () => import('../views/Xen/XenGsr.vue') },
-      { path: 'isr',            name: 'XenIsr',          meta: { title: 'Individual Sample Report' }, component: () => import('../views/Xen/XenIsr.vue') },
-      { path: 'isr/:id',        name: 'XenIsrDetail',    meta: { title: 'Sample Report' },     component: () => import('../views/Xen/XenIsrDetail.vue') },
-      { path: 'wss-register',   name: 'XenWssRegister',  meta: { title: 'WSS Register' },      component: () => import('../views/Xen/XenWssRegister.vue') },
-      { path: 'settings',       name: 'XenSettings',     meta: { title: 'Settings' },          component: () => import('../views/Xen/XenSettings.vue') },
+      { path: 'dashboard',      name: 'XenDashboard',    meta: { title: 'XEN Dashboard',              permissions: ['view_xen_dashboard'] },        component: () => import('../views/Xen/XenDashboard.vue') },
+      { path: 'unfit-trail',    name: 'XenUnfitTrail',   meta: { title: 'Unfit Trail',                permissions: ['view_xen_unfit_trail'] },      component: () => import('../views/Xen/XenUnfitTrail.vue') },
+      { path: 'retest-samples', name: 'XenRetestSamples',meta: { title: 'Retest Samples',             permissions: ['view_xen_retest_samples'] },   component: () => import('../views/Xen/XenRetestSamples.vue') },
+      { path: 'gsr',            name: 'XenGsr',          meta: { title: 'GSR — My Division',          permissions: ['view_xen_gsr'] },              component: () => import('../views/Xen/XenGsr.vue') },
+      { path: 'isr',            name: 'XenIsr',          meta: { title: 'Individual Sample Report',   permissions: ['view_xen_isr'] },              component: () => import('../views/Xen/XenIsr.vue') },
+      { path: 'isr/:id',        name: 'XenIsrDetail',    meta: { title: 'Sample Report',              permissions: ['view_xen_isr'] },              component: () => import('../views/Xen/XenIsrDetail.vue') },
+      { path: 'wss-register',   name: 'XenWssRegister',  meta: { title: 'WSS Register',               permissions: ['view_xen_wss_register'] },     component: () => import('../views/Xen/XenWssRegister.vue') },
+      { path: 'settings',       name: 'XenSettings',     meta: { title: 'Settings',                   permissions: ['view_xen_settings'] },         component: () => import('../views/Xen/XenSettings.vue') },
     ],
   },
 
