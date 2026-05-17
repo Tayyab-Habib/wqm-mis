@@ -31,6 +31,150 @@ function showToast(message, type = 'success') {
   toastTimer = setTimeout(() => { toast.value.show = false }, 4000)
 }
 
+// ── Sidebar-module map ─────────────────────────────────────────────────
+// Mirrors the gating in Sidebar.vue so admins can toggle "module access"
+// in one click instead of hand-picking perms. Keep this in sync with the
+// sidebar definition; the labels and icons match what users actually see.
+const SIDEBAR_MODULES = [
+  { label: 'Sample Registration',     icon: '🧪',  perms: ['add_water_samples'] },
+  { label: 'Analysis Entry',          icon: '⚗️',  perms: ['add_water_sample_details', 'edit_water_sample_results'] },
+  { label: 'Individual Sample Report', icon: '📝', perms: ['view_individual_sample_report'] },
+  { label: 'GAR (Abstract)',          icon: '📄',  perms: ['view_gar'] },
+  { label: 'GSR (Summary)',           icon: '📋',  perms: ['view_gsr'] },
+  { label: 'ASR (Analysis Summary)',  icon: '📊',  perms: ['view_asr'] },
+  { label: 'CE-Wise Report',          icon: '🗺️',  perms: ['view_ce_wise_report'] },
+  { label: 'PWR (Parameter-wise)',    icon: '🔬',  perms: ['view_pwr'] },
+  { label: 'WSS Map',                 icon: '🗾',  perms: ['view_water_schemes'] },
+  { label: 'Invoices / Revenue',      icon: '🧾',  perms: ['view_invoices'] },
+  { label: 'SBP Submissions',         icon: '🏦',  perms: ['view_sbp_submissions'] },
+  { label: 'Stock / Inventory',       icon: '📦',  perms: ['view_inventories'] },
+  { label: 'Equipment Register',      icon: '🔧',  perms: ['view_assets'] },
+  { label: 'Demand & Issuance',       icon: '🔄',  perms: ['view_demands', 'view_inventories', 'add_inventories'] },
+  { label: 'Diaries / Dispatches',    icon: '📝',  perms: ['view_diaries', 'view_dispatches'] },
+  { label: 'Water Scheme Details',    icon: '💧',  perms: ['view_water_schemes'] },
+]
+// Roles whose access is router/middleware-bypassed (isUnscoped) — toggling
+// module perms for them has no UI effect, so they're hidden from the grid
+// to avoid confusion. Add them via the Roles tab if a custom one needs scoping.
+const UNSCOPED_ROLES = new Set([
+  'system-administrator', 'system-manager',
+  'view-only-admin',      'general-view-account',
+])
+
+// ── Module Access view state ───────────────────────────────────────────
+const viewMode = ref('roles')                       // 'roles' | 'modules'
+const rolePermSets = ref(new Map())                 // roleId -> Set<permId>
+const gridLoading = ref(false)
+const dirtyRoles = ref(new Set())                   // role ids with unsaved changes
+const gridSaving = ref(new Set())                   // role ids currently being saved
+
+const permNameToId = computed(() => {
+  const m = new Map()
+  for (const p of permissions.value) m.set(p.name, Number(p.id))
+  return m
+})
+const scopedRoles = computed(() => roles.value.filter(r => !UNSCOPED_ROLES.has(r.name)))
+
+async function switchView(mode) {
+  viewMode.value = mode
+  if (mode !== 'modules' || rolePermSets.value.size > 0) return
+  gridLoading.value = true
+  try {
+    // Parallel fetch of each role's permission set. With ~10 roles this is
+    // 10 small requests — cheap enough that the simplicity wins over adding
+    // a dedicated /admin/roles-perms-bulk endpoint.
+    const responses = await Promise.all(scopedRoles.value.map(r => adminService.getRole(r.id)))
+    const map = new Map()
+    scopedRoles.value.forEach((r, i) => {
+      const data = responses[i]?.data?.data || responses[i]?.data || {}
+      const ids = new Set()
+      for (const p of data.permissions || []) {
+        const id = p?.id ?? p?.permission_id ?? p
+        if (id != null) ids.add(Number(id))
+      }
+      map.set(r.id, ids)
+    })
+    rolePermSets.value = map
+  } catch (e) {
+    showToast('❌ Failed to load module access: ' + (e?.response?.data?.message || e.message), 'error')
+  } finally {
+    gridLoading.value = false
+  }
+}
+
+function roleHasModule(roleId, mod) {
+  const set = rolePermSets.value.get(roleId)
+  if (!set || set.size === 0) return false
+  return mod.perms.every(name => {
+    const pid = permNameToId.value.get(name)
+    return pid != null && set.has(pid)
+  })
+}
+
+function toggleModule(roleId, mod) {
+  const set = rolePermSets.value.get(roleId)
+  if (!set) return
+  const has = roleHasModule(roleId, mod)
+
+  if (has) {
+    // Turning OFF — only remove perms that aren't keeping another currently
+    // active module alive. Without this, e.g. unchecking GAR would also
+    // strip view_water_schemes from WSS Map (when those shared a perm),
+    // silently un-toggling adjacent modules the admin didn't touch.
+    const otherActive = SIDEBAR_MODULES.filter(m =>
+      m.label !== mod.label &&
+      m.perms.every(name => {
+        const pid = permNameToId.value.get(name)
+        return pid != null && set.has(pid)
+      })
+    )
+    const stillNeeded = new Set()
+    for (const other of otherActive) {
+      for (const name of other.perms) {
+        const pid = permNameToId.value.get(name)
+        if (pid != null) stillNeeded.add(pid)
+      }
+    }
+    for (const name of mod.perms) {
+      const pid = permNameToId.value.get(name)
+      if (pid != null && !stillNeeded.has(pid)) set.delete(pid)
+    }
+  } else {
+    // Turning ON — add every missing required perm.
+    for (const name of mod.perms) {
+      const pid = permNameToId.value.get(name)
+      if (pid == null) continue
+      set.add(pid)
+    }
+  }
+
+  // Replace the Map so Vue's reactivity picks up the deep change.
+  rolePermSets.value = new Map(rolePermSets.value)
+  const d = new Set(dirtyRoles.value); d.add(roleId)
+  dirtyRoles.value = d
+}
+
+async function saveModuleRow(role) {
+  const set = rolePermSets.value.get(role.id)
+  if (!set) return
+  const s = new Set(gridSaving.value); s.add(role.id)
+  gridSaving.value = s
+  try {
+    await adminService.syncRolePermissions(role.id, Array.from(set).map(Number))
+    // If admin just edited a role they themselves hold, refresh their
+    // session so the sidebar gates reflect immediately.
+    await userStore.refreshSession({ force: true })
+    const d = new Set(dirtyRoles.value); d.delete(role.id)
+    dirtyRoles.value = d
+    showToast(`✅ Module access updated for ${displayRole(role.name)}`)
+  } catch (e) {
+    showToast('❌ Save failed: ' + (e?.response?.data?.message || e.message), 'error')
+  } finally {
+    const s2 = new Set(gridSaving.value); s2.delete(role.id)
+    gridSaving.value = s2
+  }
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────
 const CRUD_PREFIXES = ['add', 'edit', 'show', 'view', 'delete']
 
@@ -253,8 +397,76 @@ onMounted(async () => {
       <span class="active">Roles &amp; Permissions</span>
     </div>
 
-    <!-- ── Roles list panel ------------------------------------------ -->
-    <div class="rp-card">
+    <!-- ── Tabs: Roles | Module Access ------------------------------- -->
+    <div class="rp-tabs">
+      <button class="rp-tab" :class="{ active: viewMode === 'roles' }" @click="switchView('roles')">
+        🔐 Roles &amp; Permissions
+      </button>
+      <button class="rp-tab" :class="{ active: viewMode === 'modules' }" @click="switchView('modules')">
+        📦 Module Access
+      </button>
+    </div>
+
+    <!-- ── Module Access grid -------------------------------------- -->
+    <div v-if="viewMode === 'modules'" class="rp-card">
+      <div class="rp-card-header">
+        <div>
+          <div class="rp-card-title">Module Access by Role</div>
+          <div class="rp-card-sub">
+            Toggle which sidebar modules each role can see. Admin-tier roles
+            (System Administrator, Manager, View-Only Admin, General View) bypass
+            these gates and are hidden from the grid.
+          </div>
+        </div>
+      </div>
+
+      <div v-if="gridLoading" class="rp-grid-skel">
+        <div v-for="n in 5" :key="'gs-' + n" class="rp-skel" style="height: 38px; margin: 8px 0;"></div>
+      </div>
+
+      <div v-else class="rp-grid-wrap">
+        <table class="rp-grid">
+          <thead>
+            <tr>
+              <th class="rp-grid-role-h">Role</th>
+              <th v-for="m in SIDEBAR_MODULES" :key="m.label" class="rp-grid-mod-h" :title="m.perms.join(', ')">
+                <div class="rp-grid-mod-icon">{{ m.icon }}</div>
+                <div class="rp-grid-mod-label">{{ m.label }}</div>
+              </th>
+              <th class="rp-grid-save-h">Save</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in scopedRoles" :key="r.id" :class="{ 'rp-grid-row-dirty': dirtyRoles.has(r.id) }">
+              <td class="rp-grid-role">{{ displayRole(r.name) }}</td>
+              <td v-for="m in SIDEBAR_MODULES" :key="m.label" class="rp-grid-cell">
+                <input
+                  type="checkbox"
+                  class="rp-grid-chk"
+                  :checked="roleHasModule(r.id, m)"
+                  @change="toggleModule(r.id, m)"
+                />
+              </td>
+              <td class="rp-grid-save">
+                <button
+                  v-if="dirtyRoles.has(r.id)"
+                  class="rp-btn rp-btn-pri rp-btn-sm"
+                  :disabled="gridSaving.has(r.id)"
+                  @click="saveModuleRow(r)"
+                >{{ gridSaving.has(r.id) ? '⏳ Saving' : '💾 Save' }}</button>
+                <span v-else class="rp-grid-save-dash">—</span>
+              </td>
+            </tr>
+            <tr v-if="scopedRoles.length === 0">
+              <td :colspan="SIDEBAR_MODULES.length + 2" class="rp-empty">No scoped roles to display.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── Roles list panel (existing view) ------------------------- -->
+    <div v-else class="rp-card">
       <div class="rp-card-header">
         <div class="rp-card-title">Roles &amp; Permissions</div>
         <button class="rp-btn rp-btn-pri" @click="showAddRole = true">+ Add Role</button>
@@ -560,6 +772,49 @@ details[open] .rp-others-chev { transform: rotate(90deg); color: #2563eb; }
   0%   { background-position: -200% 0; }
   100% { background-position: 200% 0; }
 }
+
+/* ── Tabs + Module Access grid ──────────────────────────────────────── */
+.rp-tabs { display: flex; gap: 4px; margin-bottom: 14px; border-bottom: 1px solid #e2e8f0; }
+.rp-tab {
+  background: transparent; border: none; padding: 9px 16px;
+  font-size: 13px; font-weight: 700; color: #64748b; cursor: pointer;
+  border-bottom: 2.5px solid transparent; margin-bottom: -1px;
+  transition: color .15s ease, border-color .15s ease;
+}
+.rp-tab:hover { color: #1e293b; }
+.rp-tab.active { color: #2563eb; border-bottom-color: #2563eb; }
+
+.rp-card-sub { font-size: 12px; color: #64748b; margin-top: 3px; max-width: 720px; line-height: 1.45; }
+
+.rp-grid-wrap { overflow-x: auto; border: 1px solid #e2e8f0; border-radius: 8px; }
+.rp-grid { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12px; }
+.rp-grid th, .rp-grid td { border-bottom: 1px solid #f1f5f9; padding: 8px 10px; vertical-align: middle; }
+.rp-grid thead th {
+  background: #1e293b; color: #fff; font-weight: 700;
+  position: sticky; top: 0; z-index: 2;
+  text-align: center; font-size: 11px;
+}
+.rp-grid-mod-h { min-width: 96px; max-width: 110px; padding: 6px 4px; }
+.rp-grid-mod-icon { font-size: 15px; line-height: 1; margin-bottom: 3px; }
+.rp-grid-mod-label { font-size: 10px; line-height: 1.2; font-weight: 600; opacity: .9; word-break: break-word; }
+.rp-grid-role-h, .rp-grid-save-h { text-align: left; }
+.rp-grid-role-h {
+  position: sticky; left: 0; z-index: 3;
+  background: #1e293b; min-width: 180px; text-align: left;
+}
+.rp-grid-role {
+  position: sticky; left: 0; z-index: 1; background: #fff;
+  font-weight: 700; color: #0f172a; min-width: 180px;
+  border-right: 1px solid #e2e8f0;
+}
+.rp-grid-row-dirty .rp-grid-role { background: #fefce8; }
+.rp-grid-cell { text-align: center; background: #fff; }
+.rp-grid-row-dirty .rp-grid-cell { background: #fefce8; }
+.rp-grid-chk { width: 16px; height: 16px; cursor: pointer; accent-color: #2563eb; }
+.rp-grid-save { text-align: center; min-width: 96px; background: #fff; }
+.rp-grid-row-dirty .rp-grid-save { background: #fefce8; }
+.rp-grid-save-dash { color: #cbd5e1; }
+.rp-grid-skel { padding: 16px; }
 </style>
 
 <style>

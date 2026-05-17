@@ -3,14 +3,23 @@ import { ref, computed } from 'vue'
 import { api } from '../../../services/api.js'
 
 const searchId   = ref('')
-const searchWss  = ref('')
 const searchLab  = ref('')
 const searchFrom = ref('')
 const searchTo   = ref('')
 const allLabs    = ref([])
 const loading    = ref(false)
-const errorMsg   = ref('')
 const rawData    = ref(null)
+
+// Toast — matches the project-wide pattern (Topbar / UsersHR / Invoices /
+// DiariesDispatches / LabSamples). Slides in from the top-right, auto-
+// dismisses after 4s, click ✕ to close early.
+const toast = ref({ show: false, message: '', type: 'success' })
+let toastTimer = null
+function showToast(message, type = 'success') {
+  clearTimeout(toastTimer)
+  toast.value = { show: true, message, type }
+  toastTimer = setTimeout(() => { toast.value.show = false }, 4000)
+}
 
 // Load labs on mount
 import { onMounted } from 'vue'
@@ -24,12 +33,11 @@ onMounted(async () => {
 // ── Fetch report ──────────────────────────────────────────────────────
 async function searchSample() {
   const id = searchId.value.trim()
-  if (!id && !searchWss.value && !searchLab.value && !searchFrom.value) {
-    errorMsg.value = 'Please enter a Sample ID or at least one filter'
+  if (!id && !searchLab.value && !searchFrom.value) {
+    showToast('⚠️ Please enter a Sample ID or at least one filter', 'error')
     return
   }
   loading.value = true
-  errorMsg.value = ''
   rawData.value  = null
   try {
     let numericId = null
@@ -54,18 +62,14 @@ async function searchSample() {
       if (searchTo.value)   params.end_month     = searchTo.value
       const searchRes = await api.post('/search-water-sample', params)
       const items = searchRes.data?.data?.data || searchRes.data?.data || []
-      // Filter by WSS name client-side if provided
-      const filtered = searchWss.value
-        ? items.filter(s => (s.water_scheme?.name || s.water_sample_address || '').toLowerCase().includes(searchWss.value.toLowerCase()))
-        : items
-      if (!filtered.length) throw new Error('No samples found')
-      numericId = filtered[0].id
+      if (!items.length) throw new Error('No samples found')
+      numericId = items[0].id
     }
 
     const res = await api.get(`/water-samples/${numericId}/report`)
     rawData.value = res.data?.data || res.data
   } catch (e) {
-    errorMsg.value = 'Sample not found. Enter a numeric ID (e.g. 5) or full slug (e.g. 26/PWR/PHE/0005).'
+    showToast('❌ Sample not found', 'error')
     console.error('Report error:', e)
   } finally {
     loading.value = false
@@ -281,13 +285,9 @@ function printReport() { window.print() }
   <div>
     <!-- Search bar -->
     <div class="filters" style="margin-bottom:14px">
-      <div class="fg" style="flex:2">
+      <div class="fg" style="flex:0 0 320px">
         <label>Sample ID</label>
         <input type="text" v-model="searchId" placeholder="e.g. 26/CLB/5042 or numeric ID" @keyup.enter="searchSample">
-      </div>
-      <div class="fg" style="flex:2">
-        <label>Client / WSS Name</label>
-        <input type="text" v-model="searchWss" placeholder="e.g. Hayatabad WSS, Al-Noor Hospital...">
       </div>
       <div class="tsp"></div>
       <button class="btn btn-pri btn-sm" @click="searchSample" :disabled="loading">
@@ -296,9 +296,21 @@ function printReport() { window.print() }
       <button v-if="report" class="btn btn-sec btn-sm" @click="printReport">Print PDF</button>
     </div>
 
-    <div v-if="errorMsg" style="background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;padding:10px 14px;margin-bottom:10px;color:#b91c1c;font-size:12px">
-      {{ errorMsg }}
-    </div>
+    <!-- Toast notification (matches project-wide pattern) -->
+    <Teleport to="body">
+      <Transition name="toast-slide">
+        <div v-if="toast.show"
+             :style="`position:fixed;top:22px;right:24px;z-index:9999;min-width:300px;max-width:460px;
+                      background:${toast.type === 'success' ? '#065f46' : '#991b1b'};
+                      color:#fff;border-radius:8px;padding:14px 18px;
+                      box-shadow:0 6px 32px rgba(0,0,0,.28);font-size:13px;display:flex;align-items:flex-start;gap:10px`">
+          <span style="flex:1;line-height:1.5">{{ toast.message }}</span>
+          <button @click="toast.show = false"
+                  style="background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:4px;
+                         padding:2px 8px;cursor:pointer;font-size:13px;margin-left:4px">✕</button>
+        </div>
+      </Transition>
+    </Teleport>
     <div v-if="!report && !loading" style="text-align:center;padding:40px;color:var(--muted);font-size:13px">
       Enter a Sample ID and click Search to view the report.
     </div>
@@ -639,4 +651,10 @@ function printReport() { window.print() }
 .isr-sk .sk-sig-line { height: 1px; width: 100%; margin-bottom: 8px; }
 .isr-sk .sk-sig-name { height: 12px; width: 70%; margin: 0 auto 4px; }
 .isr-sk .sk-sig-role { height: 9px; width: 55%; margin: 0 auto; }
+
+/* Toast transition — global so the Teleport target picks it up. */
+.toast-slide-enter-active,
+.toast-slide-leave-active { transition: all 0.3s ease; }
+.toast-slide-enter-from,
+.toast-slide-leave-to     { opacity: 0; transform: translateX(60px); }
 </style>
