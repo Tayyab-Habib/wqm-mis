@@ -14,10 +14,15 @@ class ModuleSeeder extends Seeder
      */
     public function run()
     {
+        // Module name conventions:
+        //   - 'assets'              — Equipment Register / asset perms (was 'inventories' M#1)
+        //   - 'demand_and_issuance' — Issuance log perms + view_demands (was 'issues' M#3)
+        //   - 'inventories' (M#17)  — Demand workflow perms (add_inventories etc.) — kept
+        //     so seeders that derive module_id from the perm prefix still align.
         $modules = [
-            ['name' => 'inventories'],
+            ['name' => 'assets'],
             ['name' => 'stocks'],
-            ['name' => 'issues'],
+            ['name' => 'demand_and_issuance'],
             ['name' => 'complaints'],
             ['name' => 'laboratories'],
             ['name' => 'water_parameters'],

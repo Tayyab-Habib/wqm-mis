@@ -102,6 +102,19 @@ class RbacRolePermissionsSeeder extends Seeder
             $labInchargePerms = array_unique(array_merge($allReadOnly, $reportPerms, $labInchargeWrites));
             // Filter to only existing permissions (avoid 'Permission does not exist' errors)
             $labInchargePerms = Permission::whereIn('name', $labInchargePerms)->pluck('name')->toArray();
+
+            // Per request 2026-05-17: lab-incharge should not see Diaries /
+            // Dispatches or Demand & Issuance in the sidebar — those screens
+            // are routed to junior-clerk and central-lab respectively. Strip
+            // the gating perms before sync. The $allReadOnly glob above pulls
+            // every view_*/show_* in, so we have to filter them out here.
+            $labInchargeHidden = [
+                'view_diaries', 'show_diaries', 'add_diaries', 'edit_diaries',
+                'view_dispatches', 'show_dispatches', 'add_dispatches', 'edit_dispatches',
+                'view_demands',
+            ];
+            $labInchargePerms = array_values(array_diff($labInchargePerms, $labInchargeHidden));
+
             $this->syncRole('lab-incharge', $labInchargePerms);
 
             // ── view-only-admin (Director Labs) ──
@@ -176,6 +189,69 @@ class RbacRolePermissionsSeeder extends Seeder
                     ['name' => $name, 'guard_name' => 'web'],
                     ['module_id' => $invoicesModuleId]
                 );
+            }
+
+            // Dedicated per-report view perms — added 2026-05-17. The reports
+            // used to share view_water_samples + view_reports, which made
+            // granular per-report grants impossible (granting one revealed
+            // them all in the sidebar). Each report now has its own perm and
+            // gets gated on it directly.
+            $reportsModuleId = DB::table('modules')->where('name', 'reports')->value('id');
+            $perReportPerms = [
+                'view_individual_sample_report',
+                'view_gar',
+                'view_gsr',
+                'view_asr',
+                'view_ce_wise_report',
+                'view_pwr',
+            ];
+            foreach ($perReportPerms as $name) {
+                Permission::firstOrCreate(
+                    ['name' => $name, 'guard_name' => 'web'],
+                    ['module_id' => $reportsModuleId]
+                );
+            }
+            // Backfill: every role that already holds view_water_samples gets
+            // ALL the new per-report perms by default. Preserves existing
+            // access for everyone; admins can then unpick individual reports
+            // via the Module Access grid. junior-clerk does NOT hold
+            // view_water_samples so this is a no-op for them — admin grants
+            // individual reports through the UI as needed.
+            $rolesWithSamples = Role::query()->permission('view_water_samples')->pluck('name')->toArray();
+            foreach ($rolesWithSamples as $rname) {
+                $r = Role::query()->where('name', $rname)->first();
+                if (!$r) continue;
+                foreach ($perReportPerms as $p) {
+                    if (!$r->hasPermissionTo($p)) $r->givePermissionTo($p);
+                }
+            }
+
+            // view_demands — added 2026-05-17. Separates the "Demand &
+            // Issuance" sidebar gate from view_inventories so admins can hide
+            // D&I per-role without also hiding Stock / Inventory (those used
+            // to share view_inventories). Granted to every role that already
+            // has view_inventories EXCEPT lab-incharge, who is hidden per the
+            // labInchargeHidden block above.
+            // Note: module was renamed from 'issues' -> 'demand_and_issuance'
+            // in ModuleSeeder. Lookup must use the new name on fresh installs.
+            $issuanceModuleId = DB::table('modules')->where('name', 'demand_and_issuance')->value('id')
+                ?? DB::table('modules')->where('name', 'issues')->value('id');
+            Permission::firstOrCreate(
+                ['name' => 'view_demands', 'guard_name' => 'web'],
+                ['module_id' => $issuanceModuleId]
+            );
+            $grantViewDemandsTo = [
+                'system-administrator', 'system-manager',
+                'view-only-admin',      'general-view-account',
+                'chief-engineer',       'superintending-engineer',
+                'xen',
+                // lab-incharge intentionally omitted.
+            ];
+            foreach ($grantViewDemandsTo as $rname) {
+                $r = Role::query()->where('name', $rname)->first();
+                if ($r && !$r->hasPermissionTo('view_demands')) {
+                    $r->givePermissionTo('view_demands');
+                }
             }
 
             // Phase B perms — sample-queue visibility model is now permission-

@@ -38,6 +38,12 @@ class SbpSubmissionController extends Controller
         AuthScope::sbpSubmissions($query, auth()->user());
         $rows = $query->get();
 
+        // Same reason as pending(): expose a parseable ISO timestamp
+        // alongside the trait-formatted `created_at` string.
+        $rows->each(function ($row) {
+            $row->created_at_iso = $row->getRawOriginal('created_at');
+        });
+
         return response()->json([
             'message' => 'Success',
             'data'    => $rows,
@@ -88,6 +94,13 @@ class SbpSubmissionController extends Controller
                 'created_at',
                 'sbp_submission_id',
             ]);
+
+        // TimeStampAccessorTrait reformats `created_at` as a human string
+        // ("17 May, 2026 10:32") which JS Date() can't parse. Surface the raw
+        // ISO timestamp so the frontend's period-range filter works.
+        $logs->each(function ($log) {
+            $log->created_at_iso = $log->getRawOriginal('created_at');
+        });
 
         return response()->json([
             'message' => 'Success',

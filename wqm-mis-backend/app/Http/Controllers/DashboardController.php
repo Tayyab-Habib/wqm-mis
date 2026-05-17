@@ -50,6 +50,97 @@ class DashboardController extends Controller
     }
 
     /**
+     * Roles whose dashboard view should be scoped by the lab(s) they're
+     * attached to via the laboratory_user pivot. Hierarchy roles (CE / SE /
+     * XEN / Secretary) are deliberately excluded — they have their own
+     * portals (XenDashboardController etc.) where region/circle/division
+     * scoping lives. If they land on the main dashboard, they fall back to
+     * the unscoped behavior rather than getting the wrong (lab-pivot) scope.
+     */
+    private const LAB_SCOPED_ROLES = [
+        'lab-incharge',
+        'laboratory-assistant',
+        'junior-clerk',
+    ];
+
+    /**
+     * Lab IDs the current user is attached to (laboratory_user pivot).
+     * Returns null = "no filter, see everything" for:
+     *   - unscoped roles (SA / manager / view-only / general-view)
+     *   - hierarchy roles (CE / SE / XEN / Secretary) — they have their own
+     *     portals where the correct scope (region/circle/division) lives;
+     *     on this dashboard they fall back to the pre-RBAC unscoped view.
+     * Returns [0] for lab-tier roles with no lab attached so callers'
+     * whereIn() matches nothing (safer than degenerating to unscoped).
+     */
+    private function userLabIds(): ?array
+    {
+        if ($this->isSystemAdministrator) {
+            return null;
+        }
+        if (!$this->authUser?->hasAnyRole(self::LAB_SCOPED_ROLES)) {
+            return null;
+        }
+        $ids = $this->authUser
+            ?->laboratories()
+            ->pluck('laboratories.id')
+            ->toArray() ?? [];
+        return $ids ?: [0];
+    }
+
+    /**
+     * District IDs covered by the user's lab(s). Used to scope WSS counts
+     * since WSS belong to districts, not labs directly.
+     *
+     * Resolution chain (first non-empty wins):
+     *   1. district_laboratory pivot — canonical "declared catchment"
+     *   2. Distinct district_ids from samples this lab has processed —
+     *      implicit catchment, survives the pivot being unseeded (which it
+     *      currently is across all 9 labs in this DB)
+     *   3. The user's home district — last-ditch fallback
+     *
+     * Returns null = "no filter" for unscoped + hierarchy roles.
+     */
+    private function userDistrictIds(): ?array
+    {
+        if ($this->isSystemAdministrator) {
+            return null;
+        }
+        if (!$this->authUser?->hasAnyRole(self::LAB_SCOPED_ROLES)) {
+            return null;
+        }
+        $labIds = $this->userLabIds();
+        if (empty($labIds) || $labIds === [0]) {
+            return [0];
+        }
+
+        // 1. Canonical pivot
+        $ids = DB::table('district_laboratory')
+            ->whereIn('laboratory_id', $labIds)
+            ->distinct()
+            ->pluck('district_id')
+            ->toArray();
+
+        // 2. Fallback: districts inferred from actual samples this lab
+        //    has processed. Survives the pivot being empty in dev/test DB.
+        if (empty($ids)) {
+            $ids = DB::table('water_samples')
+                ->whereIn('laboratory_id', $labIds)
+                ->whereNotNull('district_id')
+                ->distinct()
+                ->pluck('district_id')
+                ->toArray();
+        }
+
+        // 3. Final fallback: user's home district
+        if (empty($ids) && $this->authUser?->district_id) {
+            $ids = [$this->authUser->district_id];
+        }
+
+        return $ids ?: [0];
+    }
+
+    /**
      * Handle the incoming request.
      *
      * @param DashboardRequest $request
@@ -81,15 +172,23 @@ class DashboardController extends Controller
 //        $districtWiseContaminantsCount = $dashboardService->getDistrictWiseContaminantsCount();
 
 
+        // RBAC: scoped roles see only their own lab(s) in any "lab count"
+        // surface (the "Labs: N" / "N Labs total" pills on the cards).
+        $userLabIds = $this->userLabIds();
         $totalLaboratories = Laboratory::query()
             ->when(isset($request->division_id), fn(Builder $query) => $query->where('division_id', '=', $request->division_id))
             ->when(isset($request->district_id), fn(Builder $query) => $query->where('district_id', '=', $request->district_id))
+            ->when($userLabIds !== null, fn(Builder $query) => $query->whereIn('id', $userLabIds))
             ->count();
 
+        // WSS count is scoped to the union of districts covered by the user's
+        // lab(s) — not just users.district_id, which only covers the user's
+        // home district and missed multi-district lab catchments.
+        $userDistrictIds = $this->userDistrictIds();
         $totalWaterSchemes = WaterScheme::query()
             ->when(isset($request->division_id), fn(Builder $query) => $query->where('division_id', '=', $request->division_id))
             ->when(isset($request->district_id), fn(Builder $query) => $query->where('district_id', '=', $request->district_id))
-            ->when(!$this->isSystemAdministrator, fn(Builder $query) => $query->where('district_id', '=', $this->authUser?->district_id))
+            ->when($userDistrictIds !== null, fn(Builder $query) => $query->whereIn('district_id', $userDistrictIds))
             ->count();
 
 
@@ -112,11 +211,25 @@ class DashboardController extends Controller
             ])
             ->count();
 
+        // RBAC: every WSS-breakdown query below scopes to the user's covered
+        // districts so the WSS Status row (Operational / Non-Op / Abandoned /
+        // WIP / Total) stays consistent with the Total WSS count above.
+        // Previously these used withoutGlobalScope() with no extra filtering,
+        // which produced the "Operational=3 vs Total=1" inconsistency for
+        // lab-incharge users on the production dashboard.
+        $scopeWss = function (Builder $query) use ($userDistrictIds) {
+            if ($userDistrictIds !== null) {
+                $query->whereIn('district_id', $userDistrictIds);
+            }
+            return $query;
+        };
+
         $operationWise = WaterScheme::query()
             ->select('operation')
             ->whereIn('operation', ['Operational', 'Non-Operational', 'Work in progress', 'Abandoned'])
             ->selectRaw('COUNT(*) as count')
             ->withoutGlobalScope(LatestScope::class)
+            ->tap($scopeWss)
             ->groupBy('operation')
             ->get()
             ->mapWithKeys(function ($operation) {
@@ -129,6 +242,7 @@ class DashboardController extends Controller
             ->whereIn('chamber', ['Satisfactory', 'Good', 'Worst'])
             ->selectRaw('COUNT(*) as count')
             ->withoutGlobalScope(LatestScope::class)
+            ->tap($scopeWss)
             ->groupBy('chamber')
             ->get()
             ->mapWithKeys(function ($chamber) {
@@ -138,6 +252,7 @@ class DashboardController extends Controller
         $totalSourceCount = WaterScheme::query()
             ->whereIn('source_type', ['Gravity', 'Surface Water'])
             ->withoutGlobalScope(LatestScope::class)
+            ->tap($scopeWss)
             ->count();
 
         $source = WaterScheme::query()
@@ -145,10 +260,11 @@ class DashboardController extends Controller
             ->whereIn('source_type', ['Gravity', 'Surface Water'])
             ->selectRaw('COUNT(*) as count')
             ->withoutGlobalScope(LatestScope::class)
+            ->tap($scopeWss)
             ->groupBy('source_type')
             ->get()
             ->mapWithKeys(function ($source) use ($totalSourceCount) {
-                $percentage = ($source->count / $totalSourceCount) * 100;
+                $percentage = $totalSourceCount > 0 ? ($source->count / $totalSourceCount) * 100 : 0;
                 return [$source->source_type => round($percentage, 1)];
             });
 
@@ -157,6 +273,7 @@ class DashboardController extends Controller
         $totalOperationalCount = WaterScheme::query()
             ->whereIn('operation', ['Operational', 'Non-Operational'])
             ->withoutGlobalScope(LatestScope::class)
+            ->tap($scopeWss)
             ->count();
 
         $operation = WaterScheme::query()
@@ -164,10 +281,11 @@ class DashboardController extends Controller
             ->whereIn('operation', ['Operational', 'Non-Operational'])
             ->selectRaw('COUNT(*) as count')
             ->withoutGlobalScope(LatestScope::class)
+            ->tap($scopeWss)
             ->groupBy('operation')
             ->get()
             ->mapWithKeys(function ($operation) use ($totalOperationalCount) {
-                $percentage = ($operation->count / $totalOperationalCount) * 100;
+                $percentage = $totalOperationalCount > 0 ? ($operation->count / $totalOperationalCount) * 100 : 0;
                 return [$operation->operation => round($percentage, 1)];
             });
 
@@ -176,6 +294,7 @@ class DashboardController extends Controller
         $totalPowerInputCount = WaterScheme::query()
             ->whereIn('power_input', ['Wapda', 'Solar'])
             ->withoutGlobalScope(LatestScope::class)
+            ->tap($scopeWss)
             ->count();
 
         $powerInput = WaterScheme::query()
@@ -183,10 +302,11 @@ class DashboardController extends Controller
             ->whereIn('power_input', ['Wapda', 'Solar'])
             ->selectRaw('COUNT(*) as count')
             ->withoutGlobalScope(LatestScope::class)
+            ->tap($scopeWss)
             ->groupBy('power_input')
             ->get()
             ->mapWithKeys(function ($powerInput) use ($totalPowerInputCount) {
-                $percentage = ($powerInput->count / $totalPowerInputCount) * 100;
+                $percentage = $totalPowerInputCount > 0 ? ($powerInput->count / $totalPowerInputCount) * 100 : 0;
                 return [$powerInput->power_input->value => round($percentage, 1)];
             });
 
@@ -427,8 +547,13 @@ class DashboardController extends Controller
         // calibration-log query (which doesn't go through applyDashboardFilters).
         [$periodStart, $periodEnd] = $this->resolvePeriodBounds($request);
 
+        // RBAC: lab-incharge (and other scoped roles) see only their own
+        // lab(s) in the KPI matrix — not the cross-lab comparison view
+        // that SA / manager / view-only roles get.
+        $userLabIds = $this->userLabIds();
         $labs = Laboratory::query()
             ->select('id', 'name')
+            ->when($userLabIds !== null, fn(Builder $q) => $q->whereIn('id', $userLabIds))
             ->orderBy('name')
             ->get();
 

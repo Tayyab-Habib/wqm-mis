@@ -3,9 +3,11 @@ import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { Chart, registerables } from 'chart.js'
 import { api } from '../../services/api.js'
+import { useUserStore } from '../../stores/useUserStore.js'
 Chart.register(...registerables)
 
-const router = useRouter()
+const router    = useRouter()
+const userStore = useUserStore()
 
 // ── Filter state ──────────────────────────────────────────────────────
 const filters = ref({
@@ -566,16 +568,38 @@ function rebuildCH01(labResults) {
     fit    = [152,118,82,149,95,52,76,61,22]
     unfit  = [22,13,6,3,4,6,15,11,2]
   }
+
+  // Lab-incharge sees only their own lab on the X-axis. The backend returns
+  // the full lab list as categories so unscoped roles get the cross-lab
+  // comparison; for a lab-incharge that's noise — they only manage one lab,
+  // so we narrow the categories + corresponding data series in place.
+  const myLabName = userStore.currentUser?.laboratory?.name
+  if (userStore.hasRole('lab-incharge') && myLabName) {
+    const idx = labs.findIndex(l => String(l).trim().toLowerCase() === String(myLabName).trim().toLowerCase())
+    if (idx >= 0) {
+      labs   = [labs[idx]]
+      tested = [tested[idx] ?? 0]
+      fit    = [fit[idx] ?? 0]
+      unfit  = [unfit[idx] ?? 0]
+    }
+  }
+
   const gap = tested.map((t, i) => Math.max(0, t - (fit[i]||0) - (unfit[i]||0)))
+
+  // maxBarThickness caps how fat a single column can get — without it,
+  // Chart.js spreads one bar across the whole canvas when there's only one
+  // category (which is exactly what happens for lab-incharge after the
+  // filter above, or whenever the data set has 1 lab / 1 district).
+  const BAR_CAP = 64
 
   ch01Instance = new Chart(ch01Ref.value, {
     type: 'bar',
     data: {
       labels: labs,
       datasets: [
-        { label:'Fit',           data:fit,   backgroundColor:'rgba(76,175,80,0.90)',   borderColor:'#388e3c', borderWidth:1, stack:'s' },
-        { label:'Unfit',         data:unfit, backgroundColor:'rgba(229,57,53,0.88)',   borderColor:'#c62828', borderWidth:1, stack:'s' },
-        { label:'Gap to Target', data:gap,   backgroundColor:'rgba(200,220,255,0.45)', borderColor:'rgba(21,101,192,0.25)', borderWidth:1, stack:'s' },
+        { label:'Fit',           data:fit,   backgroundColor:'rgba(76,175,80,0.90)',   borderColor:'#388e3c', borderWidth:1, stack:'s', maxBarThickness: BAR_CAP },
+        { label:'Unfit',         data:unfit, backgroundColor:'rgba(229,57,53,0.88)',   borderColor:'#c62828', borderWidth:1, stack:'s', maxBarThickness: BAR_CAP },
+        { label:'Gap to Target', data:gap,   backgroundColor:'rgba(200,220,255,0.45)', borderColor:'rgba(21,101,192,0.25)', borderWidth:1, stack:'s', maxBarThickness: BAR_CAP },
       ],
     },
     options: {
@@ -606,13 +630,18 @@ function rebuildCH02(districtResults) {
     unfit  = [7,7,5,1,1,5,6,7,2,6,1,0,3,3]
   }
 
+  // Same bar-thickness cap as CH-01 — a lab-incharge often sees only one
+  // district (their lab's catchment), and without this the single bar
+  // stretches edge-to-edge across the canvas and looks like a solid block.
+  const BAR_CAP = 64
+
   ch02Instance = new Chart(ch02Ref.value, {
     type: 'bar',
     data: {
       labels: districts,
       datasets: [
-        { label:'Fit',   data:fit,   backgroundColor:'rgba(76,175,80,0.90)',  borderColor:'#388e3c', borderWidth:1, stack:'s' },
-        { label:'Unfit', data:unfit, backgroundColor:'rgba(229,57,53,0.88)',  borderColor:'#c62828', borderWidth:1, stack:'s' },
+        { label:'Fit',   data:fit,   backgroundColor:'rgba(76,175,80,0.90)',  borderColor:'#388e3c', borderWidth:1, stack:'s', maxBarThickness: BAR_CAP },
+        { label:'Unfit', data:unfit, backgroundColor:'rgba(229,57,53,0.88)',  borderColor:'#c62828', borderWidth:1, stack:'s', maxBarThickness: BAR_CAP },
       ],
     },
     options: {
@@ -812,7 +841,21 @@ async function fetchLabKpis() {
   try {
     const res = await api.post('/dashboard/lab-kpis', buildPayload())
     const d = res.data?.data || res.data || {}
-    kpiLabs.value = (d.labs || []).map(l => ({ id: l.id, name: l.name, displayName: shortLabName(l.name) }))
+    let labs = d.labs || []
+
+    // Frontend safety net — even though labKpis() backend now scopes labs
+    // by the user's pivot, defend against stale tokens or future regressions
+    // by filtering the column set to the lab-incharge's own lab on render.
+    const myLabName = userStore.currentUser?.laboratory?.name
+    const myLabId   = userStore.currentUser?.laboratory?.id
+    if (userStore.hasRole('lab-incharge') && (myLabId || myLabName)) {
+      labs = labs.filter(l =>
+        (myLabId && Number(l.id) === Number(myLabId)) ||
+        (myLabName && String(l.name).trim().toLowerCase() === String(myLabName).trim().toLowerCase())
+      )
+    }
+
+    kpiLabs.value = labs.map(l => ({ id: l.id, name: l.name, displayName: shortLabName(l.name) }))
     const catalog = d.kpis || []
     const rowsByLab = d.rows || []
     kpiRows.value = catalog.map(k => {

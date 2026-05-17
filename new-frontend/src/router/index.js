@@ -18,6 +18,9 @@ const routes = [
       // Water Quality
       { path: 'water-quality/sample-registration', name: 'SampleRegistration', meta: { title: 'Water Quality / Sample Registration' }, component: () => import('../views/WaterQuality/SampleRegistration/SampleRegistration.vue') },
       { path: 'water-quality/analysis-entry',      name: 'AnalysisEntry',      meta: { title: 'Water Quality / Analysis Entry', roles: ['system-administrator','system-manager','lab-incharge','laboratory-assistant'] },       component: () => import('../views/WaterQuality/AnalysisEntry/AnalysisEntry.vue') },
+      // Lab-incharge sample-overview screen — gated to lab-incharge so other
+      // roles don't accidentally land here via direct URL.
+      { path: 'water-quality/lab-samples',         name: 'LabSamples',         meta: { title: 'Water Quality / Water Samples', roles: ['lab-incharge'] },                                                              component: () => import('../views/WaterQuality/LabSamples/LabSamples.vue') },
       // Unfit Sample Trail: XEN/SE-only by design (notifications + retest workflow
       // are theirs). Other roles, including admins, cannot reach this URL.
       { path: 'water-quality/unfit-sample-trail',  name: 'UnfitSampleTrail',   meta: { title: 'Water Quality / Unfit Sample Trail', roles: ['xen', 'superintending-engineer', 'se', 'secretary'] },    component: () => import('../views/WaterQuality/UnfitSampleTrail/UnfitSampleTrail.vue') },
@@ -33,7 +36,7 @@ const routes = [
 
       // Finance
       { path: 'finance/invoices',       name: 'Invoices',       meta: { title: 'Finance / Invoices' },        component: () => import('../views/Finance/Invoices/Invoices.vue') },
-      { path: 'finance/sbp-submissions', name: 'SBPSubmissions', meta: { title: 'Finance / SBP Submissions', roles: ['system-administrator','system-manager'] }, component: () => import('../views/Finance/SBPSubmissions/SBPSubmissions.vue') },
+      { path: 'finance/sbp-submissions', name: 'SBPSubmissions', meta: { title: 'Finance / SBP Submissions', permissions: ['view_sbp_submissions'] }, component: () => import('../views/Finance/SBPSubmissions/SBPSubmissions.vue') },
 
       // Asset Management
       { path: 'assets/stock-inventory',   name: 'StockInventory',   meta: { title: 'Assets / Stock & Inventory' },   component: () => import('../views/AssetManagement/StockInventory/StockInventory.vue') },

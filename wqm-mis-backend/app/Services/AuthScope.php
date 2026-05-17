@@ -180,7 +180,12 @@ class AuthScope
 
     /**
      * Scope an inventories (demand) query.
-     * Lab roles see only demands raised BY their lab or addressed TO their lab.
+     * Lab roles see only demands raised BY their lab. The earlier
+     * `orWhereIn(recipient_lab_id)` branch was wrong — the column
+     * doesn't exist on `inventories` (the table only has laboratory_id,
+     * status, urgency, justification, slug, audit columns). The "addressed
+     * TO" concept lives on the related material/dispatch logs, not here.
+     * Keeping it caused a 1054 "Unknown column" on every D&I page load.
      */
     public static function inventories($query, ?User $user)
     {
@@ -195,10 +200,7 @@ class AuthScope
         $labIds = self::userLabIds($user);
         if (empty($labIds)) return $query->whereRaw('1 = 0');
         $table = self::tableFor($query, 'inventories');
-        return $query->where(function ($q) use ($table, $labIds) {
-            $q->whereIn("{$table}.laboratory_id", $labIds)
-              ->orWhereIn("{$table}.recipient_lab_id", $labIds);
-        });
+        return $query->whereIn("{$table}.laboratory_id", $labIds);
     }
 
     /**
@@ -477,11 +479,32 @@ class AuthScope
         if (empty($labIds)) {
             return $query->whereRaw('1 = 0');
         }
-        return $query->whereHas('waterSample', fn ($q) => $q->whereIn('laboratory_id', $labIds));
+        // Two kinds of invoices to consider:
+        //   1. Individual invoices — water_sample_id is set; scope by the
+        //      sample's laboratory_id.
+        //   2. Clubbed PARENT invoices — water_sample_id is NULL by design;
+        //      scope by ANY child invoice's water_sample.laboratory_id being
+        //      in the visible set. Without this branch, clubbed parents
+        //      disappear from /finance/invoices for every scoped role.
+        return $query->where(function ($q) use ($labIds) {
+            $q->whereHas('waterSample', fn ($wq) => $wq->whereIn('laboratory_id', $labIds))
+              ->orWhere(function ($q2) use ($labIds) {
+                  $q2->where('is_clubbed', true)
+                     ->whereHas('childInvoices.waterSample',
+                         fn ($cq) => $cq->whereIn('laboratory_id', $labIds));
+              });
+        });
     }
 
     /**
      * Scope water_sample_invoice_logs through the parent invoice's water_sample lab.
+     *
+     * Mirrors the OR-clause in waterSampleInvoices(): a log either points at
+     * an invoice that has a direct waterSample (individual + clubbed child),
+     * OR it points at a clubbed PARENT invoice whose children's waterSamples
+     * are in the visible-lab set. Without the second branch, payment logs
+     * recorded against clubbed parents (which by design have NULL
+     * water_sample_id) are silently filtered out for every scoped role.
      */
     public static function waterSampleInvoiceLogs($query, ?User $user)
     {
@@ -493,12 +516,21 @@ class AuthScope
         if (empty($labIds)) {
             return $query->whereRaw('1 = 0');
         }
-        return $query->whereHas('waterSampleInvoice.waterSample', fn ($q) => $q->whereIn('laboratory_id', $labIds));
+        return $query->where(function ($q) use ($labIds) {
+            $q->whereHas('waterSampleInvoice.waterSample',
+                fn ($wq) => $wq->whereIn('laboratory_id', $labIds))
+              ->orWhereHas('waterSampleInvoice', function ($iq) use ($labIds) {
+                  $iq->where('is_clubbed', true)
+                     ->whereHas('childInvoices.waterSample',
+                         fn ($cq) => $cq->whereIn('laboratory_id', $labIds));
+              });
+        });
     }
 
     /**
-     * Scope SBP submissions by lab_id directly (the sbp_submissions table has
-     * its own lab_id column, no relation join needed).
+     * Scope SBP submissions by laboratory_id directly (the sbp_submissions
+     * table has its own laboratory_id column — see the D-03 backfill
+     * migration — so no relation join is needed).
      */
     public static function sbpSubmissions($query, ?User $user)
     {
@@ -511,7 +543,7 @@ class AuthScope
             return $query->whereRaw('1 = 0');
         }
         $table = self::tableFor($query, 'sbp_submissions');
-        return $query->whereIn("{$table}.lab_id", $labIds);
+        return $query->whereIn("{$table}.laboratory_id", $labIds);
     }
 
     public static function complaints($query, ?User $user)
