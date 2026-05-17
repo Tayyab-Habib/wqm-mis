@@ -200,6 +200,7 @@ Route::middleware(['auth:sanctum', 'dummy.account', 'view.only'])->group(callbac
     Route::prefix('xen')->group(function () {
         Route::get('dashboard', [\App\Http\Controllers\Xen\XenDashboardController::class, 'index']);
         Route::get('trail', [\App\Http\Controllers\Xen\XenDashboardController::class, 'trail']);
+        Route::get('samples/{id}/trail', [\App\Http\Controllers\Xen\XenDashboardController::class, 'trailDetail']);
         Route::post('actions/request-retest', [\App\Http\Controllers\Xen\XenDashboardController::class, 'requestRetest']);
 
         // XEN Portal — division-scoped resources

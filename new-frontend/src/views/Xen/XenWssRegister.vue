@@ -1,13 +1,51 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { xenService } from '../../services/xenService.js'
 import SkelRow from './SkelRow.vue'
+import XenTrailModal from './XenTrailModal.vue'
 
+const router = useRouter()
 const loading = ref(true)
 const stats = ref({ total: 0, last_fit: 0, last_unfit: 0, overdue: 0 })
 const schemes = ref([])
 const q = ref('')
 const result = ref('all')
+
+// ── Toast (matches the pattern in Topbar.vue / UsersHR.vue) ───────────
+const toast = ref({ show: false, message: '', type: 'success' })
+let toastTimer = null
+function showToast(message, type = 'success') {
+  clearTimeout(toastTimer)
+  toast.value = { show: true, message, type }
+  toastTimer = setTimeout(() => { toast.value.show = false }, 4000)
+}
+
+// ── Trail modal ───────────────────────────────────────────────
+const showTrailModal = ref(false)
+const trailSampleId  = ref(null)
+function openTrail(scheme) {
+  if (!scheme.last_sample_id) {
+    showToast('⚠️ No samples recorded for this WSS yet.', 'error')
+    return
+  }
+  trailSampleId.value = scheme.last_sample_id
+  showTrailModal.value = true
+}
+
+// ── ISR navigation ────────────────────────────────────────────
+function openIsr(scheme) {
+  if (!scheme.last_sample_id) {
+    showToast('⚠️ No samples recorded for this WSS yet.', 'error')
+    return
+  }
+  router.push(`/xen/isr/${scheme.last_sample_id}`)
+}
+
+function onActionSaved() {
+  load()
+  showToast('✅ Action saved', 'success')
+}
 
 async function load() {
   loading.value = true
@@ -45,6 +83,22 @@ function exportCsv() {
 </script>
 
 <template>
+  <!-- ── Toast notification ── -->
+  <Teleport to="body">
+    <Transition name="toast-slide">
+      <div v-if="toast.show"
+           :style="`position:fixed;top:22px;right:24px;z-index:9999;min-width:300px;max-width:460px;
+                    background:${toast.type === 'success' ? '#065f46' : '#991b1b'};
+                    color:#fff;border-radius:8px;padding:14px 18px;
+                    box-shadow:0 6px 32px rgba(0,0,0,.28);font-size:13px;display:flex;align-items:flex-start;gap:10px`">
+        <span style="flex:1;line-height:1.5">{{ toast.message }}</span>
+        <button @click="toast.show = false"
+                style="background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:4px;
+                       padding:2px 8px;cursor:pointer;font-size:13px;margin-left:4px">✕</button>
+      </div>
+    </Transition>
+  </Teleport>
+
   <div class="xd">
     <div class="xd-scope">
       <span class="pin">📍</span>
@@ -115,8 +169,14 @@ function exportCsv() {
                 <span v-if="s.overdue" class="overdue-icon">⚠</span>
               </td>
               <td>
-                <button class="btn btn-sec">📊 Trail</button>
-                <button class="btn btn-pri">📋 ISR</button>
+                <button class="btn btn-sec"
+                        :disabled="!s.last_sample_id"
+                        :title="s.last_sample_id ? 'View testing history' : 'No samples yet'"
+                        @click="openTrail(s)">📊 Trail</button>
+                <button class="btn btn-pri"
+                        :disabled="!s.last_sample_id"
+                        :title="s.last_sample_id ? 'View latest sample report' : 'No samples yet'"
+                        @click="openIsr(s)">📋 ISR</button>
               </td>
             </tr>
             <tr v-if="schemes.length === 0"><td colspan="9" class="empty">No water schemes match.</td></tr>
@@ -124,6 +184,8 @@ function exportCsv() {
         </tbody>
       </table>
     </div>
+
+    <XenTrailModal v-model="showTrailModal" :sample-id="trailSampleId" @saved="onActionSaved" />
   </div>
 </template>
 
@@ -131,4 +193,13 @@ function exportCsv() {
 @use './xen-shared.scss' as *;
 .overdue { color: #b91c1c; font-weight: 700; }
 .overdue-icon { color: #b91c1c; margin-left: 4px; }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+</style>
+
+<style>
+/* Global so the toast in <Teleport to="body"> picks up the transition */
+.toast-slide-enter-active,
+.toast-slide-leave-active { transition: all 0.3s ease; }
+.toast-slide-enter-from,
+.toast-slide-leave-to     { opacity: 0; transform: translateX(60px); }
 </style>

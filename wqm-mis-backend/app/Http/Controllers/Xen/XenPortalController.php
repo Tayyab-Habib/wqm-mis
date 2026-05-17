@@ -75,7 +75,7 @@ class XenPortalController extends Controller
             ->with(['phedDivision:id,name', 'district:id,name'])
             ->withCount('waterSamples as times_tested')
             ->get()
-            ->map(function ($scheme) {
+            ->map(function ($scheme) use ($resultFilter) {
                 $lastSample = WaterSample::query()
                     ->where('water_scheme_id', $scheme->id)
                     ->orderByDesc('sampled_at')
@@ -96,22 +96,28 @@ class XenPortalController extends Controller
                     return null;
                 }
 
-                $lastSampledAt = $lastSample?->sampled_at;
-                $nextScheduled = $lastSampledAt ? Carbon::parse($lastSampledAt)->addMonths(3) : null;
-                $overdue = $nextScheduled ? $nextScheduled->isPast() : false;
+                // WaterSample's `sampled_at` accessor returns a pre-formatted
+                // string like '08 May, 2026 09:30' which Carbon can't re-parse.
+                // Read the raw column to do date math.
+                $lastSampledRaw     = $lastSample ? $lastSample->getRawOriginal('sampled_at') : null;
+                $lastSampledDisplay = $lastSample?->sampled_at;
+                $nextScheduled      = $lastSampledRaw ? Carbon::parse($lastSampledRaw)->addMonths(3) : null;
+                $overdue            = $nextScheduled ? $nextScheduled->isPast() : false;
 
                 return [
-                    'id'              => $scheme->id,
-                    'wss_code'        => $scheme->slug,
-                    'wss_name'        => $scheme->name,
-                    'source_type'     => $scheme->source_type ?? '—',
-                    'power_input'     => $scheme->power_input?->value ?? $scheme->power_input ?? '—',
-                    'times_tested'    => $scheme->times_tested ?? 0,
-                    'last_result'     => $lastResultLabel,
-                    'last_sampled_at' => $lastSampledAt,
-                    'next_scheduled'  => $nextScheduled?->toDateString(),
-                    'overdue'         => $overdue,
-                    'phed_division'   => $scheme->phedDivision?->name ?? '—',
+                    'id'                => $scheme->id,
+                    'wss_code'          => $scheme->slug,
+                    'wss_name'          => $scheme->name,
+                    'source_type'       => $scheme->source_type ?? '—',
+                    'power_input'       => $scheme->power_input?->value ?? $scheme->power_input ?? '—',
+                    'times_tested'      => $scheme->times_tested ?? 0,
+                    'last_result'       => $lastResultLabel,
+                    'last_sampled_at'   => $lastSampledDisplay,
+                    'next_scheduled'    => $nextScheduled?->toDateString(),
+                    'overdue'           => $overdue,
+                    'phed_division'     => $scheme->phedDivision?->name ?? '—',
+                    'last_sample_id'    => $lastSample?->id,
+                    'last_sample_slug'  => $lastSample?->slug,
                 ];
             })
             ->filter()
