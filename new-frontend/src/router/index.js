@@ -73,12 +73,22 @@ const routes = [
     ],
   },
 
-  // ── CE Portal (standalone placeholder — full dashboard coming later) ──
+  // ── CE Portal (Chief Engineer — region-scoped oversight) ──────────────
+  // Full nested portal from the ce-dashboard branch. Replaces the earlier
+  // standalone placeholder at /ce/dashboard.
   {
-    path: '/ce/dashboard',
-    name: 'CeDashboard',
-    component: () => import('../views/Ce/CeDashboard.vue'),
-    meta: { requiresAuth: true, title: 'CE Dashboard', roles: ['chief-engineer'] },
+    path: '/ce',
+    component: () => import('../layouts/CeLayout.vue'),
+    meta: { requiresAuth: true, portal: 'ce' },
+    children: [
+      { path: '', redirect: '/ce/dashboard' },
+      { path: 'dashboard',        name: 'CeDashboard',       meta: { title: 'Dashboard' },             component: () => import('../views/Ce/CeDashboard.vue') },
+      { path: 'circles/:id',      name: 'CeCircleDetail',    meta: { title: 'SE Circle' },             component: () => import('../views/Ce/CeCircleDetail.vue') },
+      { path: 'escalated-cases',  name: 'CeEscalatedCases',  meta: { title: 'CE Escalated Cases' },    component: () => import('../views/Ce/CeEscalatedCases.vue') },
+      { path: 'persistent-unfit', name: 'CePersistentUnfit', meta: { title: 'Persistent Unfit WSS' },  component: () => import('../views/Ce/CePersistentUnfit.vue') },
+      { path: 'gar',              name: 'CeGar',             meta: { title: 'GAR — My Area' },         component: () => import('../views/Ce/CeGar.vue') },
+      { path: 'wss-register',     name: 'CeWssRegister',     meta: { title: 'WSS Register' },          component: () => import('../views/Ce/CeWssRegister.vue') },
+    ],
   },
 
   // ── Client Portal ──────────────────────────────────────────────────
@@ -103,7 +113,7 @@ const router = createRouter({
 
 // Auth guard
 // XEN portal is shared by SE and XEN (and the legacy short slugs for back-compat).
-// CE has its own standalone placeholder at /ce/dashboard.
+// CE has its own dedicated portal at /ce/* with the CeLayout.
 const XEN_ROLES = ['xen', 'se', 'secretary', 'superintending-engineer']
 const CE_ROLES  = ['chief-engineer', 'ce']
 

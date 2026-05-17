@@ -215,6 +215,17 @@ Route::middleware(['auth:sanctum', 'dummy.account', 'view.only'])->group(callbac
         Route::put('settings',        [\App\Http\Controllers\Xen\XenPortalController::class, 'updateSettings']);
     });
 
+    // CE Portal Routes — Chief Engineer (region-scoped oversight)
+    Route::prefix('ce')->group(function () {
+        Route::get('me',                [\App\Http\Controllers\Ce\CePortalController::class, 'me']);
+        Route::get('dashboard',         [\App\Http\Controllers\Ce\CePortalController::class, 'dashboard']);
+        Route::get('circles/{id}',      [\App\Http\Controllers\Ce\CePortalController::class, 'circleDetail']);
+        Route::get('escalated-cases',   [\App\Http\Controllers\Ce\CePortalController::class, 'escalatedCases']);
+        Route::get('persistent-unfit',  [\App\Http\Controllers\Ce\CePortalController::class, 'persistentUnfit']);
+        Route::get('gar',               [\App\Http\Controllers\Ce\CePortalController::class, 'gar']);
+        Route::get('wss-register',      [\App\Http\Controllers\Ce\CePortalController::class, 'wssRegister']);
+    });
+
     //start locality routes
     Route::apiResource('provinces', ProvinceController::class);
     Route::apiResource('divisions', DivisionController::class);
