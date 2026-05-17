@@ -191,6 +191,34 @@ class RbacRolePermissionsSeeder extends Seeder
                 );
             }
 
+            // Secretary portal perms — added 2026-05-17 (RBAC-Updated branch).
+            // 7 dedicated perms (1 umbrella + 6 per-screen) gating every
+            // Secretary portal endpoint and frontend route. The secretary
+            // role gets all 7 by default; admins can revoke individual
+            // screens via the Module Access grid. Idempotent on re-run.
+            $reportsModuleIdForSecretary = DB::table('modules')->where('name', 'reports')->value('id');
+            $secretaryPortalPerms = [
+                'view_secretary_portal',
+                'view_secretary_dashboard',
+                'view_secretary_ce_unfit',
+                'view_secretary_fate_decisions',
+                'view_secretary_persistent_unfit',
+                'view_secretary_gar',
+                'view_secretary_wss_register',
+            ];
+            foreach ($secretaryPortalPerms as $name) {
+                Permission::firstOrCreate(
+                    ['name' => $name, 'guard_name' => 'web'],
+                    ['module_id' => $reportsModuleIdForSecretary]
+                );
+            }
+            $secretaryRole = Role::firstOrCreate(['name' => 'secretary', 'guard_name' => 'web']);
+            foreach ($secretaryPortalPerms as $p) {
+                if (!$secretaryRole->hasPermissionTo($p)) {
+                    $secretaryRole->givePermissionTo($p);
+                }
+            }
+
             // Dedicated per-report view perms — added 2026-05-17. The reports
             // used to share view_water_samples + view_reports, which made
             // granular per-report grants impossible (granting one revealed

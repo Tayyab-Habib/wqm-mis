@@ -43,25 +43,55 @@ function logout() {
 
 const userName = computed(() => me.value?.name || 'Secretary')
 
+// RBAC: every nav item carries the permission that gates the corresponding
+// route. Items with no `perm` are visible to anyone in the portal.
+// Unscoped admins (system-administrator etc.) bypass perm checks by default
+// via userStore.hasPermission (SA bypass lives in useUserStore).
 const navItems = computed(() => {
   const ces = me.value?.ces || []
-  return [
+  const all = [
     { kind: 'section', label: 'Overview' },
-    { kind: 'item',    label: 'Dashboard', icon: '📊', route: '/secretary/dashboard' },
+    { kind: 'item',    label: 'Dashboard', icon: '📊', route: '/secretary/dashboard', perm: 'view_secretary_dashboard' },
     { kind: 'section', label: 'Unfit Trail — By CE' },
     ...ces.map(c => ({
       kind: 'item',
       label: c.label,
       icon: '📍',
       route: `/secretary/ce/${c.id}`,
+      perm: 'view_secretary_ce_unfit',
     })),
     { kind: 'section', label: 'Decisions Required' },
-    { kind: 'item', label: 'WSS Fate Decisions', icon: '⚖️', route: '/secretary/fate-decisions', badgeRef: 'fate' },
-    { kind: 'item', label: 'Persistent Unfit WSS', icon: '🔴', route: '/secretary/persistent-unfit' },
+    { kind: 'item', label: 'WSS Fate Decisions',  icon: '⚖️', route: '/secretary/fate-decisions',   badgeRef: 'fate', perm: 'view_secretary_fate_decisions' },
+    { kind: 'item', label: 'Persistent Unfit WSS', icon: '🔴', route: '/secretary/persistent-unfit', perm: 'view_secretary_persistent_unfit' },
     { kind: 'section', label: 'Reports' },
-    { kind: 'item', label: 'GAR — Province', icon: '📄', route: '/secretary/gar' },
-    { kind: 'item', label: 'WSS Register',    icon: '💧', route: '/secretary/wss-register' },
+    { kind: 'item', label: 'GAR — Province', icon: '📄', route: '/secretary/gar',           perm: 'view_secretary_gar' },
+    { kind: 'item', label: 'WSS Register',    icon: '💧', route: '/secretary/wss-register', perm: 'view_secretary_wss_register' },
   ]
+
+  // Step 1: drop items the user lacks the perm for.
+  const visible = all.filter(it => {
+    if (it.kind !== 'item') return true
+    if (!it.perm) return true
+    return userStore.hasPermission(it.perm)
+  })
+
+  // Step 2: drop section headers that no longer have any items beneath them.
+  const out = []
+  for (let i = 0; i < visible.length; i++) {
+    const it = visible[i]
+    if (it.kind === 'section') {
+      let hasChild = false
+      for (let j = i + 1; j < visible.length; j++) {
+        if (visible[j].kind === 'section') break
+        hasChild = true
+        break
+      }
+      if (hasChild) out.push(it)
+    } else {
+      out.push(it)
+    }
+  }
+  return out
 })
 
 function badgeFor(ref) {

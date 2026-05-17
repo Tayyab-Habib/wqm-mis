@@ -52,6 +52,20 @@ const SIDEBAR_MODULES = [
   { label: 'Demand & Issuance',       icon: '🔄',  perms: ['view_demands', 'view_inventories', 'add_inventories'] },
   { label: 'Diaries / Dispatches',    icon: '📝',  perms: ['view_diaries', 'view_dispatches'] },
   { label: 'Water Scheme Details',    icon: '💧',  perms: ['view_water_schemes'] },
+
+  // ── Secretary portal screens ────────────────────────────────────────
+  // Granting "Secretary Portal" gives umbrella access (lets the user enter
+  // /secretary/*). Each per-screen perm below controls a single tab so admin
+  // can hide individual tabs from a secretary without revoking the whole
+  // portal. Non-secretary roles that get granted these can navigate to
+  // Secretary screens by URL — useful for admin stand-in scenarios.
+  { label: 'Secretary Portal',           icon: '🏛️', perms: ['view_secretary_portal'] },
+  { label: 'Secretary Dashboard',        icon: '📊', perms: ['view_secretary_dashboard'] },
+  { label: 'Secretary CE Unfit Trail',   icon: '📍', perms: ['view_secretary_ce_unfit'] },
+  { label: 'Secretary Fate Decisions',   icon: '⚖️', perms: ['view_secretary_fate_decisions'] },
+  { label: 'Secretary Persistent Unfit', icon: '🔴', perms: ['view_secretary_persistent_unfit'] },
+  { label: 'Secretary GAR',              icon: '📄', perms: ['view_secretary_gar'] },
+  { label: 'Secretary WSS Register',     icon: '💧', perms: ['view_secretary_wss_register'] },
 ]
 // Roles whose access is router/middleware-bypassed (isUnscoped) — toggling
 // module perms for them has no UI effect, so they're hidden from the grid

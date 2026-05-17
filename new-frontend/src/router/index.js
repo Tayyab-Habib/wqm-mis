@@ -92,18 +92,22 @@ const routes = [
   },
 
   // ── Secretary Portal (Province-wide oversight, fate-decision approval) ─
+  // Every child route is permission-gated so admin can lock individual
+  // screens for the secretary via the Module Access grid. The umbrella
+  // view_secretary_portal grants entry; per-screen perms control which
+  // tabs they can open.
   {
     path: '/secretary',
     component: () => import('../layouts/SecretaryLayout.vue'),
-    meta: { requiresAuth: true, portal: 'secretary' },
+    meta: { requiresAuth: true, portal: 'secretary', permissions: ['view_secretary_portal'] },
     children: [
       { path: '', redirect: '/secretary/dashboard' },
-      { path: 'dashboard',        name: 'SecretaryDashboard',       meta: { title: 'Dashboard' },                 component: () => import('../views/Secretary/SecretaryDashboard.vue') },
-      { path: 'ce/:regionId',     name: 'SecretaryCeUnfit',         meta: { title: 'CE — Unfit Trail' },          component: () => import('../views/Secretary/SecretaryCeUnfit.vue') },
-      { path: 'fate-decisions',   name: 'SecretaryFateDecisions',   meta: { title: 'WSS Fate Decisions' },        component: () => import('../views/Secretary/SecretaryFateDecisions.vue') },
-      { path: 'persistent-unfit', name: 'SecretaryPersistentUnfit', meta: { title: 'Persistent Unfit WSS — Province-wide' }, component: () => import('../views/Secretary/SecretaryPersistentUnfit.vue') },
-      { path: 'gar',              name: 'SecretaryGar',             meta: { title: 'GAR — Province' },            component: () => import('../views/Secretary/SecretaryGar.vue') },
-      { path: 'wss-register',     name: 'SecretaryWssRegister',     meta: { title: 'WSS Register' },              component: () => import('../views/Secretary/SecretaryWssRegister.vue') },
+      { path: 'dashboard',        name: 'SecretaryDashboard',       meta: { title: 'Dashboard',                          permissions: ['view_secretary_dashboard'] },        component: () => import('../views/Secretary/SecretaryDashboard.vue') },
+      { path: 'ce/:regionId',     name: 'SecretaryCeUnfit',         meta: { title: 'CE — Unfit Trail',                   permissions: ['view_secretary_ce_unfit'] },         component: () => import('../views/Secretary/SecretaryCeUnfit.vue') },
+      { path: 'fate-decisions',   name: 'SecretaryFateDecisions',   meta: { title: 'WSS Fate Decisions',                 permissions: ['view_secretary_fate_decisions'] },   component: () => import('../views/Secretary/SecretaryFateDecisions.vue') },
+      { path: 'persistent-unfit', name: 'SecretaryPersistentUnfit', meta: { title: 'Persistent Unfit WSS — Province-wide', permissions: ['view_secretary_persistent_unfit'] }, component: () => import('../views/Secretary/SecretaryPersistentUnfit.vue') },
+      { path: 'gar',              name: 'SecretaryGar',             meta: { title: 'GAR — Province',                     permissions: ['view_secretary_gar'] },              component: () => import('../views/Secretary/SecretaryGar.vue') },
+      { path: 'wss-register',     name: 'SecretaryWssRegister',     meta: { title: 'WSS Register',                       permissions: ['view_secretary_wss_register'] },     component: () => import('../views/Secretary/SecretaryWssRegister.vue') },
     ],
   },
 

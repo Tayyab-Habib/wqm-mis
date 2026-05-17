@@ -16,6 +16,7 @@ use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Symfony\Component\HttpFoundation\Response as Http;
 
 /**
  * Secretary portal — province-wide oversight (top of the hierarchy).
@@ -23,14 +24,37 @@ use Illuminate\Support\Facades\DB;
  * Hierarchy: Secretary → CEs (Regions) → SE Circles → PHE Divisions → XENs.
  * Endpoints return data across ALL regions (no scoping); the Secretary is
  * the approving authority for WSS Fate Decisions escalated by CEs.
+ *
+ * RBAC: every endpoint gated by a dedicated `view_secretary_*` permission
+ * (see permissions ids 211-217). The secretary role gets all 7 by default;
+ * admins can revoke individual screens via the Module Access grid.
  */
 class SecretaryPortalController extends Controller
 {
+    /**
+     * 403 helper — unscoped admins bypass; everyone else must hold $perm.
+     * Mirrors the gating pattern in FinanceExportController.
+     */
+    private function gate(string $perm): ?JsonResponse
+    {
+        $user = auth()->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated'], Http::HTTP_UNAUTHORIZED);
+        }
+        if ($user->isUnscoped() || $user->can($perm)) {
+            return null;
+        }
+        return response()->json([
+            'message' => 'Not authorized to access this Secretary portal screen',
+        ], Http::HTTP_FORBIDDEN);
+    }
+
     /* ──────────────────────────────────────────────────────────────────
      |  /secretary/me  — identity for the layout
      |──────────────────────────────────────────────────────────────────*/
     public function me(): JsonResponse
     {
+        if ($r = $this->gate('view_secretary_portal')) return $r;
         $user = auth()->user()->load(['designation']);
 
         $ces = Region::query()
@@ -60,6 +84,7 @@ class SecretaryPortalController extends Controller
      |──────────────────────────────────────────────────────────────────*/
     public function dashboard(): JsonResponse
     {
+        if ($r = $this->gate('view_secretary_dashboard')) return $r;
         $row1 = $this->row1();
         $row2 = $this->row2();
         $ceSummary = $this->ceSummary();
@@ -87,6 +112,7 @@ class SecretaryPortalController extends Controller
      |──────────────────────────────────────────────────────────────────*/
     public function ceUnfit(int $regionId): JsonResponse
     {
+        if ($r = $this->gate('view_secretary_ce_unfit')) return $r;
         $region = Region::findOrFail($regionId);
         $phedIds = PhedDivision::query()
             ->whereHas('circle', fn ($q) => $q->where('region_id', $regionId))
@@ -160,6 +186,7 @@ class SecretaryPortalController extends Controller
      |──────────────────────────────────────────────────────────────────*/
     public function fateDecisions(): JsonResponse
     {
+        if ($r = $this->gate('view_secretary_fate_decisions')) return $r;
         $pending = $this->buildFateDecisionsPending(limit: 100);
         $past    = $this->buildFateDecisionsPast(limit: 100);
 
@@ -182,6 +209,7 @@ class SecretaryPortalController extends Controller
      |──────────────────────────────────────────────────────────────────*/
     public function persistentUnfit(): JsonResponse
     {
+        if ($r = $this->gate('view_secretary_persistent_unfit')) return $r;
         $samples = WaterSample::query()
             ->with(['waterScheme:id,name', 'district:id,name', 'phedDivision:id,name,circle_id', 'tests'])
             ->where('current_status', WaterSampleCurrentStatusEnum::UNFIT->value)
@@ -252,6 +280,7 @@ class SecretaryPortalController extends Controller
      |──────────────────────────────────────────────────────────────────*/
     public function gar(Request $request): JsonResponse
     {
+        if ($r = $this->gate('view_secretary_gar')) return $r;
         $fromDate = $request->query('from_date');
         $toDate   = $request->query('to_date');
         $regionId = $request->query('region_id');
@@ -339,6 +368,7 @@ class SecretaryPortalController extends Controller
      |──────────────────────────────────────────────────────────────────*/
     public function wssRegister(Request $request): JsonResponse
     {
+        if ($r = $this->gate('view_secretary_wss_register')) return $r;
         $q          = $request->query('q');
         $regionId   = $request->query('region_id');
         $districtId = $request->query('district_id');
