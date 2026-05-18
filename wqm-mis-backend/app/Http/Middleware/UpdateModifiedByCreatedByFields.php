@@ -42,7 +42,12 @@ class UpdateModifiedByCreatedByFields
                     ]);
                 }
             }
-        } catch (\Exception $exception) {
+        } catch (\Throwable $exception) {
+            // Widened from \Exception → \Throwable because controllers that
+            // return an array (not a Model) under the 'data' key cause
+            // getFillable() to throw an \Error (TypeError on member access).
+            // Already a no-op fallback — fields are now set at insert time
+            // in modern controllers — so swallowing is intentional.
             info($exception->getMessage());
         }
     }

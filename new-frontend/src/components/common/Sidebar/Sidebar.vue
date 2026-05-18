@@ -29,36 +29,75 @@ const isUnscoped = computed(() => UNSCOPED_ROLES.some(r => userStore.hasRole(r))
 const navItems = [
   { label: 'Dashboard',           icon: '🏠', route: '/dashboard' },
   { section: 'Water Quality',                                                                          permissions: ['view_water_samples', 'add_water_samples', 'add_water_sample_details'] },
-  { label: 'Sample Registration', icon: '🧪', route: '/water-quality/sample-registration',             permissions: ['add_water_samples'] },
-  { label: 'Analysis Entry',      icon: '⚗️', route: '/water-quality/analysis-entry',                  permissions: ['add_water_sample_details', 'edit_water_sample_results'] },
+  // Sample Registration is for junior-clerk (data entry). Lab-incharge
+  // oversees rather than registers — they get the "Water Samples" view
+  // below instead. Analysis Entry similarly is the lab-assistant's screen.
+  { label: 'Sample Registration', icon: '🧪', route: '/water-quality/sample-registration',             permissions: ['add_water_samples'],                                hideForRoles: ['lab-incharge'] },
+  { label: 'Analysis Entry',      icon: '⚗️', route: '/water-quality/analysis-entry',                  permissions: ['add_water_sample_details', 'edit_water_sample_results'], hideForRoles: ['lab-incharge'] },
+  // Lab-incharge's sample-overview screen — read-only, filtered to their
+  // lab. Other roles already have richer views (Sample Registration,
+  // Analysis Entry, Unfit Sample Trail) so we show this only to them.
+  { label: 'Water Samples',       icon: '💧', route: '/water-quality/lab-samples',                     permissions: ['view_water_samples'],                                onlyForRoles: ['lab-incharge'] },
   // Unfit Sample Trail is XEN/SE-only — they access it via the dedicated /xen
   // portal (XenUnfitTrail). Hidden from the main-app sidebar entirely.
   { section: 'Reports',                                                                                permissions: ['view_water_samples', 'view_reports'] },
-  { label: 'Individual Sample Report', icon: '🧪', route: '/reports/individual-sample',                permissions: ['view_water_samples'] },
-  { label: 'GAR (Abstract)',      icon: '📄', route: '/reports/gar',                                   permissions: ['view_water_samples', 'view_reports'] },
-  { label: 'GSR (Summary)',       icon: '📋', route: '/reports/gsr',                                   permissions: ['view_water_samples', 'view_reports'] },
-  { label: 'ASR (Analysis Summary)', icon: '📊', route: '/reports/asr',                                permissions: ['view_water_samples', 'view_reports'] },
-  { label: 'CE-Wise Report',      icon: '🗺️', route: '/reports/ce-wise',                              permissions: ['view_water_samples', 'view_reports'] },
-  { label: 'PWR (Parameter-wise)', icon: '🔬', route: '/reports/pwr',                                  permissions: ['view_water_samples', 'view_reports'] },
+  { label: 'Individual Sample Report', icon: '🧪', route: '/reports/individual-sample',                permissions: ['view_individual_sample_report'] },
+  { label: 'GAR (Abstract)',      icon: '📄', route: '/reports/gar',                                   permissions: ['view_gar'] },
+  { label: 'GSR (Summary)',       icon: '📋', route: '/reports/gsr',                                   permissions: ['view_gsr'] },
+  { label: 'ASR (Analysis Summary)', icon: '📊', route: '/reports/asr',                                permissions: ['view_asr'] },
+  { label: 'CE-Wise Report',      icon: '🗺️', route: '/reports/ce-wise',                              permissions: ['view_ce_wise_report'] },
+  { label: 'PWR (Parameter-wise)', icon: '🔬', route: '/reports/pwr',                                  permissions: ['view_pwr'] },
   { label: 'WSS Map',             icon: '🗾', route: '/reports/wss-map',                               permissions: ['view_water_schemes'] },
   { section: 'Finance',                                                                                permissions: ['view_invoices', 'view_payments', 'view_sbp_submissions'] },
   { label: 'Invoices / Revenue',  icon: '🧾', route: '/finance/invoices',                              permissions: ['view_invoices'] },
   { label: 'SBP Submissions',     icon: '🏦', route: '/finance/sbp-submissions',                       permissions: ['view_sbp_submissions'] },
-  { section: 'Asset Management',                                                                       permissions: ['view_inventories', 'view_assets', 'view_materials'] },
-  { label: 'Stock / Inventory',   icon: '📦', route: '/assets/stock-inventory',                        permissions: ['view_inventories', 'view_materials'] },
+  { section: 'Asset Management',                                                                       permissions: ['view_inventories', 'view_assets', 'view_material'] },
+  { label: 'Stock / Inventory',   icon: '📦', route: '/assets/stock-inventory',                        permissions: ['view_inventories', 'view_material'] },
   { label: 'Equipment Register',  icon: '🔧', route: '/assets/equipment-register',                     permissions: ['view_assets'] },
-  { label: 'Demand & Issuance',   icon: '🔄', route: '/assets/demand-issuance',                        permissions: ['view_inventories'] },
+  { label: 'Demand & Issuance',   icon: '🔄', route: '/assets/demand-issuance',                        permissions: ['view_demands'] },
   { section: 'Admin',                                                                                  adminOnly: true },
   { label: 'Users / HR',          icon: '👥', route: '/admin/users-hr',                                adminOnly: true },
-  { label: 'KPI Framework',       icon: '📊', route: '/admin/kpi-framework',                           adminOnly: true },
+  { label: 'KPI Framework',       icon: '📊', route: '/admin/kpi-framework',                           permissions: ['view_kpi_framework'] },
+  { label: 'Training Register',   icon: '🎓', route: '/admin/staff-trainings',                         permissions: ['view_staff_trainings'] },
+  { label: 'SOP Audit',           icon: '✅', route: '/admin/audit-checklist',                         permissions: ['view_audit_inspections'] },
+  { label: 'PT Rounds',           icon: '🧪', route: '/admin/pt-rounds',                               permissions: ['view_pt_rounds'] },
+  { label: 'Verification Log',    icon: '🔎', route: '/admin/verification-visits',                     permissions: ['view_verification_visits'] },
   { label: 'Diaries / Dispatches', icon: '📝', route: '/admin/diaries-dispatches',                     permissions: ['view_diaries', 'view_dispatches'] },
   { label: 'Water Scheme Details', icon: '💧', route: '/wss-details',                                  permissions: ['view_water_schemes'] },
   { section: 'Settings',                                                                               adminOnly: true },
+  // Settings pages are perm-gated so admin can delegate "manage districts /
+  // tehsils / …" to scoped roles via Roles & Permissions. Discounts has no
+  // view perm in DB (single-record, SA-only setting) so it stays adminOnly.
+  { label: 'Provinces',           icon: '🗺️', route: '/settings/provinces',                            permissions: ['view_provinces'] },
+  { label: 'Divisions',           icon: '🗺️', route: '/settings/divisions',                            permissions: ['view_divisions'] },
+  { label: 'Districts',           icon: '🗺️', route: '/settings/districts',                            permissions: ['view_districts'] },
+  { label: 'Tehsils',             icon: '🗺️', route: '/settings/tehsils',                              permissions: ['view_tehsils'] },
+  { label: 'Union Councils',      icon: '🗺️', route: '/settings/union-councils',                       permissions: ['view_union_councils'] },
+  { label: 'Designations',        icon: '👔', route: '/settings/designations',                         permissions: ['view_designations'] },
+  { label: 'Water Parameters',    icon: '🧪', route: '/settings/water-parameters',                     permissions: ['view_tests'] },
+  { label: 'Abbreviations',       icon: '🔤', route: '/settings/abbreviations',                        permissions: ['view_abbreviations'] },
+  { label: 'Units',               icon: '📏', route: '/settings/units',                                permissions: ['view_units'] },
+  { label: 'Complaint Type',      icon: '📋', route: '/settings/complaint-type',                       permissions: ['view_complaint_types'] },
+  { label: 'Discounts',           icon: '💰', route: '/settings/discounts',                            adminOnly: true },
   { label: 'Roles & Permissions', icon: '🔐', route: '/admin/roles-permissions',                       adminOnly: true },
 ]
 
 // Permission-based visibility. Unscoped admin roles see everything.
+// Two optional role-based escape hatches:
+//   onlyForRoles: ['role-slug', ...] — item is visible ONLY to those roles
+//     (overrides the unscoped bypass — useful for role-specific screens
+//     like the lab-incharge "Water Samples" overview)
+//   hideForRoles: ['role-slug', ...] — item is hidden from those roles even
+//     if they hold the gating permission (used to redirect a role to a
+//     different screen, e.g. lab-incharge → Water Samples instead of
+//     Sample Registration / Analysis Entry)
 function canSeeItem(item) {
+  if (Array.isArray(item.onlyForRoles) && item.onlyForRoles.length > 0) {
+    return item.onlyForRoles.some(r => userStore.hasRole(r))
+  }
+  if (Array.isArray(item.hideForRoles) && item.hideForRoles.some(r => userStore.hasRole(r))) {
+    return false
+  }
   if (item.adminOnly) return isUnscoped.value
   if (!item.permissions || item.permissions.length === 0) return true
   if (isUnscoped.value) return true

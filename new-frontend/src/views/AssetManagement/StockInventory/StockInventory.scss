@@ -283,7 +283,12 @@
 }
 
 .tbl-wrap {
-  overflow: hidden;
+  // overflow-x:auto lets wide tables (e.g. Inventory-Out's 12 columns) scroll
+  // horizontally instead of clipping. The row-action menu uses Teleport-to-
+  // body so it's still not clipped by this. Vertical overflow stays hidden
+  // to keep the border-radius corners clean.
+  overflow-x: auto;
+  overflow-y: hidden;
   border: 1px solid #b8c7d4;
   border-radius: 5px;
   background: #fff;
@@ -713,7 +718,14 @@
 
 // ─── Stock-Out table specifics ──────────────────────────────────────────────
 .txn-table {
-  th, td { padding: 11px 14px; font-size: 15px; }
+  // Single-line cells by default — the Inventory-Out table has 12 columns
+  // and the browser was breaking dates ("18-May-26") at hyphens and lab
+  // names at spaces. Long-content cells below opt out via white-space:normal.
+  th, td {
+    padding: 11px 14px;
+    font-size: 15px;
+    white-space: nowrap;
+  }
 
   .txn-id-cell {
     font-family: 'Courier New', ui-monospace, monospace;
@@ -721,8 +733,21 @@
     color: #1d365c;
   }
 
-  .item-name { color: #0f172a; font-weight: 700; }
-  .muted { color: #94a3b8; }
+  // Item Name and Remarks can wrap — they hold longer free-form text. Cap
+  // their min-width so they actually wrap inside the cell instead of
+  // pushing the table even wider.
+  .item-name {
+    color: #0f172a;
+    font-weight: 700;
+    white-space: normal;
+    display: inline-block;
+    max-width: 200px;
+  }
+  .muted {
+    color: #94a3b8;
+    white-space: normal;
+    max-width: 220px;
+  }
 
   .qty-out {
     color: #a51f25;

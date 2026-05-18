@@ -105,6 +105,12 @@ async function handleLogin() {
           // RBAC pass); fall back to the legacy encrypted 'permissions' only
           // if the new field isn't present.
           permissions: userData.permission_names || userData.permissions || [],
+          // Also persist the canonical permission_names array under its own
+          // key — the router auth guard reads `user.permission_names`
+          // directly when checking route meta.permissions, so leaving this
+          // off causes silent route-gate failures (e.g. secretary login
+          // landing on /secretary/dashboard which requires view_secretary_*).
+          permission_names: Array.isArray(userData.permission_names) ? userData.permission_names : [],
           laboratory:  userData.laboratory  || null,
           district:    userData.district    || null,
           district_id: userData.district_id || userData.district?.id || null,
@@ -126,16 +132,19 @@ async function handleLogin() {
         userStore.setUser(user)
 
         // Role-aware redirect:
-        //   chief-engineer            → CE portal (standalone placeholder for now)
+        //   secretary                     → Secretary portal (province-wide oversight)
+        //   chief-engineer / ce           → CE portal (region-scoped oversight)
         //   superintending-engineer / xen → XEN portal (shared layout, scoped queries)
-        //   legacy short slugs (ce/se/secretary) → XEN portal (back-compat)
-        //   everyone else             → main /dashboard
+        //   legacy short slug (se)        → XEN portal (back-compat)
+        //   everyone else                 → main /dashboard
         const roleSlug = (userData.role_slug || '').toString().toLowerCase()
         let target = '/dashboard'
-        if (roleSlug === 'chief-engineer') {
+        if (roleSlug === 'secretary') {
+          target = '/secretary/dashboard'
+        } else if (roleSlug === 'chief-engineer' || roleSlug === 'ce') {
           target = '/ce/dashboard'
         } else if (roleSlug === 'superintending-engineer' || roleSlug === 'xen' ||
-                   roleSlug === 'ce' || roleSlug === 'se' || roleSlug === 'secretary') {
+                   roleSlug === 'se') {
           target = '/xen/dashboard'
         }
         router.push({ path: target, query: { loggedIn: '1' } })

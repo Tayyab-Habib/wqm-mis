@@ -148,7 +148,7 @@ function emptyForm() {
     career_background: '', educational_background: '',
     division_id: '', district_id: '', date_of_joining: '',
     basic_pay_scale: '', designation_id: '', role: '',
-    present_duty: '', laboratory_id: '', assigned_parameters: '',
+    present_duty: '', laboratory_id: '',
     password: '', password_confirmation: '',
     // resolved automatically
     province_id: '', region_id: '', circle_id: '',
@@ -235,7 +235,6 @@ async function openEditModal(user) {
       role:                   u.roles?.[0]?.name       || '',
       present_duty:           u.laboratory_details?.[0]?.present_duty || u.laboratoryDetails?.[0]?.present_duty || '',
       laboratory_id:          u.laboratory_details?.[0]?.laboratory?.id || u.laboratoryDetails?.[0]?.laboratory?.id || '',
-      assigned_parameters:    u.laboratory_details?.[0]?.assigned_parameters || u.laboratoryDetails?.[0]?.assigned_parameters || '',
       password:               '',
       password_confirmation:  '',
       province_id:            u.district?.division?.province_id || '',
@@ -284,7 +283,7 @@ async function submitCreateUser() {
       'name','email','phone','gender','date_of_birth','employee_status',
       'career_background','educational_background','division_id','district_id',
       'province_id','region_id','circle_id','date_of_joining','basic_pay_scale',
-      'designation_id','role','present_duty','laboratory_id','assigned_parameters',
+      'designation_id','role','present_duty','laboratory_id',
       'password','password_confirmation',
     ]
     fields.forEach(f => {
@@ -357,6 +356,7 @@ onMounted(loadUsers)
       </select>
       <div class="tsp"></div>
       <button class="btn btn-sec btn-sm" @click="exportUsers">⬇ Export</button>
+      <button v-write class="btn btn-pri btn-sm" style="margin-left:6px" @click="openCreateModal">+ Create User</button>
     </div>
 
     <div class="tbl-wrap">
@@ -382,8 +382,6 @@ onMounted(loadUsers)
       </table>
       <div class="tbl-footer">
         <span>Showing {{ filtered.length }} of {{ users.length }} users</span>
-        <div class="tsp"></div>
-        <button v-write class="btn btn-pri btn-sm" @click="openCreateModal">+ Create User</button>
       </div>
     </div>
     </div>
@@ -640,8 +638,8 @@ onMounted(loadUsers)
               </div>
             </div>
 
-            <!-- ── Row 6: Present Duty / Laboratory / Assigned Parameters ── -->
-            <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr;margin-bottom:14px">
+            <!-- ── Row 6: Present Duty / Laboratory ── -->
+            <div class="form-grid" style="grid-template-columns:1fr 1fr;margin-bottom:14px">
               <div class="fg2">
                 <label>Present Duty</label>
                 <input type="text" v-model="createForm.present_duty" placeholder="Enter Present Duty" :style="createErrors.present_duty?'border-color:var(--red)':''">
@@ -654,10 +652,6 @@ onMounted(loadUsers)
                   <option v-for="l in allLaboratories" :key="l.id" :value="l.id">{{ l.name }}</option>
                 </select>
                 <span v-if="createErrors.laboratory_id" style="font-size:11px;color:var(--red)">{{ createErrors.laboratory_id[0] }}</span>
-              </div>
-              <div class="fg2">
-                <label>Assigned Parameters</label>
-                <input type="text" v-model="createForm.assigned_parameters" placeholder="Select Assigned Parameter" :style="createErrors.assigned_parameters?'border-color:var(--red)':''">
               </div>
             </div>
 

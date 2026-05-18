@@ -42,7 +42,7 @@ class FetchAssetService
 
     public function fetchAll(): Collection
     {
-        return LaboratoryAsset::query()
+        $query = LaboratoryAsset::query()
             ->with([
                 // Eager-load all SRS §2.7-2/§2.7-3 fields from the master asset.
                 'asset:id,name,kind,category,item_code,condition,date_of_purchase,purchase_value,location,last_verified,remarks,status,specification,country,agency',
@@ -50,8 +50,21 @@ class FetchAssetService
                 'laboratoryAssetLogs' => function ($query) {
                     $query->orderByDesc('id')->with('recipientLab:id,name');
                 },
-            ])
-            ->get();
+            ]);
+
+        // Lab scoping. Unscoped admin + hierarchy roles see every lab's
+        // assets (org-wide oversight). Lab-tier roles (lab-incharge,
+        // lab-assistant, lab-analyst, junior-clerk, secretary etc.) only see
+        // rows for their own lab — matches the per-row check in show() and
+        // prevents cross-lab picks in the Inventory-Out / Log-Out dropdowns
+        // that the controller would have to reject anyway.
+        $unrestrictedRoles = ['system-administrator', 'system-manager', 'view-only-admin', 'chief-engineer', 'superintending-engineer', 'xen'];
+        if (!$this->authUser->hasAnyRole($unrestrictedRoles)) {
+            $userLabId = optional($this->authUser->laboratoryUser)->id;
+            $query->where('laboratory_id', $userLabId);
+        }
+
+        return $query->get();
     }
 
     /**

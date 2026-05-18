@@ -51,6 +51,13 @@ class FinanceRevenueExport implements FromCollection, WithHeadings, WithMapping
             $labId = (int) $this->filters['lab_id'];
             $q->whereHas('waterSample', fn ($qq) => $qq->where('laboratory_id', $labId));
         }
+        // RBAC scope clamp — set by FinanceExportController for scoped roles
+        // (lab-incharge / CE / SE / XEN / analyst / clerk) so they can't
+        // export cross-lab revenue by omitting the lab_id query param.
+        if (!empty($this->filters['lab_ids']) && is_array($this->filters['lab_ids'])) {
+            $labIds = array_map('intval', $this->filters['lab_ids']);
+            $q->whereHas('waterSample', fn ($qq) => $qq->whereIn('laboratory_id', $labIds));
+        }
         if (!empty($this->filters['client_id'])) {
             $q->where('invoiceable_id', (int) $this->filters['client_id']);
         }

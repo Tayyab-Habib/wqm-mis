@@ -28,6 +28,52 @@ class FinanceInvoiceController extends Controller
     ) {
     }
 
+    /**
+     * Authorise write/PDF access to a specific invoice (or set of invoices)
+     * for the current user. Lab-scoped roles can only touch invoices whose
+     * underlying water_sample.laboratory_id is inside their visible-lab set;
+     * unscoped roles (SA / manager / view-only / general-view) pass through.
+     *
+     * Centralised here because record-payment, clubbed-invoice creation, and
+     * the clubbed PDF download all need the same check — without it the
+     * permission gate alone (add_payments / add_invoices) would let any
+     * holder POST against an arbitrary invoice id from another lab.
+     *
+     * Returns true if access is allowed; abort(403) is left to the caller so
+     * each endpoint can shape its own error message / response.
+     */
+    private function userCanTouchInvoice(WaterSampleInvoice $invoice): bool
+    {
+        $user = auth()->user();
+        if (!$user) return false;
+        if ($user->isUnscoped()) return true;
+
+        $visibleLabIds = AuthScope::visibleLabIds($user);
+        if (empty($visibleLabIds)) return false;
+
+        // Direct sample (individual invoice): lab on its waterSample row.
+        if ($invoice->water_sample_id) {
+            $labId = $invoice->waterSample?->laboratory_id
+                ?? DB::table('water_samples')->where('id', $invoice->water_sample_id)->value('laboratory_id');
+            return $labId && in_array((int) $labId, array_map('intval', $visibleLabIds), true);
+        }
+
+        // Clubbed invoice: all children must originate from a visible lab.
+        // We require ALL children to be in-scope so a user can't touch a
+        // clubbed parent that spans multiple labs unless they own all of them.
+        $childLabIds = DB::table('water_sample_invoices')
+            ->join('water_samples', 'water_samples.id', '=', 'water_sample_invoices.water_sample_id')
+            ->where('water_sample_invoices.clubbed_invoice_id', $invoice->id)
+            ->pluck('water_samples.laboratory_id')
+            ->filter()
+            ->unique()
+            ->map(fn ($v) => (int) $v)
+            ->all();
+        if (empty($childLabIds)) return false;
+        $visible = array_map('intval', $visibleLabIds);
+        return count(array_diff($childLabIds, $visible)) === 0;
+    }
+
     /* =========================================================================
      |  F-01  GET /api/finance/invoices
      |        Consolidated Revenue Register.
@@ -141,11 +187,26 @@ class FinanceInvoiceController extends Controller
     {
         $user = auth()->user();
 
+        // Ledger semantic: ONE debit row per billable event + ONE credit row
+        // per payment event from the client's perspective.
+        //
+        // A clubbed invoice creates 1 parent row + N child rows where
+        // parent.net_amount == SUM(children.net_amount). Including both
+        // sides would double-count every clubbed total. Same problem for
+        // payments — recordPayment on a parent distributes to children,
+        // creating mirror log rows.
+        //
+        // Filter: exclude clubbed CHILDREN (clubbed_invoice_id NOT NULL).
+        // Standalone individuals + clubbed parents both have
+        // clubbed_invoice_id = NULL, so this single condition keeps the
+        // right set on both queries.
         $invoicesQ = WaterSampleInvoice::with([
             'waterSample.laboratory:id,name,code',
             'invoiceable',
             'childInvoices.waterSample.laboratory:id,name,code',
-        ])->orderByDesc('created_at');
+        ])
+            ->whereNull('clubbed_invoice_id')
+            ->orderByDesc('created_at');
         AuthScope::waterSampleInvoices($invoicesQ, $user);
         $invoices = $invoicesQ->get();
 
@@ -154,7 +215,9 @@ class FinanceInvoiceController extends Controller
             'waterSampleInvoice.invoiceable',
             'waterSampleInvoice.childInvoices.waterSample.laboratory:id,name,code',
             'user:id,name',
-        ])->orderByDesc('created_at');
+        ])
+            ->whereHas('waterSampleInvoice', fn ($q) => $q->whereNull('clubbed_invoice_id'))
+            ->orderByDesc('created_at');
         AuthScope::waterSampleInvoiceLogs($logsQ, $user);
         $logs = $logsQ->get();
 
@@ -222,7 +285,13 @@ class FinanceInvoiceController extends Controller
      * ===================================================================== */
     public function dues(Request $request): JsonResponse
     {
+        // Exclude clubbed children — their outstanding balance is already
+        // represented by the clubbed parent's balance (children's residual
+        // after distribution is just bookkeeping). Including both sides
+        // would double-count what the client actually owes. Mirrors the
+        // ledger() fix applied for the same reason.
         $duesQ = WaterSampleInvoice::where('balance', '>', 0)
+            ->whereNull('clubbed_invoice_id')
             ->with([
                 'waterSample.laboratory:id,name,code',
                 'invoiceable',
@@ -232,6 +301,24 @@ class FinanceInvoiceController extends Controller
         AuthScope::waterSampleInvoices($duesQ, auth()->user());
         $dues = $duesQ->get()
             ->map(function (WaterSampleInvoice $inv) {
+                // Ageing date: for individual invoices it's the invoice's own
+                // created_at. For CLUBBED parents the bookkeeping-creation
+                // date understates how long the underlying debt is — a
+                // clubbed bill made today from 90-day-old receipts would
+                // bucket as "0–30 days" instead of "90+". Use the earliest
+                // constituent receipt's created_at so the dues ageing
+                // reflects the actual debt age.
+                $ageingFrom = $inv->getRawOriginal('created_at');
+                if ($inv->is_clubbed && $inv->childInvoices->isNotEmpty()) {
+                    $earliestChild = $inv->childInvoices
+                        ->map(fn ($c) => $c->getRawOriginal('created_at'))
+                        ->filter()
+                        ->min();
+                    if ($earliestChild) {
+                        $ageingFrom = $earliestChild;
+                    }
+                }
+
                 return [
                     'id'      => $inv->id,
                     'slug'    => $inv->is_clubbed ? $inv->clubbed_slug : ($inv->waterSample?->slug ?? '—'),
@@ -239,7 +326,7 @@ class FinanceInvoiceController extends Controller
                     'lab'     => $inv->waterSample?->laboratory?->name
                                  ?? $inv->childInvoices->first()?->waterSample?->laboratory?->name
                                  ?? '—',
-                    'date'    => \Carbon\Carbon::parse($inv->getRawOriginal('created_at'))->format('d-M-y'),
+                    'date'    => \Carbon\Carbon::parse($ageingFrom)->format('d-M-y'),
                     'total'   => (float) $inv->net_amount,
                     'balance' => (float) $inv->balance,
                     'status'  => $inv->status_label,
@@ -341,11 +428,17 @@ class FinanceInvoiceController extends Controller
             ->where('invoiceable_type', $type)
             ->where('is_clubbed', false)
             ->whereNull('clubbed_invoice_id')
+            // Only show invoices with an outstanding balance — clubbing a
+            // fully-paid invoice would pollute the books with a roll-up bill
+            // for money already collected. Matches the parent endpoint
+            // /finance/clients-with-unbilled which also filters balance>0.
+            ->where('balance', '>', 0)
             ->when($from, fn ($q) => $q->whereDate('created_at', '>=', $from))
             ->when($to,   fn ($q) => $q->whereDate('created_at', '<=', $to))
             ->with([
-                'waterSample:id,slug,laboratory_id,created_at',
+                'waterSample:id,slug,laboratory_id,water_scheme_id,water_sample_address,created_at',
                 'waterSample.laboratory:id,name,code',
+                'waterSample.waterScheme:id,name',
                 'waterSample.waterSampleDetails.test',
             ])
             ->orderBy('id');
@@ -362,6 +455,11 @@ class FinanceInvoiceController extends Controller
             'status'     => $inv->status_label,
             'lab_id'     => $inv->waterSample?->laboratory_id,
             'lab_code'   => $inv->waterSample?->laboratory?->code,
+            // Location label — WSS name for PHE samples, water_sample_address
+            // for private/walk-in samples. Either is more useful for the
+            // wizard's "Select Samples" step than just the lab code.
+            'wss'        => $inv->waterSample?->waterScheme?->name,
+            'location'   => $inv->waterSample?->water_sample_address,
             'selected'   => true, // SRS Step 3: pre-selected by default
         ]);
 
@@ -439,6 +537,18 @@ class FinanceInvoiceController extends Controller
             }
 
             $labId = optional($children->first()->waterSample)->laboratory_id;
+
+            // RBAC ownership guard — child invoices' lab must be one the
+            // requesting user can see. StoreClubbedInvoiceRequest already
+            // enforces "single lab across all children" cross-row; here we
+            // verify *that* lab belongs to the caller's visible-lab set.
+            $user = auth()->user();
+            if (!$user->isUnscoped()) {
+                $visibleLabIds = array_map('intval', AuthScope::visibleLabIds($user));
+                if (!$labId || !in_array((int) $labId, $visibleLabIds, true)) {
+                    abort(Http::HTTP_FORBIDDEN, 'You can only club invoices from your own lab.');
+                }
+            }
             $total = (float) $children->sum('net_amount');
 
             $client = $this->resolveClient($validated['client_type'], (int) $validated['client_id']);
@@ -490,6 +600,15 @@ class FinanceInvoiceController extends Controller
      * ===================================================================== */
     public function recordPayment(RecordPaymentRequest $request, WaterSampleInvoice $waterSampleInvoice): JsonResponse
     {
+        // RBAC ownership guard — permission alone (add_payments) is not
+        // enough; without this check, a lab-incharge holding add_payments
+        // could POST against any invoice id from another lab.
+        if (!$this->userCanTouchInvoice($waterSampleInvoice)) {
+            return response()->json([
+                'message' => 'You can only record payments for invoices in your lab.',
+            ], Http::HTTP_FORBIDDEN);
+        }
+
         $validated = $request->validated();
 
         $amount = round((float) $validated['amount'], 2);
@@ -543,6 +662,15 @@ class FinanceInvoiceController extends Controller
             return response()->json([
                 'message' => 'This endpoint is only valid for clubbed invoices.',
             ], Http::HTTP_BAD_REQUEST);
+        }
+
+        // RBAC ownership guard — same pattern as recordPayment so a
+        // lab-incharge can't download a clubbed PDF from a different lab
+        // by guessing the id.
+        if (!$this->userCanTouchInvoice($waterSampleInvoice)) {
+            return response()->json([
+                'message' => 'You can only view clubbed invoices for your own lab.',
+            ], Http::HTTP_FORBIDDEN);
         }
 
         $waterSampleInvoice->load([

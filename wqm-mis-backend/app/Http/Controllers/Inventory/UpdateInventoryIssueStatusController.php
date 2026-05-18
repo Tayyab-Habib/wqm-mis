@@ -12,6 +12,8 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Inventory\UpdateInventoryIssueStatusRequest;
 use App\Models\Asset\Asset;
 use App\Models\Asset\AssetLog;
+use App\Models\Asset\LaboratoryAsset;
+use App\Models\Asset\LaboratoryAssetLog;
 use App\Models\Inventory\InventoryDetail;
 use App\Models\Inventory\InventoryLog;
 use App\Models\Material\LaboratoryMaterial;
@@ -89,8 +91,22 @@ class UpdateInventoryIssueStatusController extends Controller
                 ->sum('quantity');
             $sourceLabAvailable = max(0, (float) $sourceLabMaterial->available_quantity - (float) $expired);
         } else {
-            // For Asset, fall back to master quantity for now.
-            $sourceLabAvailable = (float) $inventoryable->quantity;
+            // Asset: the source lab must hold an allocation row with enough qty.
+            // Previously this used the master.quantity which spans all labs and
+            // let an issuing lab issue stock it didn't actually have.
+            $sourceLabAsset = LaboratoryAsset::query()
+                ->where('laboratory_id', $sourceLabId)
+                ->where('asset_id', $inventoryable->id)
+                ->first();
+
+            if (!$sourceLabAsset) {
+                return response()->json([
+                    'message' => "Your lab has no allocation of [{$inventoryable->name}]. Cannot issue.",
+                    'data' => null,
+                ], SymfonyResponse::HTTP_UNPROCESSABLE_ENTITY);
+            }
+
+            $sourceLabAvailable = (float) $sourceLabAsset->quantity;
         }
 
         if ($request->quantity > $sourceLabAvailable) {
@@ -155,6 +171,17 @@ class UpdateInventoryIssueStatusController extends Controller
                             'quantity' => $assetsLogsSum,
 //                            'status' => $status
                         ]);
+
+                    // Debit the SOURCE lab's allocation FIRST so the receiving
+                    // lab credit doesn't depend on it. The pre-flight already
+                    // guaranteed sufficient qty exists at the source.
+                    $this->deductAssetFromSourceLab(
+                        $sourceLabId,
+                        $inventoryDetail['inventoryable_id'],
+                        (float) $request->quantity,
+                        $assetLog,
+                        $inventoryDetail
+                    );
 
                     $this->addAssetToLaboratory($request, $inventoryDetail, $assetLog);
 
@@ -279,6 +306,48 @@ class UpdateInventoryIssueStatusController extends Controller
             'message' => 'Error updating status of inventory-detail',
             'data' => null,
         ], SymfonyResponse::HTTP_BAD_REQUEST);
+    }
+
+    /**
+     * Debit issued quantity from the source lab's laboratory_assets allocation
+     * and write an OUT entry to its log. Parallels deductMaterialFromSourceLab
+     * — without this, an asset demand issuance silently double-counted (debit
+     * never happened at source, only credit at destination).
+     */
+    private function deductAssetFromSourceLab(int $sourceLabId, int $assetId, float $quantity, AssetLog $assetLog, InventoryDetail $inventoryDetail): void
+    {
+        $sourceLabAsset = LaboratoryAsset::query()
+            ->where('laboratory_id', $sourceLabId)
+            ->where('asset_id', $assetId)
+            ->first();
+
+        if (!$sourceLabAsset) {
+            // Pre-flight already verified this; fail loudly if it's gone.
+            throw new \RuntimeException("Source lab {$sourceLabId} has no allocation of asset {$assetId}.");
+        }
+
+        $inventory       = $inventoryDetail->inventory;
+        $recipientLabId  = $inventory?->laboratory_id;
+        $recipientUser   = $inventory?->createdByUser ?? \App\Models\User::find($inventory?->created_by);
+        $recipientName   = $recipientUser?->name;
+        $recipientRole   = $recipientUser?->roles?->first()?->name;
+
+        // Lab-ledger OUT entry, linked to the global asset_log.
+        $sourceLabAsset->laboratoryAssetLogs()->create([
+            'asset_log_id'     => $assetLog->id,
+            'quantity'         => (string) (-$quantity),
+            'unit'             => $assetLog->unit,
+            'status'           => AssetLogStatusEnum::OUT->value,
+            'type'             => 'inter_lab_issuance',
+            'recipient_lab_id' => $recipientLabId,
+            'recipient_name'   => $recipientName,
+            'recipient_role'   => $recipientRole,
+        ]);
+
+        // Decrement allocation directly (don't recompute from log sums — legacy
+        // allocations without an IN log would otherwise vanish).
+        $newQty = max(0, (float) $sourceLabAsset->quantity - $quantity);
+        $sourceLabAsset->update(['quantity' => (string) $newQty]);
     }
 
     private function addAssetToLaboratory(UpdateInventoryIssueStatusRequest $request, InventoryDetail $inventoryDetail, AssetLog $assetLog)

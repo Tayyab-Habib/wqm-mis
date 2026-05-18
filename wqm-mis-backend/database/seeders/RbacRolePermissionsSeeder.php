@@ -102,6 +102,19 @@ class RbacRolePermissionsSeeder extends Seeder
             $labInchargePerms = array_unique(array_merge($allReadOnly, $reportPerms, $labInchargeWrites));
             // Filter to only existing permissions (avoid 'Permission does not exist' errors)
             $labInchargePerms = Permission::whereIn('name', $labInchargePerms)->pluck('name')->toArray();
+
+            // Per request 2026-05-17: lab-incharge should not see Diaries /
+            // Dispatches or Demand & Issuance in the sidebar — those screens
+            // are routed to junior-clerk and central-lab respectively. Strip
+            // the gating perms before sync. The $allReadOnly glob above pulls
+            // every view_*/show_* in, so we have to filter them out here.
+            $labInchargeHidden = [
+                'view_diaries', 'show_diaries', 'add_diaries', 'edit_diaries',
+                'view_dispatches', 'show_dispatches', 'add_dispatches', 'edit_dispatches',
+                'view_demands',
+            ];
+            $labInchargePerms = array_values(array_diff($labInchargePerms, $labInchargeHidden));
+
             $this->syncRole('lab-incharge', $labInchargePerms);
 
             // ── view-only-admin (Director Labs) ──
@@ -176,6 +189,161 @@ class RbacRolePermissionsSeeder extends Seeder
                     ['name' => $name, 'guard_name' => 'web'],
                     ['module_id' => $invoicesModuleId]
                 );
+            }
+
+            // Secretary portal perms — added 2026-05-17 (RBAC-Updated branch).
+            // 7 dedicated perms (1 umbrella + 6 per-screen) gating every
+            // Secretary portal endpoint and frontend route. The secretary
+            // role gets all 7 by default; admins can revoke individual
+            // screens via the Module Access grid. Idempotent on re-run.
+            $reportsModuleIdForSecretary = DB::table('modules')->where('name', 'reports')->value('id');
+            $secretaryPortalPerms = [
+                'view_secretary_portal',
+                'view_secretary_dashboard',
+                'view_secretary_ce_unfit',
+                'view_secretary_fate_decisions',
+                'view_secretary_persistent_unfit',
+                'view_secretary_gar',
+                'view_secretary_wss_register',
+            ];
+            foreach ($secretaryPortalPerms as $name) {
+                Permission::firstOrCreate(
+                    ['name' => $name, 'guard_name' => 'web'],
+                    ['module_id' => $reportsModuleIdForSecretary]
+                );
+            }
+            $secretaryRole = Role::firstOrCreate(['name' => 'secretary', 'guard_name' => 'web']);
+            foreach ($secretaryPortalPerms as $p) {
+                if (!$secretaryRole->hasPermissionTo($p)) {
+                    $secretaryRole->givePermissionTo($p);
+                }
+            }
+
+            // CE portal perms — added 2026-05-17 (RBAC-Updated branch).
+            // Same pattern as Secretary: 1 umbrella + 6 per-screen perms
+            // gating every CE portal endpoint and frontend route. The
+            // chief-engineer role gets all 7 by default. Admin can revoke
+            // individual screens via the Module Access grid.
+            $reportsModuleIdForCe = DB::table('modules')->where('name', 'reports')->value('id');
+            $cePortalPerms = [
+                'view_ce_portal',
+                'view_ce_dashboard',
+                'view_ce_circle_detail',
+                'view_ce_escalated_cases',
+                'view_ce_persistent_unfit',
+                'view_ce_gar',
+                'view_ce_wss_register',
+            ];
+            foreach ($cePortalPerms as $name) {
+                Permission::firstOrCreate(
+                    ['name' => $name, 'guard_name' => 'web'],
+                    ['module_id' => $reportsModuleIdForCe]
+                );
+            }
+            $ceRole = Role::firstOrCreate(['name' => 'chief-engineer', 'guard_name' => 'web']);
+            foreach ($cePortalPerms as $p) {
+                if (!$ceRole->hasPermissionTo($p)) {
+                    $ceRole->givePermissionTo($p);
+                }
+            }
+
+            // XEN portal perms — added 2026-05-17 (RBAC-Updated branch).
+            // Largest portal: 1 umbrella + 7 per-screen view + 2 write perms
+            // (submit_xen_retest for POST /actions/request-retest, and
+            // update_xen_settings for PUT /settings). The XEN portal is
+            // shared by both xen and superintending-engineer roles (per
+            // XEN_ROLES in router/index.js), so both get the bundle.
+            $reportsModuleIdForXen = DB::table('modules')->where('name', 'reports')->value('id');
+            $xenPortalPerms = [
+                'view_xen_portal',
+                'view_xen_dashboard',
+                'view_xen_unfit_trail',
+                'view_xen_retest_samples',
+                'view_xen_gsr',
+                'view_xen_isr',
+                'view_xen_wss_register',
+                'view_xen_settings',
+                'submit_xen_retest',
+                'update_xen_settings',
+            ];
+            foreach ($xenPortalPerms as $name) {
+                Permission::firstOrCreate(
+                    ['name' => $name, 'guard_name' => 'web'],
+                    ['module_id' => $reportsModuleIdForXen]
+                );
+            }
+            foreach (['xen', 'superintending-engineer'] as $xenRoleName) {
+                $r = Role::firstOrCreate(['name' => $xenRoleName, 'guard_name' => 'web']);
+                foreach ($xenPortalPerms as $p) {
+                    if (!$r->hasPermissionTo($p)) $r->givePermissionTo($p);
+                }
+            }
+
+            // Dedicated per-report view perms — added 2026-05-17. The reports
+            // used to share view_water_samples + view_reports, which made
+            // granular per-report grants impossible (granting one revealed
+            // them all in the sidebar). Each report now has its own perm and
+            // gets gated on it directly.
+            $reportsModuleId = DB::table('modules')->where('name', 'reports')->value('id');
+            $perReportPerms = [
+                'view_individual_sample_report',
+                'view_gar',
+                'view_gsr',
+                'view_asr',
+                'view_ce_wise_report',
+                'view_pwr',
+            ];
+            foreach ($perReportPerms as $name) {
+                Permission::firstOrCreate(
+                    ['name' => $name, 'guard_name' => 'web'],
+                    ['module_id' => $reportsModuleId]
+                );
+            }
+            // Backfill: every role that already holds view_water_samples gets
+            // ALL the new per-report perms by default. Preserves existing
+            // access for everyone; admins can then unpick individual reports
+            // via the Module Access grid. junior-clerk does NOT hold
+            // view_water_samples so this is a no-op for them — admin grants
+            // individual reports through the UI as needed.
+            // Spatie's `permission()` scope lives on the User model, not Role.
+            // To find roles that hold a permission, query through the relation.
+            $rolesWithSamples = Role::query()
+                ->whereHas('permissions', fn ($q) => $q->where('name', 'view_water_samples'))
+                ->pluck('name')->toArray();
+            foreach ($rolesWithSamples as $rname) {
+                $r = Role::query()->where('name', $rname)->first();
+                if (!$r) continue;
+                foreach ($perReportPerms as $p) {
+                    if (!$r->hasPermissionTo($p)) $r->givePermissionTo($p);
+                }
+            }
+
+            // view_demands — added 2026-05-17. Separates the "Demand &
+            // Issuance" sidebar gate from view_inventories so admins can hide
+            // D&I per-role without also hiding Stock / Inventory (those used
+            // to share view_inventories). Granted to every role that already
+            // has view_inventories EXCEPT lab-incharge, who is hidden per the
+            // labInchargeHidden block above.
+            // Note: module was renamed from 'issues' -> 'demand_and_issuance'
+            // in ModuleSeeder. Lookup must use the new name on fresh installs.
+            $issuanceModuleId = DB::table('modules')->where('name', 'demand_and_issuance')->value('id')
+                ?? DB::table('modules')->where('name', 'issues')->value('id');
+            Permission::firstOrCreate(
+                ['name' => 'view_demands', 'guard_name' => 'web'],
+                ['module_id' => $issuanceModuleId]
+            );
+            $grantViewDemandsTo = [
+                'system-administrator', 'system-manager',
+                'view-only-admin',      'general-view-account',
+                'chief-engineer',       'superintending-engineer',
+                'xen',
+                // lab-incharge intentionally omitted.
+            ];
+            foreach ($grantViewDemandsTo as $rname) {
+                $r = Role::query()->where('name', $rname)->first();
+                if ($r && !$r->hasPermissionTo('view_demands')) {
+                    $r->givePermissionTo('view_demands');
+                }
             }
 
             // Phase B perms — sample-queue visibility model is now permission-
@@ -268,6 +436,130 @@ class RbacRolePermissionsSeeder extends Seeder
                     ->filter(fn ($u) => $u->laboratoryUser?->id === (int) $centralLabId);
                 foreach ($centralUsers as $u) {
                     $u->givePermissionTo($centralLabPerms);
+                }
+            }
+
+            // KPI Framework — admin enters the 4 manual KPIs (001/007/008/009)
+            // as monthly per-lab snapshots. View/manage perms split so a future
+            // read-only auditor role can be added without granting write.
+            // module_id is NOT NULL in permissions; admin-side meta perms live
+            // under the settings module (id 15 on this DB).
+            $kpiModuleId = DB::table('modules')->where('name', 'settings')->value('id');
+            $kpiPerms = [
+                'view_kpi_framework',
+                'manage_kpi_framework',
+                // Quality / Compliance modules (KPI-001/007/008/009 data sources)
+                'view_staff_trainings',     'manage_staff_trainings',
+                'view_verification_visits', 'manage_verification_visits',
+                'view_audit_inspections',   'manage_audit_inspections',
+                'view_pt_rounds',           'manage_pt_rounds',
+                'submit_pt_results',        // lab-incharge submits their own PT readings
+            ];
+            foreach ($kpiPerms as $name) {
+                Permission::firstOrCreate(
+                    ['name' => $name, 'guard_name' => 'web'],
+                    ['module_id' => $kpiModuleId]
+                );
+            }
+            $kpiViewers = [
+                'system-administrator', 'system-manager',
+                'view-only-admin',      'general-view-account',
+                'secretary',
+                'chief-engineer',       'superintending-engineer', 'xen',
+                'lab-incharge',
+            ];
+            foreach ($kpiViewers as $rname) {
+                $r = Role::query()->where('name', $rname)->first();
+                if ($r && !$r->hasPermissionTo('view_kpi_framework')) {
+                    $r->givePermissionTo('view_kpi_framework');
+                }
+            }
+            $kpiManagers = ['system-administrator', 'system-manager'];
+            foreach ($kpiManagers as $rname) {
+                $r = Role::query()->where('name', $rname)->first();
+                if ($r && !$r->hasPermissionTo('manage_kpi_framework')) {
+                    $r->givePermissionTo('manage_kpi_framework');
+                }
+            }
+
+            // Training Register (KPI-007): lab-incharge stands in for RO/SRO
+            // (closest existing role); admin/manager get full access; view-only
+            // roles read.
+            $trainingReaders = [
+                'system-administrator', 'system-manager',
+                'view-only-admin',      'general-view-account',
+                'secretary',
+                'chief-engineer',       'superintending-engineer', 'xen',
+                'lab-incharge',
+            ];
+            $trainingWriters = ['system-administrator', 'system-manager', 'lab-incharge'];
+            foreach ($trainingReaders as $rname) {
+                $r = Role::query()->where('name', $rname)->first();
+                if ($r && !$r->hasPermissionTo('view_staff_trainings')) {
+                    $r->givePermissionTo('view_staff_trainings');
+                }
+            }
+            foreach ($trainingWriters as $rname) {
+                $r = Role::query()->where('name', $rname)->first();
+                if ($r && !$r->hasPermissionTo('manage_staff_trainings')) {
+                    $r->givePermissionTo('manage_staff_trainings');
+                }
+            }
+
+            // Verification Log (KPI-009): technical-head role doesn't exist
+            // yet — admin/manager have write; same readers as training.
+            $verificationReaders = $trainingReaders;
+            $verificationWriters = ['system-administrator', 'system-manager'];
+            foreach ($verificationReaders as $rname) {
+                $r = Role::query()->where('name', $rname)->first();
+                if ($r && !$r->hasPermissionTo('view_verification_visits')) {
+                    $r->givePermissionTo('view_verification_visits');
+                }
+            }
+            foreach ($verificationWriters as $rname) {
+                $r = Role::query()->where('name', $rname)->first();
+                if ($r && !$r->hasPermissionTo('manage_verification_visits')) {
+                    $r->givePermissionTo('manage_verification_visits');
+                }
+            }
+
+            // Audit Checklist (KPI-008): same access model as Verification.
+            $auditReaders = $trainingReaders;
+            $auditWriters = ['system-administrator', 'system-manager'];
+            foreach ($auditReaders as $rname) {
+                $r = Role::query()->where('name', $rname)->first();
+                if ($r && !$r->hasPermissionTo('view_audit_inspections')) {
+                    $r->givePermissionTo('view_audit_inspections');
+                }
+            }
+            foreach ($auditWriters as $rname) {
+                $r = Role::query()->where('name', $rname)->first();
+                if ($r && !$r->hasPermissionTo('manage_audit_inspections')) {
+                    $r->givePermissionTo('manage_audit_inspections');
+                }
+            }
+
+            // PT Module (KPI-001): admin creates rounds, labs submit their
+            // own readings, everyone reads.
+            $ptReaders = $trainingReaders;
+            $ptWriters = ['system-administrator', 'system-manager'];
+            $ptSubmitters = ['lab-incharge', 'laboratory-assistant'];
+            foreach ($ptReaders as $rname) {
+                $r = Role::query()->where('name', $rname)->first();
+                if ($r && !$r->hasPermissionTo('view_pt_rounds')) {
+                    $r->givePermissionTo('view_pt_rounds');
+                }
+            }
+            foreach ($ptWriters as $rname) {
+                $r = Role::query()->where('name', $rname)->first();
+                if ($r && !$r->hasPermissionTo('manage_pt_rounds')) {
+                    $r->givePermissionTo('manage_pt_rounds');
+                }
+            }
+            foreach ($ptSubmitters as $rname) {
+                $r = Role::query()->where('name', $rname)->first();
+                if ($r && !$r->hasPermissionTo('submit_pt_results')) {
+                    $r->givePermissionTo('submit_pt_results');
                 }
             }
 

@@ -19,7 +19,7 @@ class StoreInventoryOutRequest extends FormRequest
     {
         return [
             'asset_id'           => ['required', Rule::exists('assets', 'id')],
-            'quantity'           => ['required', 'decimal:0,2', 'gt:0'],
+            'quantity'           => ['required', 'integer', 'min:1'],
             'unit'               => ['required', 'string', 'max:255'],
             'date'               => ['nullable', 'date_format:Y-m-d'],
             'type'               => ['required', Rule::in(AssetDisposalTypeEnum::values())],
@@ -39,8 +39,8 @@ class StoreInventoryOutRequest extends FormRequest
     public function messages()
     {
         return [
-            'quantity.decimal' => 'The quantity must be a valid decimal number',
-            'quantity.gt'      => 'The quantity must be greater than zero',
+            'quantity.integer' => 'The quantity must be a whole number (no decimals).',
+            'quantity.min'     => 'The quantity must be at least 1.',
         ];
     }
 }

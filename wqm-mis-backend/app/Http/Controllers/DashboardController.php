@@ -14,8 +14,13 @@ use App\Models\Complaint;
 use App\Models\District;
 use App\Models\Inventory\Inventory;
 use App\Models\Issues\Issue;
+use App\Models\KpiLabPeriod;
 use App\Models\Laboratories\Laboratory;
 use App\Models\Scopes\LatestScope;
+use App\Models\AuditInspection;
+use App\Models\PtRoundResult;
+use App\Models\StaffTraining;
+use App\Models\VerificationVisit;
 use App\Models\WaterSamples\WaterSample;
 use App\Models\WaterScheme;
 use App\Services\DashboardService;
@@ -50,6 +55,97 @@ class DashboardController extends Controller
     }
 
     /**
+     * Roles whose dashboard view should be scoped by the lab(s) they're
+     * attached to via the laboratory_user pivot. Hierarchy roles (CE / SE /
+     * XEN / Secretary) are deliberately excluded — they have their own
+     * portals (XenDashboardController etc.) where region/circle/division
+     * scoping lives. If they land on the main dashboard, they fall back to
+     * the unscoped behavior rather than getting the wrong (lab-pivot) scope.
+     */
+    private const LAB_SCOPED_ROLES = [
+        'lab-incharge',
+        'laboratory-assistant',
+        'junior-clerk',
+    ];
+
+    /**
+     * Lab IDs the current user is attached to (laboratory_user pivot).
+     * Returns null = "no filter, see everything" for:
+     *   - unscoped roles (SA / manager / view-only / general-view)
+     *   - hierarchy roles (CE / SE / XEN / Secretary) — they have their own
+     *     portals where the correct scope (region/circle/division) lives;
+     *     on this dashboard they fall back to the pre-RBAC unscoped view.
+     * Returns [0] for lab-tier roles with no lab attached so callers'
+     * whereIn() matches nothing (safer than degenerating to unscoped).
+     */
+    private function userLabIds(): ?array
+    {
+        if ($this->isSystemAdministrator) {
+            return null;
+        }
+        if (!$this->authUser?->hasAnyRole(self::LAB_SCOPED_ROLES)) {
+            return null;
+        }
+        $ids = $this->authUser
+            ?->laboratories()
+            ->pluck('laboratories.id')
+            ->toArray() ?? [];
+        return $ids ?: [0];
+    }
+
+    /**
+     * District IDs covered by the user's lab(s). Used to scope WSS counts
+     * since WSS belong to districts, not labs directly.
+     *
+     * Resolution chain (first non-empty wins):
+     *   1. district_laboratory pivot — canonical "declared catchment"
+     *   2. Distinct district_ids from samples this lab has processed —
+     *      implicit catchment, survives the pivot being unseeded (which it
+     *      currently is across all 9 labs in this DB)
+     *   3. The user's home district — last-ditch fallback
+     *
+     * Returns null = "no filter" for unscoped + hierarchy roles.
+     */
+    private function userDistrictIds(): ?array
+    {
+        if ($this->isSystemAdministrator) {
+            return null;
+        }
+        if (!$this->authUser?->hasAnyRole(self::LAB_SCOPED_ROLES)) {
+            return null;
+        }
+        $labIds = $this->userLabIds();
+        if (empty($labIds) || $labIds === [0]) {
+            return [0];
+        }
+
+        // 1. Canonical pivot
+        $ids = DB::table('district_laboratory')
+            ->whereIn('laboratory_id', $labIds)
+            ->distinct()
+            ->pluck('district_id')
+            ->toArray();
+
+        // 2. Fallback: districts inferred from actual samples this lab
+        //    has processed. Survives the pivot being empty in dev/test DB.
+        if (empty($ids)) {
+            $ids = DB::table('water_samples')
+                ->whereIn('laboratory_id', $labIds)
+                ->whereNotNull('district_id')
+                ->distinct()
+                ->pluck('district_id')
+                ->toArray();
+        }
+
+        // 3. Final fallback: user's home district
+        if (empty($ids) && $this->authUser?->district_id) {
+            $ids = [$this->authUser->district_id];
+        }
+
+        return $ids ?: [0];
+    }
+
+    /**
      * Handle the incoming request.
      *
      * @param DashboardRequest $request
@@ -81,15 +177,23 @@ class DashboardController extends Controller
 //        $districtWiseContaminantsCount = $dashboardService->getDistrictWiseContaminantsCount();
 
 
+        // RBAC: scoped roles see only their own lab(s) in any "lab count"
+        // surface (the "Labs: N" / "N Labs total" pills on the cards).
+        $userLabIds = $this->userLabIds();
         $totalLaboratories = Laboratory::query()
             ->when(isset($request->division_id), fn(Builder $query) => $query->where('division_id', '=', $request->division_id))
             ->when(isset($request->district_id), fn(Builder $query) => $query->where('district_id', '=', $request->district_id))
+            ->when($userLabIds !== null, fn(Builder $query) => $query->whereIn('id', $userLabIds))
             ->count();
 
+        // WSS count is scoped to the union of districts covered by the user's
+        // lab(s) — not just users.district_id, which only covers the user's
+        // home district and missed multi-district lab catchments.
+        $userDistrictIds = $this->userDistrictIds();
         $totalWaterSchemes = WaterScheme::query()
             ->when(isset($request->division_id), fn(Builder $query) => $query->where('division_id', '=', $request->division_id))
             ->when(isset($request->district_id), fn(Builder $query) => $query->where('district_id', '=', $request->district_id))
-            ->when(!$this->isSystemAdministrator, fn(Builder $query) => $query->where('district_id', '=', $this->authUser?->district_id))
+            ->when($userDistrictIds !== null, fn(Builder $query) => $query->whereIn('district_id', $userDistrictIds))
             ->count();
 
 
@@ -112,11 +216,25 @@ class DashboardController extends Controller
             ])
             ->count();
 
+        // RBAC: every WSS-breakdown query below scopes to the user's covered
+        // districts so the WSS Status row (Operational / Non-Op / Abandoned /
+        // WIP / Total) stays consistent with the Total WSS count above.
+        // Previously these used withoutGlobalScope() with no extra filtering,
+        // which produced the "Operational=3 vs Total=1" inconsistency for
+        // lab-incharge users on the production dashboard.
+        $scopeWss = function (Builder $query) use ($userDistrictIds) {
+            if ($userDistrictIds !== null) {
+                $query->whereIn('district_id', $userDistrictIds);
+            }
+            return $query;
+        };
+
         $operationWise = WaterScheme::query()
             ->select('operation')
             ->whereIn('operation', ['Operational', 'Non-Operational', 'Work in progress', 'Abandoned'])
             ->selectRaw('COUNT(*) as count')
             ->withoutGlobalScope(LatestScope::class)
+            ->tap($scopeWss)
             ->groupBy('operation')
             ->get()
             ->mapWithKeys(function ($operation) {
@@ -129,6 +247,7 @@ class DashboardController extends Controller
             ->whereIn('chamber', ['Satisfactory', 'Good', 'Worst'])
             ->selectRaw('COUNT(*) as count')
             ->withoutGlobalScope(LatestScope::class)
+            ->tap($scopeWss)
             ->groupBy('chamber')
             ->get()
             ->mapWithKeys(function ($chamber) {
@@ -138,6 +257,7 @@ class DashboardController extends Controller
         $totalSourceCount = WaterScheme::query()
             ->whereIn('source_type', ['Gravity', 'Surface Water'])
             ->withoutGlobalScope(LatestScope::class)
+            ->tap($scopeWss)
             ->count();
 
         $source = WaterScheme::query()
@@ -145,10 +265,11 @@ class DashboardController extends Controller
             ->whereIn('source_type', ['Gravity', 'Surface Water'])
             ->selectRaw('COUNT(*) as count')
             ->withoutGlobalScope(LatestScope::class)
+            ->tap($scopeWss)
             ->groupBy('source_type')
             ->get()
             ->mapWithKeys(function ($source) use ($totalSourceCount) {
-                $percentage = ($source->count / $totalSourceCount) * 100;
+                $percentage = $totalSourceCount > 0 ? ($source->count / $totalSourceCount) * 100 : 0;
                 return [$source->source_type => round($percentage, 1)];
             });
 
@@ -157,6 +278,7 @@ class DashboardController extends Controller
         $totalOperationalCount = WaterScheme::query()
             ->whereIn('operation', ['Operational', 'Non-Operational'])
             ->withoutGlobalScope(LatestScope::class)
+            ->tap($scopeWss)
             ->count();
 
         $operation = WaterScheme::query()
@@ -164,10 +286,11 @@ class DashboardController extends Controller
             ->whereIn('operation', ['Operational', 'Non-Operational'])
             ->selectRaw('COUNT(*) as count')
             ->withoutGlobalScope(LatestScope::class)
+            ->tap($scopeWss)
             ->groupBy('operation')
             ->get()
             ->mapWithKeys(function ($operation) use ($totalOperationalCount) {
-                $percentage = ($operation->count / $totalOperationalCount) * 100;
+                $percentage = $totalOperationalCount > 0 ? ($operation->count / $totalOperationalCount) * 100 : 0;
                 return [$operation->operation => round($percentage, 1)];
             });
 
@@ -176,6 +299,7 @@ class DashboardController extends Controller
         $totalPowerInputCount = WaterScheme::query()
             ->whereIn('power_input', ['Wapda', 'Solar'])
             ->withoutGlobalScope(LatestScope::class)
+            ->tap($scopeWss)
             ->count();
 
         $powerInput = WaterScheme::query()
@@ -183,10 +307,11 @@ class DashboardController extends Controller
             ->whereIn('power_input', ['Wapda', 'Solar'])
             ->selectRaw('COUNT(*) as count')
             ->withoutGlobalScope(LatestScope::class)
+            ->tap($scopeWss)
             ->groupBy('power_input')
             ->get()
             ->mapWithKeys(function ($powerInput) use ($totalPowerInputCount) {
-                $percentage = ($powerInput->count / $totalPowerInputCount) * 100;
+                $percentage = $totalPowerInputCount > 0 ? ($powerInput->count / $totalPowerInputCount) * 100 : 0;
                 return [$powerInput->power_input->value => round($percentage, 1)];
             });
 
@@ -407,16 +532,22 @@ class DashboardController extends Controller
      * Lab × KPI performance matrix for CH-05.
      *
      * Computes 5 KPIs from existing schema (002/003/004/005/006). The other 4
-     * (001/007/008/009) currently have no data source — returned as null so the
-     * frontend can render them as "—" with a "data source not yet tracked"
-     * tooltip. No fake values are returned.
+     * (001/007/008/009) are merged from dedicated modules (PT, Training
+     * Register, Audit Checklist, Verification Log) — or fall back to manual
+     * monthly entries in kpi_lab_periods when those modules have no data yet.
      *
-     * Definitions (per [[srs_kpi_definitions]]):
+     * Definitions (verified against SRS §3.4 KPI matrix on 2026-05-18):
      *   KPI-002 Equipment Calibration   — % of calibration schedules with ≥1 completed log in the period
-     *   KPI-003 Retest of Unfit Samples — % of unfit samples where current_round > 1
-     *   KPI-004 Monthly Sampling Coverage — % of WSS in lab's covered districts that had ≥1 sample in the period
-     *   KPI-005 Turnaround Time         — % of analyzed samples meeting analyzed_at - sampled_at ≤ 48h
-     *   KPI-006 Data Entry Timeliness   — % of samples meeting created_at - sampled_at ≤ 24h
+     *   KPI-003 Retest of Unfit Samples — % of unfit samples that received a XEN action AND have current_round > 1
+     *                                     SRS: "Retest module (after XEN action only)"
+     *   KPI-004 Monthly Sampling Coverage — % of monthly-target samples actually collected, where
+     *                                       monthly target = 15% × WSS count per lab's covered districts.
+     *                                       SRS: "15% of WSS count auto-calculated per district"
+     *   KPI-005 Turnaround Time         — % of REPORTED samples meeting (reported_at - created_at) ≤ 48h.
+     *                                     SRS: "Receipt → Report timestamps". `created_at` proxies receipt
+     *                                     (no `received_at` column on water_samples).
+     *   KPI-006 Data Entry Timeliness   — % of ANALYZED samples meeting (analyzed_at - created_at) ≤ 24h.
+     *                                     SRS: "Entry timestamp vs analysis timestamp".
      */
     public function labKpis(DashboardRequest $request): JsonResponse
     {
@@ -427,12 +558,22 @@ class DashboardController extends Controller
         // calibration-log query (which doesn't go through applyDashboardFilters).
         [$periodStart, $periodEnd] = $this->resolvePeriodBounds($request);
 
+        // RBAC: lab-incharge (and other scoped roles) see only their own
+        // lab(s) in the KPI matrix — not the cross-lab comparison view
+        // that SA / manager / view-only roles get.
+        $userLabIds = $this->userLabIds();
         $labs = Laboratory::query()
             ->select('id', 'name')
+            ->when($userLabIds !== null, fn(Builder $q) => $q->whereIn('id', $userLabIds))
             ->orderBy('name')
             ->get();
 
-        $rows = $labs->map(function (Laboratory $lab) use ($request, $tatTargetHours, $entryTargetHours, $periodStart, $periodEnd) {
+        // Manual KPI values (KPI-001/007/008/009) — admin enters monthly per lab
+        // via the KPI Framework page. We pull the LATEST period per (lab, kpi)
+        // and merge those into each lab's row below. Done in one query.
+        $manualKpis = $this->latestManualKpiValues($labs->pluck('id')->all());
+
+        $rows = $labs->map(function (Laboratory $lab) use ($request, $tatTargetHours, $entryTargetHours, $periodStart, $periodEnd, $manualKpis) {
             // Base sample query — scoped to this lab + honors dashboard filters
             // (region/district/duration/type). Lab filter from the request is
             // intentionally ignored since this endpoint produces a per-lab matrix.
@@ -440,27 +581,43 @@ class DashboardController extends Controller
                 ->where('laboratory_id', $lab->id)
                 ->applyDashboardFilters($request, 'water_samples');
 
-            // KPI-003: retest of unfit
+            // KPI-003: retest of unfit (after XEN action only)
+            // SRS: "Retest module (after XEN action only)" — only count retests
+            // that came from a XEN intervention, not lab-initiated retests.
             $totalUnfit = (clone $baseSamples)->whereIn('result', ['Unfit', '2'])->count();
-            $retested   = (clone $baseSamples)->whereIn('result', ['Unfit', '2'])->where('current_round', '>', 1)->count();
-
-            // KPI-005: TAT (only count samples that have been both sampled and analyzed)
-            $tatPool   = (clone $baseSamples)->whereNotNull('sampled_at')->whereNotNull('analyzed_at')->count();
-            $tatOnTime = (clone $baseSamples)->whereNotNull('sampled_at')->whereNotNull('analyzed_at')
-                ->whereRaw('TIMESTAMPDIFF(HOUR, sampled_at, analyzed_at) <= ?', [$tatTargetHours])
+            $retested   = (clone $baseSamples)
+                ->whereIn('result', ['Unfit', '2'])
+                ->where('current_round', '>', 1)
+                ->whereExists(function ($q) {
+                    $q->select(DB::raw(1))
+                      ->from('water_sample_actions')
+                      ->whereColumn('water_sample_actions.water_sample_id', 'water_samples.id');
+                })
                 ->count();
 
-            // KPI-006: data entry timeliness
-            $entryPool   = (clone $baseSamples)->whereNotNull('sampled_at')->count();
-            $entryOnTime = (clone $baseSamples)->whereNotNull('sampled_at')
-                ->whereRaw('TIMESTAMPDIFF(HOUR, sampled_at, created_at) <= ?', [$entryTargetHours])
+            // KPI-005: TAT — Receipt → Report (created_at → reported_at).
+            // Only count samples that have actually been reported; samples
+            // mid-pipeline don't yet have a TAT to measure.
+            $tatPool   = (clone $baseSamples)->whereNotNull('reported_at')->count();
+            $tatOnTime = (clone $baseSamples)->whereNotNull('reported_at')
+                ->whereRaw('TIMESTAMPDIFF(HOUR, created_at, reported_at) <= ?', [$tatTargetHours])
                 ->count();
 
-            // KPI-004: monthly sampling coverage — schemes touched / schemes in covered districts
+            // KPI-006: data entry timeliness — Entry → Analysis (created_at → analyzed_at).
+            $entryPool   = (clone $baseSamples)->whereNotNull('analyzed_at')->count();
+            $entryOnTime = (clone $baseSamples)->whereNotNull('analyzed_at')
+                ->whereRaw('TIMESTAMPDIFF(HOUR, created_at, analyzed_at) <= ?', [$entryTargetHours])
+                ->count();
+
+            // KPI-004: monthly sampling coverage.
+            // SRS denominator: "15% of WSS count auto-calculated per district".
+            // So target = 15% of total WSS in this lab's covered districts.
+            // Numerator = distinct WSS sampled in the filtered period.
             $districtIds = $lab->coveredDistricts()->pluck('districts.id')->toArray();
-            $wssTotal    = count($districtIds) > 0
+            $wssInScope  = count($districtIds) > 0
                 ? WaterScheme::whereIn('district_id', $districtIds)->count()
                 : 0;
+            $wssTotal    = (int) ceil($wssInScope * 0.15); // 15% monthly target
             $wssSampled  = (clone $baseSamples)
                 ->whereNotNull('water_scheme_id')
                 ->distinct()
@@ -481,31 +638,137 @@ class DashboardController extends Controller
                 })
                 ->count();
 
+            // KPI-007: Staff Training Compliance — distinct staff with valid
+            // training (valid_until in the future) / total staff at lab.
+            // "Total staff at lab" = users attached via laboratory_user pivot.
+            $totalStaff = DB::table('laboratory_user')->where('laboratory_id', $lab->id)->count();
+            $trainedStaff = StaffTraining::query()
+                ->where('laboratory_id', $lab->id)
+                ->where('valid_until', '>=', now())
+                ->whereNotNull('user_id')
+                ->distinct('user_id')
+                ->count('user_id');
+
+            // KPI-009: Data Verification — sum(samples_matched) / sum(samples_verified)
+            // across all visits for this lab in the filtered period. Visits where
+            // samples_verified=0 are skipped (the sum naturally ignores them).
+            $verAgg = VerificationVisit::query()
+                ->where('laboratory_id', $lab->id)
+                ->when($periodStart, fn($q) => $q->where('visit_date', '>=', $periodStart))
+                ->when($periodEnd,   fn($q) => $q->where('visit_date', '<=', $periodEnd))
+                ->selectRaw('COALESCE(SUM(samples_verified),0) AS verified, COALESCE(SUM(samples_matched),0) AS matched')
+                ->first();
+            $verVerified = (int) ($verAgg->verified ?? 0);
+            $verMatched  = (int) ($verAgg->matched  ?? 0);
+
+            // KPI-008: SOP Compliance — latest inspection per lab in the period.
+            // pass / (pass + fail) × 100; N/A excluded from denominator.
+            $latestInspection = AuditInspection::query()
+                ->with('answers')
+                ->where('laboratory_id', $lab->id)
+                ->when($periodStart, fn($q) => $q->where('inspection_date', '>=', $periodStart))
+                ->when($periodEnd,   fn($q) => $q->where('inspection_date', '<=', $periodEnd))
+                ->orderByDesc('inspection_date')
+                ->first();
+            $auditPass = $latestInspection?->answers->where('answer', 'pass')->count() ?? 0;
+            $auditFail = $latestInspection?->answers->where('answer', 'fail')->count() ?? 0;
+            $auditScored = $auditPass + $auditFail;
+
+            // KPI-001: PT — passed_results / total_submitted_results for this
+            // lab across PT rounds whose round_date falls in the period.
+            $ptAgg = PtRoundResult::query()
+                ->join('pt_round_participants AS prp', 'prp.id', '=', 'pt_round_results.pt_round_participant_id')
+                ->join('pt_rounds AS pr', 'pr.id', '=', 'prp.pt_round_id')
+                ->where('prp.laboratory_id', $lab->id)
+                ->when($periodStart, fn($q) => $q->where('pr.round_date', '>=', $periodStart))
+                ->when($periodEnd,   fn($q) => $q->where('pr.round_date', '<=', $periodEnd))
+                ->selectRaw('COUNT(*) AS submitted, SUM(CASE WHEN pt_round_results.passed = 1 THEN 1 ELSE 0 END) AS passed')
+                ->first();
+            $ptSubmitted = (int) ($ptAgg->submitted ?? 0);
+            $ptPassed    = (int) ($ptAgg->passed    ?? 0);
+
             $pct = function (int $num, int $den): ?int {
                 if ($den <= 0) return null;
                 return (int) min(100, round(($num / $den) * 100));
             };
 
+            // Manual KPI entries for this lab (latest period per kpi_code).
+            // Used as a fallback when the module-driven KPI has no data yet
+            // (e.g. KPI-007 has 0 staff or no training records → use admin's
+            // monthly entry instead). Once any module produces a non-null value,
+            // that takes precedence over the manual entry.
+            $labManual = $manualKpis[$lab->id] ?? [];
+            $manualValue = function (string $code) use ($labManual): ?int {
+                $row = $labManual[$code] ?? null;
+                if (!$row || (int) $row['denominator'] <= 0) return null;
+                return (int) min(100, round(((int) $row['numerator'] / (int) $row['denominator']) * 100));
+            };
+
+            // KPI-007 prefers staff_trainings; falls back to manual when the
+            // lab has no staff pivoted yet (totalStaff=0 → module can't compute).
+            $kpi007 = $totalStaff > 0 ? $pct($trainedStaff, $totalStaff) : $manualValue('KPI-007');
+            $kpi007Source = $totalStaff > 0 ? 'module' : (isset($labManual['KPI-007']) ? 'manual' : 'none');
+            $kpi007Den    = $totalStaff > 0 ? $totalStaff : (isset($labManual['KPI-007']) ? (int) $labManual['KPI-007']['denominator'] : 0);
+
+            // KPI-009 prefers verification_visits aggregation; falls back to
+            // manual only when no visits have been logged for the period.
+            $kpi009 = $verVerified > 0 ? $pct($verMatched, $verVerified) : $manualValue('KPI-009');
+            $kpi009Source = $verVerified > 0 ? 'module' : (isset($labManual['KPI-009']) ? 'manual' : 'none');
+            $kpi009Den    = $verVerified > 0 ? $verVerified : (isset($labManual['KPI-009']) ? (int) $labManual['KPI-009']['denominator'] : 0);
+
+            // KPI-008 prefers latest audit inspection; falls back to manual
+            // when no inspection has been recorded for this period.
+            $kpi008 = $auditScored > 0 ? $pct($auditPass, $auditScored) : $manualValue('KPI-008');
+            $kpi008Source = $auditScored > 0 ? 'module' : (isset($labManual['KPI-008']) ? 'manual' : 'none');
+            $kpi008Den    = $auditScored > 0 ? $auditScored : (isset($labManual['KPI-008']) ? (int) $labManual['KPI-008']['denominator'] : 0);
+
+            // KPI-001 prefers PT round results; falls back to manual when
+            // this lab hasn't submitted any PT results in the period.
+            $kpi001 = $ptSubmitted > 0 ? $pct($ptPassed, $ptSubmitted) : $manualValue('KPI-001');
+            $kpi001Source = $ptSubmitted > 0 ? 'module' : (isset($labManual['KPI-001']) ? 'manual' : 'none');
+            $kpi001Den    = $ptSubmitted > 0 ? $ptSubmitted : (isset($labManual['KPI-001']) ? (int) $labManual['KPI-001']['denominator'] : 0);
+
             return [
                 'lab_id'   => $lab->id,
                 'lab_name' => $lab->name,
                 'kpis'     => [
-                    'KPI-001' => null,                      // No inter_lab_comparisons table
+                    'KPI-001' => $kpi001,
                     'KPI-002' => $pct($calCompleted, $calSchedules),
                     'KPI-003' => $pct($retested, $totalUnfit),
                     'KPI-004' => $pct($wssSampled, $wssTotal),
                     'KPI-005' => $pct($tatOnTime, $tatPool),
                     'KPI-006' => $pct($entryOnTime, $entryPool),
-                    'KPI-007' => null,                      // No staff_trainings table
-                    'KPI-008' => null,                      // No sop_audits table
-                    'KPI-009' => null,                      // Verification definition unclear
+                    'KPI-007' => $kpi007,
+                    'KPI-008' => $kpi008,
+                    'KPI-009' => $kpi009,
                 ],
                 'denominators' => [
+                    'KPI-001' => $kpi001Den,
                     'KPI-002' => $calSchedules,
                     'KPI-003' => $totalUnfit,
                     'KPI-004' => $wssTotal,
                     'KPI-005' => $tatPool,
                     'KPI-006' => $entryPool,
+                    'KPI-007' => $kpi007Den,
+                    'KPI-008' => $kpi008Den,
+                    'KPI-009' => $kpi009Den,
+                ],
+                'sources' => [
+                    'KPI-001' => $kpi001Source,
+                    'KPI-002' => 'module',
+                    'KPI-003' => 'module',
+                    'KPI-004' => 'module',
+                    'KPI-005' => 'module',
+                    'KPI-006' => 'module',
+                    'KPI-007' => $kpi007Source,
+                    'KPI-008' => $kpi008Source,
+                    'KPI-009' => $kpi009Source,
+                ],
+                'manual_periods' => [
+                    'KPI-001' => $labManual['KPI-001']['period'] ?? null,
+                    'KPI-007' => $labManual['KPI-007']['period'] ?? null,
+                    'KPI-008' => $labManual['KPI-008']['period'] ?? null,
+                    'KPI-009' => $labManual['KPI-009']['period'] ?? null,
                 ],
             ];
         });
@@ -513,15 +776,18 @@ class DashboardController extends Controller
         // KPI catalog with display metadata. `missing_reason` lets the frontend
         // show a tooltip explaining why a column is "—" rather than a number.
         $catalog = [
-            ['id' => 'KPI-001', 'name' => 'Inter-lab Comparison (PT)',  'target_pct' => 95,  'missing_reason' => 'No inter-lab comparison records tracked yet'],
-            ['id' => 'KPI-002', 'name' => 'Equipment Calibration',      'target_pct' => 100, 'missing_reason' => null],
-            ['id' => 'KPI-003', 'name' => 'Retest of Unfit Samples',    'target_pct' => 85,  'missing_reason' => null],
-            ['id' => 'KPI-004', 'name' => 'Monthly Sampling Coverage',  'target_pct' => 95,  'missing_reason' => null],
-            ['id' => 'KPI-005', 'name' => 'Turnaround Time (≤48h)',     'target_pct' => 95,  'missing_reason' => null],
-            ['id' => 'KPI-006', 'name' => 'Data Entry Timeliness (≤24h)','target_pct' => 98, 'missing_reason' => null],
-            ['id' => 'KPI-007', 'name' => 'Staff Training Compliance',  'target_pct' => 100, 'missing_reason' => 'No staff training records tracked yet'],
-            ['id' => 'KPI-008', 'name' => 'SOP Compliance',             'target_pct' => 100, 'missing_reason' => 'No SOP audit data tracked yet'],
-            ['id' => 'KPI-009', 'name' => 'Data Verification',          'target_pct' => 100, 'missing_reason' => 'Verification status definition pending'],
+            // rag_green / rag_amber lower bounds come straight from SRS §3.4.
+            // Cell is GREEN if value >= rag_green, AMBER if value >= rag_amber,
+            // else RED. Frontend uses these instead of a global 90/75 split.
+            ['id' => 'KPI-001', 'name' => 'Inter-lab Comparison (PT)',     'category' => 'Quality',      'target_pct' => 95,  'rag_green' => 95,  'rag_amber' => 90, 'manual' => true,  'source_module' => 'pt_rounds',           'missing_reason' => 'No PT rounds recorded yet'],
+            ['id' => 'KPI-002', 'name' => 'Equipment Calibration',         'category' => 'Quality',      'target_pct' => 100, 'rag_green' => 100, 'rag_amber' => 95, 'manual' => false, 'source_module' => 'asset_maintenance',   'missing_reason' => null],
+            ['id' => 'KPI-003', 'name' => 'Retest of Unfit Samples',       'category' => 'Post-test',    'target_pct' => 85,  'rag_green' => 85,  'rag_amber' => 75, 'manual' => false, 'source_module' => 'water_sample_actions','missing_reason' => null],
+            ['id' => 'KPI-004', 'name' => 'Monthly Sampling Coverage',     'category' => 'Sampling',     'target_pct' => 95,  'rag_green' => 95,  'rag_amber' => 85, 'manual' => false, 'source_module' => 'water_samples',       'missing_reason' => null],
+            ['id' => 'KPI-005', 'name' => 'Turnaround Time (≤48h)',        'category' => 'Efficiency',   'target_pct' => 95,  'rag_green' => 95,  'rag_amber' => 85, 'manual' => false, 'source_module' => 'water_samples',       'missing_reason' => null],
+            ['id' => 'KPI-006', 'name' => 'Data Entry Timeliness (≤24h)',  'category' => 'Data',         'target_pct' => 98,  'rag_green' => 98,  'rag_amber' => 90, 'manual' => false, 'source_module' => 'water_samples',       'missing_reason' => null],
+            ['id' => 'KPI-007', 'name' => 'Staff Training Compliance',     'category' => 'HR',           'target_pct' => 100, 'rag_green' => 100, 'rag_amber' => 90, 'manual' => true,  'source_module' => 'staff_trainings',     'missing_reason' => 'No training records yet'],
+            ['id' => 'KPI-008', 'name' => 'SOP Compliance',                'category' => 'Oversight',    'target_pct' => 100, 'rag_green' => 100, 'rag_amber' => 90, 'manual' => true,  'source_module' => 'audit_inspections',   'missing_reason' => 'No SOP audits recorded yet'],
+            ['id' => 'KPI-009', 'name' => 'Data Verification',             'category' => 'Oversight',    'target_pct' => 100, 'rag_green' => 100, 'rag_amber' => 90, 'manual' => true,  'source_module' => 'verification_visits', 'missing_reason' => 'No verification visits recorded yet'],
         ];
 
         return response()->json([
@@ -537,6 +803,45 @@ class DashboardController extends Controller
                 ],
             ],
         ], SymfonyResponse::HTTP_OK);
+    }
+
+    /**
+     * Fetch the latest (most recent `period`) manual KPI entry per lab+kpi_code
+     * for the given lab IDs. Returns a 2D map keyed by lab_id → kpi_code → row.
+     *
+     * Used by labKpis() to merge admin-entered values for KPI-001/007/008/009
+     * (which have no operational data source) into the matrix.
+     */
+    private function latestManualKpiValues(array $labIds): array
+    {
+        if (empty($labIds)) return [];
+
+        // ROW_NUMBER would be cleaner but MariaDB 10.2 baseline isn't guaranteed —
+        // fall back to a "max period per group" subselect that works everywhere.
+        $sub = DB::table('kpi_lab_periods')
+            ->selectRaw('laboratory_id, kpi_code, MAX(period) AS max_period')
+            ->whereIn('laboratory_id', $labIds)
+            ->whereIn('kpi_code', ['KPI-001', 'KPI-007', 'KPI-008', 'KPI-009'])
+            ->groupBy('laboratory_id', 'kpi_code');
+
+        $rows = DB::table('kpi_lab_periods AS k')
+            ->joinSub($sub, 'm', function ($join) {
+                $join->on('k.laboratory_id', '=', 'm.laboratory_id')
+                     ->on('k.kpi_code',      '=', 'm.kpi_code')
+                     ->on('k.period',        '=', 'm.max_period');
+            })
+            ->select('k.laboratory_id', 'k.kpi_code', 'k.period', 'k.numerator', 'k.denominator')
+            ->get();
+
+        $out = [];
+        foreach ($rows as $r) {
+            $out[$r->laboratory_id][$r->kpi_code] = [
+                'period'      => $r->period,
+                'numerator'   => $r->numerator,
+                'denominator' => $r->denominator,
+            ];
+        }
+        return $out;
     }
 
     /**
@@ -697,15 +1002,35 @@ class DashboardController extends Controller
             ->where('status', '=', ComplaintStatusEnum::RE_OPENED->value)
             ->count();
 
+        // SRS §2.9 Escalation rule — auto-escalate any complaint that has
+        // stayed unresolved (not CLOSED) for more than 72 hours since it
+        // was opened. Feeds the Dashboard "Escalated Issues" card.
+        $totalEscalatedComplaints = (clone $query)
+            ->whereNotIn('status', [ComplaintStatusEnum::CLOSED->value])
+            ->where('created_at', '<', \Carbon\Carbon::now()->subHours(72))
+            ->count();
+
         return [
-            'labels' => array_merge(['Total Complaints'], array_map(fn($element) => ucwords(str_replace('_', ' ', $element)), ComplaintStatusEnum::values())),
+            'labels' => array_merge(
+                ['Total Complaints'],
+                array_map(fn($element) => ucwords(str_replace('_', ' ', $element)), ComplaintStatusEnum::values()),
+                ['Escalated (>72h)']
+            ),
             'datasets' => [
                 [
                     'label' => 'Total Complaints',
-                    'data' => [$totalComplaints, $totalPendingComplaints, $totalInProgressComplaints, $totalClosedComplaints, $totalReopenComplaints],
+                    'data' => [
+                        $totalComplaints,
+                        $totalPendingComplaints,
+                        $totalInProgressComplaints,
+                        $totalClosedComplaints,
+                        $totalReopenComplaints,
+                        $totalEscalatedComplaints,
+                    ],
                     'backgroundColor' => '#AB47BC',
                 ]
-            ]
+            ],
+            'escalated_count' => $totalEscalatedComplaints,
         ];
     }
 

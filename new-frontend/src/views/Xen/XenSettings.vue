@@ -20,6 +20,15 @@ const form = ref({
 const changes = ref([])
 const flash = ref('')
 
+// ── Toast (matches the pattern in Topbar.vue / UsersHR.vue) ───────────
+const toast = ref({ show: false, message: '', type: 'success' })
+let toastTimer = null
+function showToast(message, type = 'success') {
+  clearTimeout(toastTimer)
+  toast.value = { show: true, message, type }
+  toastTimer = setTimeout(() => { toast.value.show = false }, 4000)
+}
+
 async function load() {
   loading.value = true
   try {
@@ -44,8 +53,11 @@ async function save() {
     changes.value = [...changes.value, ...(res.changes || [])]
     original.value = { ...form.value }
     me.value = { ...me.value, ...res.user }
+    showToast('✅ Settings saved successfully', 'success')
   } catch (e) {
-    flash.value = e?.response?.data?.message || 'Failed to save settings.'
+    const msg = e?.response?.data?.message || e?.message || 'Failed to save settings.'
+    flash.value = msg
+    showToast('❌ ' + msg, 'error')
   } finally { saving.value = false }
 }
 
@@ -63,6 +75,22 @@ const preview = computed(() => ({
 </script>
 
 <template>
+  <!-- ── Toast notification ── -->
+  <Teleport to="body">
+    <Transition name="toast-slide">
+      <div v-if="toast.show"
+           :style="`position:fixed;top:22px;right:24px;z-index:9999;min-width:300px;max-width:460px;
+                    background:${toast.type === 'success' ? '#065f46' : '#991b1b'};
+                    color:#fff;border-radius:8px;padding:14px 18px;
+                    box-shadow:0 6px 32px rgba(0,0,0,.28);font-size:13px;display:flex;align-items:flex-start;gap:10px`">
+        <span style="flex:1;line-height:1.5">{{ toast.message }}</span>
+        <button @click="toast.show = false"
+                style="background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:4px;
+                       padding:2px 8px;cursor:pointer;font-size:13px;margin-left:4px">✕</button>
+      </div>
+    </Transition>
+  </Teleport>
+
   <div class="xd">
     <div v-if="flash" class="xd-err" :class="{ ok: flash.toLowerCase().includes('success') || flash.toLowerCase().includes('saved') }">{{ flash }}</div>
 
@@ -110,7 +138,7 @@ const preview = computed(() => ({
           </div>
           <div class="form-actions">
             <button class="btn btn-sec" @click="reset" :disabled="saving">↶ Reset to Current</button>
-            <button class="btn btn-pri" @click="save" :disabled="saving">{{ saving ? 'Saving…' : '✅ Save Changes' }}</button>
+            <button v-write="'update_xen_settings'" class="btn btn-pri" @click="save" :disabled="saving">{{ saving ? 'Saving…' : '✅ Save Changes' }}</button>
           </div>
         </div>
       </div>
@@ -231,4 +259,12 @@ const preview = computed(() => ({
   .sb  { font-size: 11px; color: rgba(255,255,255,.62); margin-top: 2px; }
 }
 .xd-err.ok { background: #ecfdf5; border-color: #a7f3d0; color: #14532d; }
+</style>
+
+<style>
+/* Global so the toast in <Teleport to="body"> picks up the transition */
+.toast-slide-enter-active,
+.toast-slide-leave-active { transition: all 0.3s ease; }
+.toast-slide-enter-from,
+.toast-slide-leave-to     { opacity: 0; transform: translateX(60px); }
 </style>

@@ -54,7 +54,7 @@ export const assetService = {
   rejectInventory:  (detailId, comment) =>
     api.put(`/inventory-details/${detailId}/statuses/approve`, { status: 'rejected', comment }),
   issueInventory:   (detailId, quantity, comment = null) =>
-    api.put(`/inventory-details/${detailId}/statuses/issue`, { status: 'issued', quantity: Number(quantity).toFixed(2), comment }),
+    api.put(`/inventory-details/${detailId}/statuses/issue`, { status: 'issued', quantity: parseInt(quantity, 10), comment }),
   receiveInventory: (detailId, isReceived) =>
     api.get(`/inventory-details/${detailId}/received/${isReceived}`),
 

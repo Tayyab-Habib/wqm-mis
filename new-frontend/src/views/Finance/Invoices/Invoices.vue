@@ -2,6 +2,10 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import axios from 'axios'
 import { financeService } from '../../../services/financeService.js'
+import { dropdownService } from '../../../services/dropdownService.js'
+import { useUserStore } from '../../../stores/useUserStore.js'
+
+const userStore = useUserStore()
 
 // ── Toast (matches the pattern in Topbar.vue / DiariesDispatches.vue) ─
 const toast = ref({ show: false, message: '', type: 'success' })
@@ -30,25 +34,31 @@ const dues = ref([])
 // Modals
 const showPaymentModal = ref(false)
 const showClubbedModal = ref(false)
+// Separate from `loading` (which drives the page-level skeleton). When the
+// user clicks Save / Confirm we don't want to flash the underlying table's
+// skeleton — only the modal's own button needs to indicate progress.
+const clubbedSaving = ref(false)
+const paymentSaving = ref(false)
 
 // Clubbed Invoice Modal State
 const clubbedStep = ref(1)
+// Today's date for sensible default invoice-date / period bounds.
+const _today = new Date().toISOString().slice(0, 10)
+const _firstOfMonth = (() => {
+  const d = new Date(); d.setDate(1); return d.toISOString().slice(0, 10)
+})()
+
 const clubbedForm = ref({
-  clientId: 'nespak',
-  labId: 'Peshawar (Central)',
-  periodFrom: '2026-03-01',
-  periodTo: '2026-03-10',
-  invoiceDate: '2026-03-11'
+  clientId: '',        // populated when user picks from the dropdown
+  clientType: '',      // polymorphic invoiceable_type (Client vs User)
+  clientName: '',      // cached for the step-2 caption
+  labId: '',
+  periodFrom: _firstOfMonth,
+  periodTo: _today,
+  invoiceDate: _today,
 })
-const unbilledSamples = ref([
-  { id: 1, slug: '26/CLB/P0081', wss: 'NESPAK Office Block A', date: '01-Mar-26', test: 'PCM', result: 'Fit', fee: 1800, selected: true },
-  { id: 2, slug: '26/CLB/P0082', wss: 'NESPAK Site B — Borehole', date: '02-Mar-26', test: 'PCM', result: 'Unfit', fee: 1800, selected: true },
-  { id: 3, slug: '26/CLB/P0083', wss: 'NESPAK Lab Storage Tank', date: '03-Mar-26', test: 'PCM', result: 'Fit', fee: 1800, selected: true },
-  { id: 4, slug: '26/CLB/P0085', wss: 'NESPAK Office Block C', date: '04-Mar-26', test: 'M', result: 'Fit', fee: 900, selected: true },
-  { id: 5, slug: '26/CLB/P0088', wss: 'NESPAK Canteen Water', date: '05-Mar-26', test: 'PCM', result: 'Fit', fee: 1800, selected: true },
-  { id: 6, slug: '26/CLB/P0091', wss: 'NESPAK Site D — Tap', date: '07-Mar-26', test: 'PCM', result: 'Unfit', fee: 1800, selected: true },
-  { id: 7, slug: '26/CLB/P0094', wss: 'NESPAK Guest House', date: '08-Mar-26', test: 'PC', result: 'Fit', fee: 1200, selected: true }
-])
+// Populated by /finance/unbilled-by-client/{id} when transitioning to step 2.
+const unbilledSamples = ref([])
 const selectAllSamples = computed({
   get: () => unbilledSamples.value.length > 0 && unbilledSamples.value.every(s => s.selected),
   set: (val) => unbilledSamples.value.forEach(s => s.selected = val)
@@ -83,45 +93,103 @@ const clubbedInvoicePreviewData = computed(() => {
   }
 })
 
-function nextClubbedStep() { 
-  if (clubbedStep.value === 2 && selectedCount.value < 2) {
-    showToast('⚠️ Please select at least 2 samples to generate a clubbed invoice.', 'error');
-    return;
+async function nextClubbedStep() {
+  // Step 1 → Step 2: load real unbilled samples for the chosen client.
+  // Replaces the hardcoded NESPAK demo data that used to live in
+  // unbilledSamples; the backend filters by client + date range and is
+  // already AuthScope-scoped so a lab-incharge only sees their lab's rows.
+  if (clubbedStep.value === 1) {
+    if (!clubbedForm.value.clientId) {
+      showToast('⚠️ Please pick a client first.', 'error')
+      return
+    }
+    // Cache the friendly name so the step-2 caption can show it without
+    // re-looking-up the dropdown row.
+    const picked = clubbedClients.value.find(c => String(c.id) === String(clubbedForm.value.clientId))
+    if (picked) {
+      clubbedForm.value.clientName = picked.name
+      clubbedForm.value.clientType = picked.type
+    }
+    try {
+      const res = await financeService.getUnbilledByClient(clubbedForm.value.clientId, {
+        client_type: clubbedForm.value.clientType || 'App\\Models\\Client',
+        date_from:   clubbedForm.value.periodFrom,
+        date_to:     clubbedForm.value.periodTo,
+      })
+      const rows = res?.data?.data || res?.data || []
+      unbilledSamples.value = (Array.isArray(rows) ? rows : []).map(r => ({
+        id:       r.id,
+        slug:     r.slug,
+        // WSS name (PHE samples) or water_sample_address (private samples);
+        // fall back to the lab code rather than a useless dash if neither.
+        wss:      r.wss || r.location || (r.lab_code ? `Lab ${r.lab_code}` : '—'),
+        date:     r.date,
+        test:     r.category || '—',
+        status:   r.status || '—',         // invoice status (Pending/Partial/etc)
+        fee:      Number(r.amount || 0),
+        selected: r.selected !== false,
+      }))
+      if (!unbilledSamples.value.length) {
+        showToast('⚠️ No unbilled samples for this client in the selected period.', 'error')
+        return
+      }
+    } catch (e) {
+      showToast('❌ Failed to load samples: ' + (e?.response?.data?.message || e.message), 'error')
+      return
+    }
+    clubbedStep.value = 2
+    return
   }
-  if (clubbedStep.value < 3) clubbedStep.value++;
+
+  // Step 2 → Step 3: just enforce the ≥2 selection rule.
+  if (clubbedStep.value === 2 && selectedCount.value < 2) {
+    showToast('⚠️ Please select at least 2 samples to generate a clubbed invoice.', 'error')
+    return
+  }
+  if (clubbedStep.value < 3) clubbedStep.value++
 }
+
 function prevClubbedStep() { if (clubbedStep.value > 1) clubbedStep.value-- }
 function printClubbedInvoice() {
   window.print();
 }
 async function saveClubbedInvoice() {
   // F-08 — submit the REAL client identifier (resolved by the wizard) and
-  // the REAL period dates. No more hardcoded `client_id: 1`.
-  const client = clubbedForm.value.client || {}
+  // the REAL period dates. Reads from clubbedForm.clientId/clientType
+  // which Step 1's "Next" handler populates from the chosen dropdown row.
+  // (Previous version read `clubbedForm.client.invoiceable_id` — a field
+  //  we never set — so the check always failed at Step 3.)
   const selected = unbilledSamples.value.filter(s => s.selected)
   if (selected.length < 2) {
     showToast('⚠️ Please select at least 2 receipts to generate a clubbed invoice.', 'error')
     return
   }
-  if (!client.invoiceable_id || !client.invoiceable_type) {
+  if (!clubbedForm.value.clientId || !clubbedForm.value.clientType) {
     showToast('⚠️ Please pick a client first.', 'error')
     return
   }
 
-  loading.value = true;
+  // Use `clubbedSaving` (modal-local) instead of the global `loading` so the
+  // background table doesn't flash its skeleton while the POST is in flight.
+  // The skeleton is only meant for initial / tab-switch fetches.
+  clubbedSaving.value = true;
   try {
     const res = await financeService.createClubbedInvoice({
       invoice_ids: selected.map(s => s.id),
-      client_id:   client.invoiceable_id,
-      client_type: client.invoiceable_type,
+      client_id:   clubbedForm.value.clientId,
+      client_type: clubbedForm.value.clientType,
       period_from: clubbedForm.value.periodFrom || null,
       period_to:   clubbedForm.value.periodTo   || null,
       description: 'Clubbed Invoice generated from system'
     });
-    showClubbedModal.value = false;
     const slug = res?.data?.clubbed_slug || res?.data?.data?.clubbed_slug || '(slug unavailable)'
+    // Refresh the table FIRST so the new clubbed row is in place by the time
+    // we close the modal — the user sees the modal close and the new row
+    // appear simultaneously, instead of "saved" → modal closes → blank table
+    // → row appears.
+    await fetchData();
+    showClubbedModal.value = false;
     showToast('✅ Clubbed Invoice generated: ' + slug, 'success');
-    fetchData();
   } catch (err) {
     console.error(err);
     // Surface the SRS validation messages from F-13/F-15 directly.
@@ -131,7 +199,7 @@ async function saveClubbedInvoice() {
       : (e?.message || err.message)
     showToast('❌ Failed to generate clubbed invoice: ' + msg, 'error');
   } finally {
-    loading.value = false;
+    clubbedSaving.value = false;
   }
 }
 // Payment Form
@@ -156,11 +224,80 @@ const remainingBalance = computed(() => {
 const searchQuery = ref('')
 const selectedStatus = ref('all')
 const selectedDistrict = ref('All Districts')
-const districts = ['All Districts', 'Peshawar', 'Mardan', 'Nowshera', 'Charsadda', 'Swabi', 'Khyber', 'Mohmand']
+
+// Dynamic dropdowns — populated from scoped backend endpoints so each role
+// only sees the labs/districts it should:
+//   /all-laboratories → AuthScope::labs (lab-incharge: own lab; CE/SE/XEN:
+//      labs in their circle; SA/manager: all)
+//   /all-districts    → AuthScope::districts (same idea via district scope)
+//   /finance/clients-with-unbilled → clients that have at least one unbilled
+//      invoice the current user can see (already AuthScope-scoped server-side).
+// Old hardcoded ['All Districts','Peshawar','Mardan',...] and the two
+// placeholder client options ('NESPAK Ltd.', 'WAPDA Colony') are gone —
+// they were stale and visible to every role regardless of scope.
+const districts      = ref(['All Districts'])
+const labs           = ref([{ id: '', name: 'All Labs' }])
+const clubbedClients = ref([])  // [{ id, type, name }]
+
+async function loadFilterDropdowns() {
+  try {
+    const [districtsRes, labsRes, clientsRes] = await Promise.all([
+      dropdownService.getDistricts(),
+      dropdownService.getLaboratories(),
+      financeService.getClientsWithUnbilled(),
+    ])
+    const distRows   = districtsRes?.data?.data || districtsRes?.data || []
+    const labRows    = labsRes?.data?.data       || labsRes?.data       || []
+    const clientRows = clientsRes?.data?.data    || clientsRes?.data    || []
+    if (Array.isArray(distRows)) {
+      districts.value = ['All Districts', ...distRows.map(d => d.name).filter(Boolean)]
+    }
+    if (Array.isArray(labRows)) {
+      labs.value = [{ id: '', name: 'All Labs' }, ...labRows.map(l => ({ id: l.id, name: l.name }))]
+    }
+    if (Array.isArray(clientRows)) {
+      // Backend returns { invoiceable_id, invoiceable_type, name, unbilled_count }
+      // — invoiceable_type is the polymorphic class (App\Models\Client for
+      // private clients, App\Models\User for PHE samples).
+      clubbedClients.value = clientRows.map(c => ({
+        id:           c.invoiceable_id ?? c.id,
+        type:         c.invoiceable_type ?? c.type,
+        name:         c.name || `Client #${c.invoiceable_id}`,
+        unbilledCount: c.unbilled_count ?? 0,
+      }))
+    }
+  } catch (e) {
+    // Silent — keep defaults so the page still renders.
+  }
+}
 
 // Ledger Filters
 const ledgerFilterFrom = ref(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0])
 const ledgerFilterTo = ref(new Date().toISOString().split('T')[0])
+
+// Auto-fetch on ledger filter change. Date-range + lab + type are all
+// client-side filters today (filteredLedger computed re-evaluates on any
+// ref change) so technically no refetch is needed — but if a future filter
+// goes server-side (e.g. lab_id) it'll just work. Debounced like LabSamples.
+let ledgerFilterTimer = null
+watch([ledgerFilterFrom, ledgerFilterTo], () => {
+  if (loading.value) return
+  clearTimeout(ledgerFilterTimer)
+  ledgerFilterTimer = setTimeout(() => {
+    if (activeTab.value === 'ledger') fetchData()
+  }, 80)
+})
+
+// Reset all four ledger filters back to their default range + "All" values.
+// Refetches immediately (bypassing the 80ms debounce) so the user sees
+// instant feedback on Clear. Matches the LabSamples.clearFilters pattern.
+function clearLedgerFilters() {
+  ledgerFilterFrom.value = new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]
+  ledgerFilterTo.value   = new Date().toISOString().split('T')[0]
+  ledgerFilterLab.value  = 'All Labs'
+  ledgerFilterType.value = 'All Types'
+  if (activeTab.value === 'ledger') fetchData()
+}
 
 const formatDate = (dateStr) => {
   if (!dateStr || dateStr === '—') return '—'
@@ -456,7 +593,10 @@ async function submitPayment() {
     return
   }
 
-  loading.value = true
+  // Use the modal-local flag so the background table doesn't flash its
+  // skeleton (same fix applied to saveClubbedInvoice). The skeleton is
+  // reserved for genuine fetch/tab-switch loads.
+  paymentSaving.value = true
   try {
     await financeService.recordPayment(paymentForm.value.invoiceId, {
       amount:       paymentForm.value.amount,
@@ -466,8 +606,11 @@ async function submitPayment() {
       received_by:  paymentForm.value.received_by,
       remarks:      paymentForm.value.remarks,
     })
+    // Refresh the underlying table FIRST so the row's updated balance is
+    // visible the moment the modal closes and the success toast appears.
+    await fetchData()
     showPaymentModal.value = false
-    await fetchData() // Refresh data
+    showToast(`✅ Payment of Rs ${paymentForm.value.amount} recorded successfully`, 'success')
   } catch (err) {
     console.error('Payment failed:', err)
     const e = err.response?.data
@@ -476,7 +619,7 @@ async function submitPayment() {
       : (e?.message || 'Payment failed. Please try again.')
     showToast('❌ ' + msg, 'error')
   } finally {
-    loading.value = false
+    paymentSaving.value = false
   }
 }
 
@@ -506,9 +649,11 @@ async function exportData() {
       link.click()
       link.remove()
       window.URL.revokeObjectURL(url)
+      showToast('✅ Export downloaded', 'success')
       return
     } catch (err) {
       console.error('xlsx export failed, falling back to CSV', err)
+      showToast('⚠️ Server export failed — falling back to CSV', 'error')
     }
   }
 
@@ -566,6 +711,11 @@ async function exportData() {
     csvContent += row + "\r\n";
   });
 
+  if (rows.length <= 1) {
+    showToast('⚠️ Nothing to export — no rows for the current filters', 'error')
+    return
+  }
+
   const encodedUri = encodeURI(csvContent);
   const link = document.createElement("a");
   link.setAttribute("href", encodedUri);
@@ -573,15 +723,36 @@ async function exportData() {
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
+  showToast(`✅ Exported ${rows.length - 1} row(s) as CSV`, 'success')
 }
 
 onMounted(() => {
   fetchData()
+  loadFilterDropdowns()
 })
 </script>
 
 <template>
   <div class="invoices-page">
+
+    <!-- Toast notification (matches project-wide pattern: Topbar / UsersHR /
+         DiariesDispatches / LabSamples / RolesPermissions / SBPSubmissions).
+         The 11 showToast() call sites in this file were firing silently
+         until this render block landed. -->
+    <Teleport to="body">
+      <Transition name="toast-slide">
+        <div v-if="toast.show"
+             :style="`position:fixed;top:22px;right:24px;z-index:9999;min-width:300px;max-width:460px;
+                      background:${toast.type === 'success' ? '#065f46' : '#991b1b'};
+                      color:#fff;border-radius:8px;padding:14px 18px;
+                      box-shadow:0 6px 32px rgba(0,0,0,.28);font-size:13px;display:flex;align-items:flex-start;gap:10px`">
+          <span style="flex:1;line-height:1.5">{{ toast.message }}</span>
+          <button @click="toast.show = false"
+                  style="background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:4px;
+                         padding:2px 8px;cursor:pointer;font-size:13px;margin-left:4px">✕</button>
+        </div>
+      </Transition>
+    </Teleport>
 
     <!-- KPI Summary Cards -->
     <div class="kpi-cards print-hide">
@@ -643,14 +814,7 @@ onMounted(() => {
         </select>
         
         <select v-if="activeTab === 'dues'" v-model="duesFilterLab" class="status-select">
-          <option>All Labs</option>
-          <option>Central Lab</option>
-          <option>Mardan</option>
-          <option>Abbottabad</option>
-          <option>Malakand</option>
-          <option>Bannu</option>
-          <option>Kohat</option>
-          <option>D.I. Khan</option>
+          <option v-for="l in labs" :key="l.id || 'all'" :value="l.name">{{ l.name }}</option>
         </select>
       </div>
 
@@ -689,28 +853,23 @@ onMounted(() => {
     <div v-if="activeTab === 'ledger'" class="ledger-specific-controls print-hide">
       <div class="ledger-filters d-flex justify-content-between align-items-center mb-3">
         <div class="d-flex align-items-center gap-2" style="font-size: 13px;">
-          <span>From</span> <input type="date" v-model="ledgerFilterFrom" class="form-input" style="width:130px; padding:6px 10px;" />
-          <span>To</span> <input type="date" v-model="ledgerFilterTo" class="form-input" style="width:130px; padding:6px 10px;" />
-          <select v-model="ledgerFilterLab" class="form-input" style="width:140px; padding:6px 10px;">
-            <option>All Labs</option>
-            <option>Central Lab - Peshawar</option>
-            <option>Mardan</option>
-            <option>Abbottabad</option>
-            <option>Malakand</option>
-            <option>Bannu</option>
-            <option>Kohat</option>
-            <option>D.I. Khan</option>
+          <span>From</span> <input type="date" v-model="ledgerFilterFrom" class="lf-input" style="width:140px" />
+          <span>To</span> <input type="date" v-model="ledgerFilterTo" class="lf-input" style="width:140px" />
+          <select v-model="ledgerFilterLab" class="lf-input" style="width:150px">
+            <option v-for="l in labs" :key="l.id || 'all'" :value="l.name">{{ l.name }}</option>
           </select>
-          <select v-model="ledgerFilterType" class="form-input" style="width:150px; padding:6px 10px;">
+          <select v-model="ledgerFilterType" class="lf-input" style="width:160px">
             <option>All Types</option>
             <option>Invoice Raised</option>
             <option>Payment Received</option>
           </select>
         </div>
         <div class="d-flex gap-2">
-          <button class="btn btn-blue" style="padding: 6px 16px;" @click="fetchData">Apply</button>
-          <button class="btn btn-outline" style="padding: 6px 16px;" @click="exportData">⬇ Export .xlsx</button>
-          <button class="btn btn-outline" style="padding: 6px 16px;" @click="printInvoice()">🖨 Print</button>
+          <!-- Apply button removed — filters auto-fetch on change via a
+               debounced watcher (same pattern as LabSamples + GAR). -->
+          <button class="lf-btn-clear" @click="clearLedgerFilters">✕ Clear Filters</button>
+          <button class="btn btn-outline" style="padding: 6px 14px; border-radius: 6px;" @click="exportData">⬇ Export .xlsx</button>
+          <button class="btn btn-outline" style="padding: 6px 14px; border-radius: 6px;" @click="printInvoice()">🖨 Print</button>
         </div>
       </div>
 
@@ -967,8 +1126,8 @@ onMounted(() => {
           </div>
           <div class="modal-footer">
             <button class="btn btn-outline" @click="showPaymentModal = false">Cancel</button>
-            <button v-write="'add_payments'" class="btn btn-blue" @click="submitPayment" :disabled="loading">
-               💾 {{ loading ? 'Saving...' : 'Save Payment' }}
+            <button v-write="'add_payments'" class="btn btn-blue" @click="submitPayment" :disabled="paymentSaving">
+               💾 {{ paymentSaving ? '⏳ Saving…' : 'Save Payment' }}
             </button>
           </div>
         </div>
@@ -1007,27 +1166,31 @@ onMounted(() => {
                   <label>Client Name *</label>
                   <select v-model="clubbedForm.clientId" class="form-input">
                     <option value="" disabled>— Select Client —</option>
-                    <option value="nespak">NESPAK Ltd.</option>
-                    <option value="wapda">WAPDA Colony</option>
+                    <option v-if="!clubbedClients.length" value="" disabled>
+                      No clients with unbilled samples in your scope
+                    </option>
+                    <option v-for="c in clubbedClients" :key="c.type + ':' + c.id" :value="c.id">
+                      {{ c.name }}
+                    </option>
                   </select>
                 </div>
                 <div class="fg2">
                   <label>Lab</label>
                   <select v-model="clubbedForm.labId" class="form-input">
-                    <option value="Peshawar (Central)">Peshawar (Central)</option>
+                    <option v-for="l in labs.filter(x => x.id)" :key="l.id" :value="l.name">{{ l.name }}</option>
                   </select>
                 </div>
                 <div class="fg2">
                   <label>Period From *</label>
-                  <input type="text" v-model="clubbedForm.periodFrom" class="form-input" />
+                  <input type="date" v-model="clubbedForm.periodFrom" class="form-input" />
                 </div>
                 <div class="fg2">
                   <label>Period To *</label>
-                  <input type="text" v-model="clubbedForm.periodTo" class="form-input" />
+                  <input type="date" v-model="clubbedForm.periodTo" class="form-input" />
                 </div>
                 <div class="fg2">
                   <label>Invoice Date</label>
-                  <input type="text" v-model="clubbedForm.invoiceDate" class="form-input" />
+                  <input type="date" v-model="clubbedForm.invoiceDate" class="form-input" />
                 </div>
               </div>
             </div>
@@ -1035,7 +1198,11 @@ onMounted(() => {
             <!-- Step 2 -->
             <div v-if="clubbedStep === 2" class="step-content">
               <div class="d-flex justify-content-between align-items-center mb-3">
-                <div class="text-muted" style="font-size: 14px;">Showing unbilled samples for <strong class="text-dark" style="color: #0f172a;">NESPAK Ltd.</strong> · 01-Mar to 10-Mar-2026</div>
+                <div class="text-muted" style="font-size: 14px;">
+                  Showing unbilled samples for
+                  <strong class="text-dark" style="color: #0f172a;">{{ clubbedForm.clientName || '—' }}</strong>
+                  <span v-if="clubbedForm.periodFrom && clubbedForm.periodTo"> · {{ clubbedForm.periodFrom }} → {{ clubbedForm.periodTo }}</span>
+                </div>
                 <label class="d-flex align-items-center gap-2" style="font-size: 14px; cursor: pointer; color: #0f172a; font-weight: 500;">
                   <input type="checkbox" v-model="selectAllSamples" /> Select All
                 </label>
@@ -1050,7 +1217,7 @@ onMounted(() => {
                       <th>WSS / Location</th>
                       <th>Collection Date</th>
                       <th>Test Type</th>
-                      <th>Result</th>
+                      <th>Status</th>
                       <th>Fee (PKR)</th>
                     </tr>
                   </thead>
@@ -1061,7 +1228,12 @@ onMounted(() => {
                       <td>{{ s.wss }}</td>
                       <td>{{ s.date }}</td>
                       <td><span class="status-badge invoice" style="border: none; background: #e0f2fe; color: #0284c7;">{{ s.test }}</span></td>
-                      <td><span class="status-badge" :class="s.result === 'Fit' ? 'paid' : 'unpaid'" style="border: none;">{{ s.result }}</span></td>
+                      <td>
+                        <span class="status-badge" style="border: none;"
+                              :style="s.status === 'Paid' ? 'background:#dcfce7;color:#166534' : s.status === 'Partially Paid' ? 'background:#fef3c7;color:#92400e' : 'background:#fee2e2;color:#991b1b'">
+                          {{ s.status }}
+                        </span>
+                      </td>
                       <td class="mono">{{ formatNum(s.fee) }}</td>
                     </tr>
                   </tbody>
@@ -1083,12 +1255,15 @@ onMounted(() => {
                    <div class="header-text">
                      <div class="gov">GOVERNMENT OF KHYBER PAKHTUNKHWA</div>
                      <div class="dept">Public Health Engineering Department</div>
-                     <div class="lab">Central Water-Quality Laboratory Peshawar</div>
-                     <div class="address">Plot # 40, Sector B-2, Phase-5, Hayatabad, Peshawar | Ph: 091 9217788 | [email protected]</div>
+                     <div class="lab">{{ userStore.currentUser?.laboratory?.name || 'Water-Quality Laboratory' }}</div>
+                     <div class="address">{{ clubbedForm.labId || userStore.currentUser?.laboratory?.name || '—' }}</div>
                    </div>
                    <div class="logo-ph right">💧</div>
                  </div>
-                 <div class="inv-no">No: 26/PWR/PVT/C0018</div>
+                 <!-- Slug is generated server-side on save (per-lab sequence via
+                      FinanceSlugService::nextClubbedSlug). Show a placeholder
+                      so users know it'll be assigned, not a fake fixed number. -->
+                 <div class="inv-no">No: <em style="color:#64748b">auto-generated on save</em></div>
                  <div class="inv-title">
                    <strong>INVOICE</strong><br/>
                    <span class="text-blue">WATER QUALITY TESTING SERVICES</span>
@@ -1098,27 +1273,29 @@ onMounted(() => {
                    <tbody>
                      <tr>
                        <td class="label">Source / Client Name</td>
-                       <td><strong>NESPAK Ltd.</strong></td>
+                       <td><strong>{{ clubbedForm.clientName || '—' }}</strong></td>
                        <td class="label">Invoice Date</td>
-                       <td>Tuesday, 11-Mar-2026</td>
+                       <td>{{ clubbedForm.invoiceDate || '—' }}</td>
                      </tr>
                      <tr>
-                       <td class="label">Address / District</td>
-                       <td>Peshawar<br/><em style="color:#64748b; font-size: 12px;">Obtained from individual invoices</em></td>
+                       <td class="label">Lab</td>
+                       <td>{{ clubbedForm.labId || userStore.currentUser?.laboratory?.name || '—' }}</td>
                        <td class="label">No. of Samples</td>
-                       <td><strong>7</strong><br/><em style="color:#64748b; font-size: 12px;">Counted from clubbed invoices</em></td>
+                       <td><strong>{{ selectedCount }}</strong></td>
                      </tr>
                      <tr>
-                       <td class="label">Client Detail</td>
-                       <td>NESPAK Site Manager<br/><em style="color:#64748b; font-size: 12px;">Obtained from individual invoices</em></td>
+                       <td class="label">Client Type</td>
+                       <td>
+                         {{ clubbedForm.clientType?.includes('Client') ? 'Private / Walk-in Client' : 'PHE Internal' }}
+                       </td>
                        <td class="label">Period Covered</td>
-                       <td>01-Mar-2026 – 10-Mar-2026<br/><em style="color:#64748b; font-size: 12px;">Date range per individual invoices</em></td>
+                       <td>{{ clubbedForm.periodFrom || '—' }} → {{ clubbedForm.periodTo || '—' }}</td>
                      </tr>
                      <tr>
                        <td class="label">Online Viewing (Password)</td>
-                       <td><em style="color:#64748b; font-size: 12px;">Client Mobile No. as entered in record</em></td>
+                       <td><em style="color:#64748b; font-size: 12px;">Auto-generated on save (SMS gateway not yet configured — see SmsService stub)</em></td>
                        <td class="label">Generated By</td>
-                       <td>S.M. Adeel, SRO</td>
+                       <td>{{ userStore.currentUser?.name || '—' }}</td>
                      </tr>
                    </tbody>
                  </table>
@@ -1167,37 +1344,39 @@ onMounted(() => {
 
                  <div class="footer-note-section mt-4 pt-4">
                    <div class="note">
-                     <em>Note: This is a consolidated clubbed invoice. Individual receipts listed above are marked 'Included in Clubbed Invoice 26/PWR/PVT/C0018' and cannot be reused in another clubbed invoice.</em>
+                     <em>Note: This is a consolidated clubbed invoice. The {{ selectedCount }} individual receipts above will be marked as 'Included in Clubbed Invoice' on save and cannot be reused in another clubbed invoice.</em>
                    </div>
                    <div class="signatory">
                      <div class="line"></div>
-                     <strong>S.M. Adeel</strong><br/>
+                     <strong>{{ userStore.currentUser?.name || '—' }}</strong><br/>
                      Authorized Signatory / Stamp
                    </div>
                  </div>
 
                  <div class="barcode mt-4">
                    | | | | | | | | | | | | | | | | | | | | | | | | | |<br/>
-                   Barcode · 26/PWR/PVT/C0018
+                   <em style="color:#64748b">Barcode generated on save</em>
                  </div>
 
                </div>
             </div>
 
           </div>
-          <div class="modal-footer" :style="clubbedStep === 2 ? 'justify-content: space-between;' : (clubbedStep === 3 ? 'justify-content: space-between;' : 'justify-content: flex-end;')">
-            <div v-if="clubbedStep > 1">
-              <button class="btn btn-outline" @click="prevClubbedStep">← Back</button>
-            </div>
-            <div class="d-flex gap-2">
-              <button v-if="clubbedStep === 3" class="btn btn-outline" @click="printClubbedInvoice">🖨 Print PDF</button>
-              <button v-if="clubbedStep < 3" class="btn btn-blue" @click="nextClubbedStep">
-                 Next: {{ clubbedStep === 1 ? 'Select Samples' : 'Preview' }} →
-              </button>
-              <button v-if="clubbedStep === 3" v-write="'add_invoices'" class="btn btn-blue" style="background: #0ea5e9; border-color: #0284c7;" @click="saveClubbedInvoice">
-                 ✅ Confirm & Save Invoice
-              </button>
-            </div>
+          <div class="modal-footer clubbed-footer">
+            <button v-if="clubbedStep > 1" class="btn btn-outline" @click="prevClubbedStep">← Back</button>
+            <!-- spacer pushes the primary actions to the right edge regardless
+                 of whether Back is visible (step 1 has only Next) -->
+            <div class="clubbed-footer-spacer"></div>
+            <button v-if="clubbedStep === 3" class="btn btn-outline" @click="printClubbedInvoice">🖨 Print PDF</button>
+            <button v-if="clubbedStep < 3" class="btn btn-blue" @click="nextClubbedStep">
+               Next: {{ clubbedStep === 1 ? 'Select Samples' : 'Preview' }} →
+            </button>
+            <button v-if="clubbedStep === 3" v-write="'add_invoices'" class="btn btn-blue"
+                    style="background: #0ea5e9; border-color: #0284c7;"
+                    :disabled="clubbedSaving"
+                    @click="saveClubbedInvoice">
+               {{ clubbedSaving ? '⏳ Saving…' : '✅ Confirm & Save Invoice' }}
+            </button>
           </div>
         </div>
        </div>
@@ -1422,12 +1601,14 @@ onMounted(() => {
   &:hover { background: #f8fafc; border-color: #94a3b8; }
 }
 
-/* 4. Table */
+/* 4. Table — sized to match project standard (LabSamples / SBPSubmissions /
+   DiariesDispatches): 12.5px font, 9×10 padding. Container allows
+   horizontal scroll so 11-column ledger rows don't get clipped. */
 .data-table-container {
   background: #fff;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
-  overflow: hidden;
+  overflow-x: auto;
   box-shadow: 0 1px 3px rgba(0,0,0,0.02);
 }
 
@@ -1435,16 +1616,18 @@ onMounted(() => {
   width: 100%;
   border-collapse: collapse;
   text-align: left;
-  font-size: 13px;
+  font-size: 12.5px;
 
   thead {
     background: #1e3a5f;
     color: #fff;
 
     th {
-      padding: 12px 16px;
+      padding: 9px 10px;
       font-weight: 600;
       white-space: nowrap;
+      font-size: 11.5px;
+      letter-spacing: .02em;
     }
   }
 
@@ -1465,7 +1648,7 @@ onMounted(() => {
     }
 
     td {
-      padding: 12px 16px;
+      padding: 9px 10px;
       color: #334155;
       vertical-align: middle;
     }
@@ -1556,14 +1739,17 @@ onMounted(() => {
     .modal-subtitle { font-size: 11.5px; color: #9ca3af; margin-top: 3px; }
 
     .btn-close-modal {
-      background: #374151;
+      /* Match the project-wide blue (`.btn-blue` = #1e5ba3) so modal close
+         visually belongs to the same control family as Generate / Submit. */
+      background: #1e5ba3;
       color: #fff;
-      border: 1px solid #4b5563;
-      padding: 3px 9px;
+      border: 1px solid #1e5ba3;
+      padding: 3px 10px;
       border-radius: 4px;
       font-size: 12px;
+      font-weight: 600;
       cursor: pointer;
-      &:hover { background: #4b5563; }
+      &:hover { background: #174a87; border-color: #174a87; }
     }
   }
 
@@ -1653,6 +1839,14 @@ onMounted(() => {
     gap: 8px;
     flex-shrink: 0;
   }
+  /* Clubbed-invoice footer: Back stays glued left, primary buttons (Next,
+     Print, Confirm) flow to the right. Spacer takes the remaining inline
+     space whether or not Back is visible. */
+  .clubbed-footer {
+    align-items: center;
+    flex-wrap: nowrap;
+  }
+  .clubbed-footer-spacer { flex: 1 1 auto; min-width: 0; }
 }
 
 .text-blue { color: #1e3a8a; }
@@ -1671,8 +1865,15 @@ onMounted(() => {
   width: 760px !important;
   max-width: 95vw;
 }
+/* Step 3 (Preview & Confirm) is wider so the full invoice template fits
+   without horizontal cropping, and taller so the Back / Print / Confirm
+   footer is always reachable without scrolling past the preview body. */
 .clubbed-modal.step3-modal {
-  width: 680px !important;
+  width: 1080px !important;
+  max-width: 96vw;
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
 }
 .modal-subtitle {
   color: #94a3b8;
@@ -1837,33 +2038,38 @@ onMounted(() => {
   margin-top: 10px;
   margin-bottom: 20px;
 }
+/* Ledger summary cards — sized to match other modules (LabSamples /
+   SBPSubmissions / DiariesDispatches): 11px label, 17px value, 10.5px
+   sub-text. Padding tightened to 10×12 from the previous 16. */
 .ledger-box {
   background: #fff;
   border-radius: 6px;
-  padding: 16px;
+  padding: 10px 12px;
   text-align: center;
   border: 1px solid #e2e8f0;
   box-shadow: 0 1px 2px rgba(0,0,0,0.02);
 }
-.ledger-box.box-blue { border-top: 4px solid #3b82f6; background: #eff6ff; }
-.ledger-box.box-gray { border-top: 4px solid #94a3b8; background: #f8fafc; }
-.ledger-box.box-green { border-top: 4px solid #22c55e; background: #f0fdf4; }
-.ledger-box.box-orange { border-top: 4px solid #f97316; background: #fff7ed; }
+.ledger-box.box-blue { border-top: 3px solid #3b82f6; background: #eff6ff; }
+.ledger-box.box-gray { border-top: 3px solid #94a3b8; background: #f8fafc; }
+.ledger-box.box-green { border-top: 3px solid #22c55e; background: #f0fdf4; }
+.ledger-box.box-orange { border-top: 3px solid #f97316; background: #fff7ed; }
 
 .ledger-box .box-title {
-  font-size: 12px;
+  font-size: 10.5px;
   color: #64748b;
   text-transform: uppercase;
   font-weight: 600;
-  margin-bottom: 8px;
+  letter-spacing: .03em;
+  margin-bottom: 5px;
 }
 .ledger-box .box-val {
-  font-size: 20px;
+  font-size: 17px;
   font-weight: 700;
-  margin-bottom: 4px;
+  margin-bottom: 3px;
+  line-height: 1.15;
 }
 .ledger-box .box-sub {
-  font-size: 12px;
+  font-size: 10.5px;
   color: #64748b;
 }
 
@@ -1895,12 +2101,14 @@ onMounted(() => {
   border-color: #fde047;
 }
 
-/* Dues Specific Styles */
-.dues-summary-boxes { margin-bottom: 20px; margin-top: 10px; }
+/* Dues ageing cards — sized to match ledger summary cards / other modules
+   (LabSamples / SBPSubmissions). Was 16px padding + 20px value; now
+   10×12 padding + 17px value to keep visual density consistent. */
+.dues-summary-boxes { margin-bottom: 14px; margin-top: 8px; }
 .dues-box {
   flex: 1;
   border-radius: 6px;
-  padding: 16px;
+  padding: 10px 12px;
   text-align: center;
   border: 1px solid #e2e8f0;
 }
@@ -1909,10 +2117,65 @@ onMounted(() => {
 .dues-box.box-61-90 { background: #fef2f2; border-color: #fecaca; }
 .dues-box.box-90-plus { background: #450a0a; border-color: #450a0a; color: #fff; }
 
-.dues-box .box-title { font-size: 12px; font-weight: 600; margin-bottom: 8px; color: inherit; opacity: 0.8; }
-.dues-box .box-val { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
-.dues-box .box-sub { font-size: 12px; opacity: 0.8; }
+.dues-box .box-title {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .03em;
+  margin-bottom: 5px;
+  color: inherit;
+  opacity: 0.85;
+}
+.dues-box .box-val {
+  font-size: 17px;
+  font-weight: 700;
+  margin-bottom: 3px;
+  line-height: 1.15;
+}
+.dues-box .box-sub { font-size: 10.5px; opacity: 0.85; }
 .dues-box.box-90-plus .box-val { color: #fca5a5; }
+
+/* Ledger filters — rounded inputs matching the LabSamples / GAR / report
+   filter style. Was using a hard-cornered `.form-input` from inside the
+   modal scope which made these look out of place vs the rest of the app. */
+.ledger-filters .lf-input {
+  padding: 6px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-family: inherit;
+  background: #fff;
+  color: #0f172a;
+  outline: none;
+  transition: border-color .12s, box-shadow .12s;
+}
+.ledger-filters .lf-input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+}
+
+/* Clear Filters button — red outline + ✕ icon, matching the pattern used
+   in LabSamples and the project's clear-filters convention. */
+.ledger-filters .lf-btn-clear,
+.lf-btn-clear {
+  background: #fff;
+  color: #dc2626;
+  border: 1px solid #fca5a5;
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all .12s;
+}
+.ledger-filters .lf-btn-clear:hover,
+.lf-btn-clear:hover {
+  background: #fef2f2;
+  border-color: #dc2626;
+}
 
 .ageing-badge {
   display: inline-block;
@@ -1940,4 +2203,89 @@ onMounted(() => {
   100% { background-position: 200% 0; }
 }
 
+/* Toast transition — global so the Teleport target picks it up. */
+.toast-slide-enter-active,
+.toast-slide-leave-active { transition: all 0.3s ease; }
+.toast-slide-enter-from,
+.toast-slide-leave-to     { opacity: 0; transform: translateX(60px); }
+
+</style>
+
+<!-- ────────────────────────────────────────────────────────────────────
+     Non-scoped block. `<Teleport to="body">` moves the modal DOM out of
+     this component's scope, so scoped SCSS rules above (especially nested
+     ones like `.invoices-page .modal-header .btn-close-modal`) don't
+     reliably reach the modal. The selectors below are intentionally
+     specific to the clubbed-modal class so they don't bleed.
+     ──────────────────────────────────────────────────────────────────── -->
+<style>
+/* Close button — match project-wide blue (.btn-blue = #1e5ba3).
+   Hits both .clubbed-modal AND .payment-modal close buttons. */
+.clubbed-modal .btn-close-modal,
+.payment-modal .btn-close-modal {
+  background: #1e5ba3 !important;
+  color: #fff !important;
+  border: 1px solid #1e5ba3 !important;
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.clubbed-modal .btn-close-modal:hover,
+.payment-modal .btn-close-modal:hover {
+  background: #174a87 !important;
+  border-color: #174a87 !important;
+}
+
+/* Footer layout — Back on far left, primary actions flush right, all on
+   one row. The spacer absorbs the remaining inline space. */
+.clubbed-modal .clubbed-footer {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+  padding: 12px 18px;
+  background: #fff;
+  border-top: 1px solid #e2e8f0;
+}
+.clubbed-modal .clubbed-footer-spacer {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Step-2 table — many columns, narrow modal. Allow horizontal scroll on
+   small screens without clipping the rightmost columns (Fee, Result). */
+.clubbed-modal .data-table-container {
+  overflow-x: auto;
+}
+.clubbed-modal .compact-table {
+  min-width: 760px; /* keeps columns from squishing too aggressively */
+}
+.clubbed-modal .compact-table th,
+.clubbed-modal .compact-table td {
+  white-space: nowrap;
+  padding: 9px 10px;
+}
+
+/* Step 3 modal — wider + height-capped so the full invoice template fits
+   without horizontal clipping AND the footer (Back / Print / Confirm) is
+   always reachable. The preview body gets its own scroll INSIDE the modal
+   so the footer never disappears off-screen. */
+.clubbed-modal.step3-modal {
+  width: 1080px !important;
+  max-width: 96vw;
+  max-height: 92vh;
+  display: flex !important;
+  flex-direction: column !important;
+}
+.clubbed-modal.step3-modal .modal-body {
+  flex: 1 1 auto;
+  min-height: 0;          /* required for flex children to shrink */
+  overflow-y: auto;
+}
+.clubbed-modal.step3-modal .invoice-preview-container {
+  max-height: none;       /* container takes its size from modal-body */
+}
 </style>

@@ -35,7 +35,7 @@ class StoreInventoryRequest extends FormRequest
                 'integer',
                 new MorphedRelationArrayRule()
             ],
-            'details.*.quantity' => ['required', 'decimal:2'],
+            'details.*.quantity' => ['required', 'integer', 'min:1'],
             'details.*.unit' => ['required', 'string', 'max:255'],
         ];
     }
@@ -43,7 +43,8 @@ class StoreInventoryRequest extends FormRequest
     public function messages()
     {
         return [
-            'details.*.quantity.decimal' => 'The quantity must be a valid decimal number'
+            'details.*.quantity.integer' => 'The quantity must be a whole number (no decimals).',
+            'details.*.quantity.min'     => 'The quantity must be at least 1.',
         ];
     }
 }

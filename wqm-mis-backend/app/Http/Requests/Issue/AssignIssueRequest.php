@@ -14,7 +14,7 @@ class AssignIssueRequest extends FormRequest
     public function authorize()
     {
         $u = auth()->user();
-        return $u && ($u->isUnscoped() || $u->can('add_issue_responsibles') || $u->can('edit_issues'));
+        return $u && ($u->isUnscoped() || $u->can('add_issue_responsible') || $u->can('edit_issues'));
     }
 
     /**

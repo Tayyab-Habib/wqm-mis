@@ -61,25 +61,33 @@ class InventoryController extends Controller
             $today = now()->toDateString();
             foreach ($inventories->items() as $inv) {
                 foreach ($inv->inventoryDetails as $det) {
-                    if ($det->inventoryable_type !== Material::class) {
+                    if ($det->inventoryable_type === Material::class) {
+                        $lm = \App\Models\Material\LaboratoryMaterial::query()
+                            ->where('laboratory_id', $sourceLabId)
+                            ->where('material_id', $det->inventoryable_id)
+                            ->first();
+                        if (!$lm) {
+                            $det->central_available_qty = 0;
+                            continue;
+                        }
+                        $expired = \App\Models\Material\LaboratoryMaterialLog::query()
+                            ->where('laboratory_material_id', $lm->id)
+                            ->where('status', 'in')
+                            ->whereNotNull('date_of_expiry')
+                            ->where('date_of_expiry', '<', $today)
+                            ->sum('quantity');
+                        $det->central_available_qty = max(0, (float) $lm->available_quantity - (float) $expired);
+                    } elseif ($det->inventoryable_type === \App\Models\Asset\Asset::class) {
+                        // Asset: report this lab's allocation qty. No expiry concept
+                        // for non-consumables, so no expired-batch subtraction.
+                        $la = \App\Models\Asset\LaboratoryAsset::query()
+                            ->where('laboratory_id', $sourceLabId)
+                            ->where('asset_id', $det->inventoryable_id)
+                            ->first();
+                        $det->central_available_qty = $la ? max(0, (float) $la->quantity) : 0;
+                    } else {
                         $det->central_available_qty = null;
-                        continue;
                     }
-                    $lm = \App\Models\Material\LaboratoryMaterial::query()
-                        ->where('laboratory_id', $sourceLabId)
-                        ->where('material_id', $det->inventoryable_id)
-                        ->first();
-                    if (!$lm) {
-                        $det->central_available_qty = 0;
-                        continue;
-                    }
-                    $expired = \App\Models\Material\LaboratoryMaterialLog::query()
-                        ->where('laboratory_material_id', $lm->id)
-                        ->where('status', 'in')
-                        ->whereNotNull('date_of_expiry')
-                        ->where('date_of_expiry', '<', $today)
-                        ->sum('quantity');
-                    $det->central_available_qty = max(0, (float) $lm->available_quantity - (float) $expired);
                 }
             }
         }

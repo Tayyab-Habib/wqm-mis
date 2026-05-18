@@ -27,7 +27,7 @@ class UpdateInventoryIssueStatusRequest extends FormRequest
     {
         return [
             'status' => ['required', Rule::in([InventoryDetailStatusEnum::ISSUED->value])],
-            'quantity' => ['required', 'decimal:2', 'gt:0'],
+            'quantity' => ['required', 'integer', 'min:1'],
             'comment' => ['nullable', 'string', 'max:255'],
         ];
     }

@@ -3,9 +3,11 @@ import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { Chart, registerables } from 'chart.js'
 import { api } from '../../services/api.js'
+import { useUserStore } from '../../stores/useUserStore.js'
 Chart.register(...registerables)
 
-const router = useRouter()
+const router    = useRouter()
+const userStore = useUserStore()
 
 // ── Filter state ──────────────────────────────────────────────────────
 const filters = ref({
@@ -484,6 +486,12 @@ async function fetchDashboard() {
       totalLabs:         d.total_laboratories ?? '—',
       totalComplaints:   d.total_complaints?.datasets?.[0]?.data?.[0] ?? '—',
       pendingComplaints: d.total_complaints?.datasets?.[0]?.data?.[1] ?? '—',
+      // SRS §2.9 — auto-escalated count: complaints unresolved > 72h.
+      // Backend now returns this on `total_complaints.escalated_count`;
+      // fall back to position 5 of the dataset for safety.
+      escalatedComplaints: d.total_complaints?.escalated_count
+                           ?? d.total_complaints?.datasets?.[0]?.data?.[5]
+                           ?? 0,
       totalIssues:       d.total_issues?.datasets?.[0]?.data?.[0] ?? '—',
       pendingInventory:  d.total_pending_inventory_requests ?? '—',
       revenue:           rev.series?.[0]?.data?.reduce((a, b) => a + b, 0)?.toLocaleString() ?? '—',
@@ -566,16 +574,38 @@ function rebuildCH01(labResults) {
     fit    = [152,118,82,149,95,52,76,61,22]
     unfit  = [22,13,6,3,4,6,15,11,2]
   }
+
+  // Lab-incharge sees only their own lab on the X-axis. The backend returns
+  // the full lab list as categories so unscoped roles get the cross-lab
+  // comparison; for a lab-incharge that's noise — they only manage one lab,
+  // so we narrow the categories + corresponding data series in place.
+  const myLabName = userStore.currentUser?.laboratory?.name
+  if (userStore.hasRole('lab-incharge') && myLabName) {
+    const idx = labs.findIndex(l => String(l).trim().toLowerCase() === String(myLabName).trim().toLowerCase())
+    if (idx >= 0) {
+      labs   = [labs[idx]]
+      tested = [tested[idx] ?? 0]
+      fit    = [fit[idx] ?? 0]
+      unfit  = [unfit[idx] ?? 0]
+    }
+  }
+
   const gap = tested.map((t, i) => Math.max(0, t - (fit[i]||0) - (unfit[i]||0)))
+
+  // maxBarThickness caps how fat a single column can get — without it,
+  // Chart.js spreads one bar across the whole canvas when there's only one
+  // category (which is exactly what happens for lab-incharge after the
+  // filter above, or whenever the data set has 1 lab / 1 district).
+  const BAR_CAP = 64
 
   ch01Instance = new Chart(ch01Ref.value, {
     type: 'bar',
     data: {
       labels: labs,
       datasets: [
-        { label:'Fit',           data:fit,   backgroundColor:'rgba(76,175,80,0.90)',   borderColor:'#388e3c', borderWidth:1, stack:'s' },
-        { label:'Unfit',         data:unfit, backgroundColor:'rgba(229,57,53,0.88)',   borderColor:'#c62828', borderWidth:1, stack:'s' },
-        { label:'Gap to Target', data:gap,   backgroundColor:'rgba(200,220,255,0.45)', borderColor:'rgba(21,101,192,0.25)', borderWidth:1, stack:'s' },
+        { label:'Fit',           data:fit,   backgroundColor:'rgba(76,175,80,0.90)',   borderColor:'#388e3c', borderWidth:1, stack:'s', maxBarThickness: BAR_CAP },
+        { label:'Unfit',         data:unfit, backgroundColor:'rgba(229,57,53,0.88)',   borderColor:'#c62828', borderWidth:1, stack:'s', maxBarThickness: BAR_CAP },
+        { label:'Gap to Target', data:gap,   backgroundColor:'rgba(200,220,255,0.45)', borderColor:'rgba(21,101,192,0.25)', borderWidth:1, stack:'s', maxBarThickness: BAR_CAP },
       ],
     },
     options: {
@@ -606,13 +636,18 @@ function rebuildCH02(districtResults) {
     unfit  = [7,7,5,1,1,5,6,7,2,6,1,0,3,3]
   }
 
+  // Same bar-thickness cap as CH-01 — a lab-incharge often sees only one
+  // district (their lab's catchment), and without this the single bar
+  // stretches edge-to-edge across the canvas and looks like a solid block.
+  const BAR_CAP = 64
+
   ch02Instance = new Chart(ch02Ref.value, {
     type: 'bar',
     data: {
       labels: districts,
       datasets: [
-        { label:'Fit',   data:fit,   backgroundColor:'rgba(76,175,80,0.90)',  borderColor:'#388e3c', borderWidth:1, stack:'s' },
-        { label:'Unfit', data:unfit, backgroundColor:'rgba(229,57,53,0.88)',  borderColor:'#c62828', borderWidth:1, stack:'s' },
+        { label:'Fit',   data:fit,   backgroundColor:'rgba(76,175,80,0.90)',  borderColor:'#388e3c', borderWidth:1, stack:'s', maxBarThickness: BAR_CAP },
+        { label:'Unfit', data:unfit, backgroundColor:'rgba(229,57,53,0.88)',  borderColor:'#c62828', borderWidth:1, stack:'s', maxBarThickness: BAR_CAP },
       ],
     },
     options: {
@@ -812,7 +847,21 @@ async function fetchLabKpis() {
   try {
     const res = await api.post('/dashboard/lab-kpis', buildPayload())
     const d = res.data?.data || res.data || {}
-    kpiLabs.value = (d.labs || []).map(l => ({ id: l.id, name: l.name, displayName: shortLabName(l.name) }))
+    let labs = d.labs || []
+
+    // Frontend safety net — even though labKpis() backend now scopes labs
+    // by the user's pivot, defend against stale tokens or future regressions
+    // by filtering the column set to the lab-incharge's own lab on render.
+    const myLabName = userStore.currentUser?.laboratory?.name
+    const myLabId   = userStore.currentUser?.laboratory?.id
+    if (userStore.hasRole('lab-incharge') && (myLabId || myLabName)) {
+      labs = labs.filter(l =>
+        (myLabId && Number(l.id) === Number(myLabId)) ||
+        (myLabName && String(l.name).trim().toLowerCase() === String(myLabName).trim().toLowerCase())
+      )
+    }
+
+    kpiLabs.value = labs.map(l => ({ id: l.id, name: l.name, displayName: shortLabName(l.name) }))
     const catalog = d.kpis || []
     const rowsByLab = d.rows || []
     kpiRows.value = catalog.map(k => {
@@ -822,6 +871,9 @@ async function fetchLabKpis() {
         id: k.id,
         name: k.name,
         target_pct: k.target_pct,
+        rag_green: k.rag_green,
+        rag_amber: k.rag_amber,
+        manual: k.manual,
         missing_reason: k.missing_reason,
         values,
       }
@@ -836,10 +888,15 @@ async function fetchLabKpis() {
   }
 }
 
-function kpiCellStyle(val) {
+// Per-KPI RAG band lookup. Falls back to a generic 90/75 split when the
+// catalog row doesn't supply rag_green/rag_amber (older clients, missing
+// catalog entries).
+function kpiCellStyle(val, kpi) {
   if (val == null) return 'background:#f1f5f9;color:#94a3b8;border:1px solid #e2e8f0'
-  if (val >= 90) return 'background:#d1fae5;color:#065f46;border:1px solid #6ee7b7'
-  if (val >= 75) return 'background:#fef9c3;color:#713f12;border:1px solid #fde047'
+  const green = kpi?.rag_green ?? 90
+  const amber = kpi?.rag_amber ?? 75
+  if (val >= green) return 'background:#d1fae5;color:#065f46;border:1px solid #6ee7b7'
+  if (val >= amber) return 'background:#fef9c3;color:#713f12;border:1px solid #fde047'
   return 'background:#fee2e2;color:#991b1b;border:1px solid #fca5a5'
 }
 
@@ -1023,13 +1080,23 @@ function exportKpiCsv() {
         <div class="c-val">{{ stats.totalComplaints }}</div>
         <div class="c-row"><span>Pending: <b>{{ stats.pendingComplaints }}</b></span></div>
         <div class="c-sub">Active complaints</div>
-        <div class="c-nav">→ Complaints</div>
+        <!-- SRS §2.9 Feature 1: button label uses "Report Issue", not legacy "Create Issue". -->
+        <div class="c-nav">→ Report Issue</div>
       </div>
       <div class="card c-red clickable">
         <div class="c-lbl">Issues</div>
         <div class="c-val">{{ stats.totalIssues }}</div>
         <div class="c-sub">Total issues logged</div>
-        <div class="c-nav">→ Issues</div>
+        <div class="c-nav">→ Report Issue</div>
+      </div>
+      <!-- SRS §2.9 Feature 2: Escalated Issues — complaints unresolved > 72h.
+           Computed in backend DashboardController::getTotalComplaints. -->
+      <div class="card c-amber clickable" :class="{ 'c-red': Number(stats.escalatedComplaints) > 0 }">
+        <div class="c-lbl">Escalated Issues</div>
+        <div class="c-val">{{ stats.escalatedComplaints }}</div>
+        <div class="c-row"><span>Unresolved &gt; 72h</span></div>
+        <div class="c-sub">Auto-escalated complaints</div>
+        <div class="c-nav">→ Review &amp; Resolve</div>
       </div>
       <div class="card c-amber clickable" @click="router.push('/admin/kpi-framework')">
         <div class="c-lbl">Pending Inventory</div>
@@ -1291,7 +1358,7 @@ function exportKpiCsv() {
                   :title="kpi.values[lab.id] == null ? (kpi.missing_reason || 'No data for this lab in current filter') : ''">
                 <span v-if="kpi.values[lab.id] != null"
                   style="display:inline-block;padding:2px 8px;border-radius:4px;font-weight:700;font-size:11.5px;min-width:44px"
-                  :style="kpiCellStyle(kpi.values[lab.id])">
+                  :style="kpiCellStyle(kpi.values[lab.id], kpi)">
                   {{ kpi.values[lab.id] }}%
                 </span>
                 <span v-else style="color:#ccc;font-size:11px">—</span>

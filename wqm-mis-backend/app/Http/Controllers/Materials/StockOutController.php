@@ -83,10 +83,23 @@ class StockOutController extends Controller
                 'dispatch_reference' => $request->dispatch_reference,
             ];
 
-            // 1. Decrement master
-            $newMasterAvail = max(0, (float) $material->available_quantity - $qty);
-            $material->update(['available_quantity' => $newMasterAvail]);
-            $this->refreshMaterialStatus($material);
+            // Inter-lab moves (transfer / inter_lab_issuance) keep the material
+            // inside the org — they should debit the source lab, credit the
+            // destination lab, and leave the master quantity unchanged. Other
+            // types (analysis, write_off, calibration) consume material so the
+            // master genuinely shrinks.
+            $isInterLabMove = in_array(
+                $request->type,
+                [\App\Enums\StockOutTypeEnum::TRANSFER->value, \App\Enums\StockOutTypeEnum::INTER_LAB_ISSUANCE->value],
+                true
+            );
+
+            // 1. Decrement master ONLY for true consumption (not inter-lab moves)
+            if (!$isInterLabMove) {
+                $newMasterAvail = max(0, (float) $material->available_quantity - $qty);
+                $material->update(['available_quantity' => $newMasterAvail]);
+                $this->refreshMaterialStatus($material);
+            }
 
             // 2. Global ledger entry (status=out)
             $materialLog = $material->materialLogs()->create(array_merge([
@@ -98,12 +111,12 @@ class StockOutController extends Controller
                 'status'         => MaterialLogStatusEnum::OUT->value,
             ], $extraMetadata));
 
-            // 3. Decrement lab allocation (note: quantity column is VARCHAR)
+            // 3. Decrement source lab allocation (note: quantity column is VARCHAR)
             $labMaterial->update([
                 'available_quantity' => $labAvailable - $qty,
             ]);
 
-            // 4. Lab ledger entry, linked to global log
+            // 4. Source lab ledger entry, linked to global log
             $labMaterial->laboratoryMaterialLogs()->create(array_merge([
                 'material_log_id' => $materialLog->id,
                 'date_of_expiry'  => null,
@@ -111,6 +124,48 @@ class StockOutController extends Controller
                 'unit'            => $request->unit,
                 'status'          => MaterialLogStatusEnum::OUT->value,
             ], $extraMetadata));
+
+            // 5. (inter-lab move only) Credit the destination lab — find-or-
+            //    create its laboratory_materials row and append a status=in
+            //    ledger entry so the receiving lab actually sees the stock.
+            //    Without this step the material evaporates from their view.
+            if ($isInterLabMove && $request->recipient_lab_id) {
+                $destLabMaterial = LaboratoryMaterial::query()
+                    ->where('laboratory_id', $request->recipient_lab_id)
+                    ->where('material_id', $material->id)
+                    ->first();
+
+                if ($destLabMaterial) {
+                    $destLabMaterial->update([
+                        'available_quantity' => (float) $destLabMaterial->available_quantity + $qty,
+                    ]);
+                } else {
+                    $destLabMaterial = LaboratoryMaterial::query()->create([
+                        'laboratory_id'      => $request->recipient_lab_id,
+                        'material_id'        => $material->id,
+                        'quantity'           => (string) $qty,
+                        'available_quantity' => (string) $qty,
+                        'unit'               => $request->unit,
+                        'threshold'          => $labMaterial->threshold,
+                    ]);
+                }
+
+                // Destination ledger — record the inbound side, with
+                // recipient_lab_id pointing back at the source lab so the
+                // receiver's trail can answer "where did this come from?".
+                $destLabMaterial->laboratoryMaterialLogs()->create([
+                    'material_log_id'  => $materialLog->id,
+                    'date_of_expiry'   => null,
+                    'quantity'         => (string) $qty,
+                    'unit'             => $request->unit,
+                    'status'           => MaterialLogStatusEnum::IN->value,
+                    'type'             => $request->type,
+                    'recipient_lab_id' => $labMaterial->laboratory_id, // source lab
+                    'remarks'          => $request->remarks
+                        ? 'Received via ' . $request->type . '. ' . $request->remarks
+                        : 'Received via ' . $request->type . ' from source lab.',
+                ]);
+            }
 
             DB::commit();
 

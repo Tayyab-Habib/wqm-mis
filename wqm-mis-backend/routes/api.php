@@ -196,10 +196,54 @@ Route::middleware(['auth:sanctum', 'dummy.account', 'view.only'])->group(callbac
     Route::post('dashboard/lab-kpis', [DashboardController::class, 'labKpis']);
     Route::post('district-wise-contaminants', DistrictWiseContaminantsController::class);
 
+    // Admin → KPI Framework (manual monthly entries for KPI-001/007/008/009).
+    // Read of the KPI matrix piggybacks on /dashboard/lab-kpis above — admin
+    // is unscoped there, so all labs are returned with manual values merged.
+    Route::prefix('admin/kpi-framework')->group(function () {
+        Route::get('labs',     [\App\Http\Controllers\Admin\KpiFrameworkController::class, 'labs']);
+        Route::get('history',  [\App\Http\Controllers\Admin\KpiFrameworkController::class, 'history']);
+        Route::post('save',    [\App\Http\Controllers\Admin\KpiFrameworkController::class, 'save']);
+    });
+
+    // Quality / Compliance modules backing the KPI Framework.
+    Route::prefix('quality')->group(function () {
+        // KPI-007 — Training Register
+        Route::get   ('staff-trainings',                [\App\Http\Controllers\Quality\StaffTrainingController::class, 'index']);
+        Route::post  ('staff-trainings',                [\App\Http\Controllers\Quality\StaffTrainingController::class, 'store']);
+        Route::put   ('staff-trainings/{id}',           [\App\Http\Controllers\Quality\StaffTrainingController::class, 'update']);
+        Route::delete('staff-trainings/{id}',           [\App\Http\Controllers\Quality\StaffTrainingController::class, 'destroy']);
+        Route::get   ('staff-trainings/lab-staff/{id}', [\App\Http\Controllers\Quality\StaffTrainingController::class, 'labStaff']);
+
+        // KPI-009 — Verification Visit Log
+        Route::get   ('verification-visits',       [\App\Http\Controllers\Quality\VerificationVisitController::class, 'index']);
+        Route::get   ('verification-visits/{id}',  [\App\Http\Controllers\Quality\VerificationVisitController::class, 'show']);
+        Route::post  ('verification-visits',       [\App\Http\Controllers\Quality\VerificationVisitController::class, 'store']);
+        Route::delete('verification-visits/{id}',  [\App\Http\Controllers\Quality\VerificationVisitController::class, 'destroy']);
+
+        // KPI-008 — Audit / SOP Checklist
+        Route::get   ('audit/items',               [\App\Http\Controllers\Quality\AuditChecklistController::class, 'items']);
+        Route::post  ('audit/items',               [\App\Http\Controllers\Quality\AuditChecklistController::class, 'storeItem']);
+        Route::put   ('audit/items/{id}',          [\App\Http\Controllers\Quality\AuditChecklistController::class, 'updateItem']);
+        Route::delete('audit/items/{id}',          [\App\Http\Controllers\Quality\AuditChecklistController::class, 'destroyItem']);
+        Route::get   ('audit/inspections',         [\App\Http\Controllers\Quality\AuditChecklistController::class, 'inspections']);
+        Route::get   ('audit/inspections/{id}',    [\App\Http\Controllers\Quality\AuditChecklistController::class, 'showInspection']);
+        Route::post  ('audit/inspections',         [\App\Http\Controllers\Quality\AuditChecklistController::class, 'storeInspection']);
+        Route::delete('audit/inspections/{id}',    [\App\Http\Controllers\Quality\AuditChecklistController::class, 'destroyInspection']);
+
+        // KPI-001 — PT (Proficiency Testing) rounds
+        Route::get   ('pt-rounds',                 [\App\Http\Controllers\Quality\PtRoundController::class, 'index']);
+        Route::get   ('pt-rounds/{id}',            [\App\Http\Controllers\Quality\PtRoundController::class, 'show']);
+        Route::post  ('pt-rounds',                 [\App\Http\Controllers\Quality\PtRoundController::class, 'store']);
+        Route::post  ('pt-rounds/{id}/close',      [\App\Http\Controllers\Quality\PtRoundController::class, 'close']);
+        Route::delete('pt-rounds/{id}',            [\App\Http\Controllers\Quality\PtRoundController::class, 'destroy']);
+        Route::post  ('pt-rounds/{roundId}/submit/{labId}', [\App\Http\Controllers\Quality\PtRoundController::class, 'submit']);
+    });
+
     // XEN Dashboard Routes
     Route::prefix('xen')->group(function () {
         Route::get('dashboard', [\App\Http\Controllers\Xen\XenDashboardController::class, 'index']);
         Route::get('trail', [\App\Http\Controllers\Xen\XenDashboardController::class, 'trail']);
+        Route::get('samples/{id}/trail', [\App\Http\Controllers\Xen\XenDashboardController::class, 'trailDetail']);
         Route::post('actions/request-retest', [\App\Http\Controllers\Xen\XenDashboardController::class, 'requestRetest']);
 
         // XEN Portal — division-scoped resources
@@ -212,6 +256,28 @@ Route::middleware(['auth:sanctum', 'dummy.account', 'view.only'])->group(callbac
         Route::get('overdue-wss',     [\App\Http\Controllers\Xen\XenPortalController::class, 'overdueWss']);
         Route::get('notifications',   [\App\Http\Controllers\Xen\XenPortalController::class, 'notifications']);
         Route::put('settings',        [\App\Http\Controllers\Xen\XenPortalController::class, 'updateSettings']);
+    });
+
+    // Secretary Portal Routes — top of the hierarchy, province-wide oversight
+    Route::prefix('secretary')->group(function () {
+        Route::get('me',                [\App\Http\Controllers\Secretary\SecretaryPortalController::class, 'me']);
+        Route::get('dashboard',         [\App\Http\Controllers\Secretary\SecretaryPortalController::class, 'dashboard']);
+        Route::get('ce/{regionId}',     [\App\Http\Controllers\Secretary\SecretaryPortalController::class, 'ceUnfit']);
+        Route::get('fate-decisions',    [\App\Http\Controllers\Secretary\SecretaryPortalController::class, 'fateDecisions']);
+        Route::get('persistent-unfit',  [\App\Http\Controllers\Secretary\SecretaryPortalController::class, 'persistentUnfit']);
+        Route::get('gar',               [\App\Http\Controllers\Secretary\SecretaryPortalController::class, 'gar']);
+        Route::get('wss-register',      [\App\Http\Controllers\Secretary\SecretaryPortalController::class, 'wssRegister']);
+    });
+
+    // CE Portal Routes — Chief Engineer (region-scoped oversight)
+    Route::prefix('ce')->group(function () {
+        Route::get('me',                [\App\Http\Controllers\Ce\CePortalController::class, 'me']);
+        Route::get('dashboard',         [\App\Http\Controllers\Ce\CePortalController::class, 'dashboard']);
+        Route::get('circles/{id}',      [\App\Http\Controllers\Ce\CePortalController::class, 'circleDetail']);
+        Route::get('escalated-cases',   [\App\Http\Controllers\Ce\CePortalController::class, 'escalatedCases']);
+        Route::get('persistent-unfit',  [\App\Http\Controllers\Ce\CePortalController::class, 'persistentUnfit']);
+        Route::get('gar',               [\App\Http\Controllers\Ce\CePortalController::class, 'gar']);
+        Route::get('wss-register',      [\App\Http\Controllers\Ce\CePortalController::class, 'wssRegister']);
     });
 
     //start locality routes
@@ -238,6 +304,7 @@ Route::middleware(['auth:sanctum', 'dummy.account', 'view.only'])->group(callbac
     Route::get('focal-persons', FocalPersonController::class);
     Route::get('all-laboratories', \App\Http\Controllers\Dropdowns\LaboratoryController::class);
     Route::get('all-materials',    \App\Http\Controllers\Dropdowns\MaterialDropdownController::class);
+    Route::get('all-assets',       \App\Http\Controllers\Dropdowns\AssetDropdownController::class);
     Route::get('all-diary-dispatches', \App\Http\Controllers\Dropdowns\DiaryDispatchController::class);
     Route::get('all-water-schemes', \App\Http\Controllers\Dropdowns\WaterSchemeController::class);
     Route::get('all-designations', \App\Http\Controllers\Dropdowns\DesignationController::class);
@@ -314,7 +381,12 @@ Route::middleware(['auth:sanctum', 'dummy.account', 'view.only'])->group(callbac
     //end material management routes
 
     //start asset management routes
-    Route::apiResource('assets', AssetController::class)->middleware(['role:system-administrator']);
+    // Per-action auth lives in the FormRequests (StoreAssetRequest checks
+    // add_assets, UpdateAssetRequest edit_assets, DeleteAssetRequest delete_assets,
+    // ViewAssetRequest view_assets). Removed the route-level role gate so any
+    // role granted the relevant perm via Roles & Permissions can transact —
+    // matches the perm-based RBAC model used across the rest of the codebase.
+    Route::apiResource('assets', AssetController::class);
     Route::get('assets/{asset}/status/{isActive}', UpdateAssetStatusController::class);
     Route::apiResource('asset-logs', AssetLogController::class);
     Route::apiResource('asset-maintenance-schedules', AssetMaintenanceScheduleController::class);
@@ -514,9 +586,10 @@ Route::middleware(['auth:sanctum', 'dummy.account', 'view.only'])->group(callbac
 
 // ── Client Portal ─────────────────────────────────────────────────────
 Route::prefix('client-portal')->group(function () {
-    // Public: login & logout
-    Route::post('login',  [\App\Http\Controllers\ClientPortal\ClientPortalAuthController::class, 'login']);
-    Route::post('logout', [\App\Http\Controllers\ClientPortal\ClientPortalAuthController::class, 'logout']);
+    // Public login — rate-limited (5 attempts per minute per IP) so
+    // credential-stuffing / brute-force gets backed off.
+    Route::middleware('throttle:5,1')->post('login',
+        [\App\Http\Controllers\ClientPortal\ClientPortalAuthController::class, 'login']);
 
     // Protected: requires client portal token
     Route::middleware('client.portal')->group(function () {
@@ -524,6 +597,19 @@ Route::prefix('client-portal')->group(function () {
         Route::get('samples',        [\App\Http\Controllers\ClientPortal\ClientPortalController::class, 'samples']);
         Route::get('invoices',       [\App\Http\Controllers\ClientPortal\ClientPortalController::class, 'invoices']);
         Route::get('email-reports',  [\App\Http\Controllers\ClientPortal\ClientPortalController::class, 'emailReports']);
-        Route::put('change-password',[\App\Http\Controllers\ClientPortal\ClientPortalController::class, 'changePassword']);
+
+        // Change-password is throttled separately + needs an active session.
+        // Throttle is tighter (3 per 5 min) because a hijacked session
+        // could otherwise be used to rapidly lock the legitimate client out.
+        Route::middleware('throttle:3,5')->put('change-password',
+            [\App\Http\Controllers\ClientPortal\ClientPortalController::class, 'changePassword']);
+
+        // Logout moved inside the protected group — it needs to know which
+        // client is logging out, and a hashed-token DB lookup belongs to
+        // the middleware. Expired/invalid tokens just get rejected at the
+        // middleware layer, which is the correct behaviour (nothing to
+        // revoke if the session is already dead).
+        Route::post('logout',
+            [\App\Http\Controllers\ClientPortal\ClientPortalAuthController::class, 'logout']);
     });
 });

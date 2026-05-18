@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { xenService } from '../../services/xenService.js'
 import SkelRow from './SkelRow.vue'
+import XenTrailModal from './XenTrailModal.vue'
 
 const loading = ref(true)
 const retests = ref([])
@@ -35,6 +36,15 @@ function resultClass(r) {
   if (r === 'unfit') return 'st-red'
   return 'st-grey'
 }
+
+// ── Trail modal ───────────────────────────────────────────────
+const showTrailModal = ref(false)
+const trailSampleId  = ref(null)
+function openTrail(r) {
+  trailSampleId.value = r.water_sample_id || r.id
+  showTrailModal.value = true
+}
+function onActionSaved() { load() }
 </script>
 
 <template>
@@ -83,13 +93,15 @@ function resultClass(r) {
               <td><span class="pill pill-red">{{ r.cause }}</span></td>
               <td><span class="pill" :class="statusClass(r.status)">{{ r.status }}</span></td>
               <td><span class="pill" :class="resultClass(r.result)">{{ r.result }}</span></td>
-              <td><RouterLink :to="`/xen/isr/${r.water_sample_id}`" class="btn btn-sec">👁 Trail</RouterLink></td>
+              <td><button class="btn btn-sec" @click="openTrail(r)">👁 Trail</button></td>
             </tr>
             <tr v-if="retests.length === 0"><td colspan="9" class="empty">No retests in your division.</td></tr>
           </template>
         </tbody>
       </table>
     </div>
+
+    <XenTrailModal v-model="showTrailModal" :sample-id="trailSampleId" @saved="onActionSaved" />
   </div>
 </template>
 
