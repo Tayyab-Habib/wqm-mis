@@ -35,81 +35,75 @@ function showToast(message, type = 'success') {
 // Mirrors the gating in Sidebar.vue so admins can toggle "module access"
 // in one click instead of hand-picking perms. Keep this in sync with the
 // sidebar definition; the labels and icons match what users actually see.
+// Each module carries a `group` so the two-pane Module Access editor can
+// section the toggles. Group order in the UI follows first-occurrence here.
 const SIDEBAR_MODULES = [
-  { label: 'Sample Registration',     icon: '🧪',  perms: ['add_water_samples'] },
-  { label: 'Analysis Entry',          icon: '⚗️',  perms: ['add_water_sample_details', 'edit_water_sample_results'] },
-  { label: 'Individual Sample Report', icon: '📝', perms: ['view_individual_sample_report'] },
-  { label: 'GAR (Abstract)',          icon: '📄',  perms: ['view_gar'] },
-  { label: 'GSR (Summary)',           icon: '📋',  perms: ['view_gsr'] },
-  { label: 'ASR (Analysis Summary)',  icon: '📊',  perms: ['view_asr'] },
-  { label: 'CE-Wise Report',          icon: '🗺️',  perms: ['view_ce_wise_report'] },
-  { label: 'PWR (Parameter-wise)',    icon: '🔬',  perms: ['view_pwr'] },
-  { label: 'WSS Map',                 icon: '🗾',  perms: ['view_water_schemes'] },
-  { label: 'Invoices / Revenue',      icon: '🧾',  perms: ['view_invoices'] },
-  { label: 'SBP Submissions',         icon: '🏦',  perms: ['view_sbp_submissions'] },
-  { label: 'Stock / Inventory',       icon: '📦',  perms: ['view_inventories'] },
-  { label: 'Equipment Register',      icon: '🔧',  perms: ['view_assets'] },
-  { label: 'Demand & Issuance',       icon: '🔄',  perms: ['view_demands', 'view_inventories', 'add_inventories'] },
-  { label: 'Diaries / Dispatches',    icon: '📝',  perms: ['view_diaries', 'view_dispatches'] },
-  { label: 'Water Scheme Details',    icon: '💧',  perms: ['view_water_schemes'] },
+  { group: 'Lab Operations', label: 'Sample Registration',     icon: '🧪',  perms: ['add_water_samples'] },
+  { group: 'Lab Operations', label: 'Analysis Entry',          icon: '⚗️',  perms: ['add_water_sample_details', 'edit_water_sample_results'] },
+  { group: 'Lab Operations', label: 'Individual Sample Report', icon: '📝', perms: ['view_individual_sample_report'] },
+
+  { group: 'Reports', label: 'GAR (Abstract)',          icon: '📄',  perms: ['view_gar'] },
+  { group: 'Reports', label: 'GSR (Summary)',           icon: '📋',  perms: ['view_gsr'] },
+  { group: 'Reports', label: 'ASR (Analysis Summary)',  icon: '📊',  perms: ['view_asr'] },
+  { group: 'Reports', label: 'CE-Wise Report',          icon: '🗺️',  perms: ['view_ce_wise_report'] },
+  { group: 'Reports', label: 'PWR (Parameter-wise)',    icon: '🔬',  perms: ['view_pwr'] },
+
+  { group: 'Operations', label: 'WSS Map',              icon: '🗾',  perms: ['view_water_schemes'] },
+  { group: 'Operations', label: 'Invoices / Revenue',   icon: '🧾',  perms: ['view_invoices'] },
+  { group: 'Operations', label: 'SBP Submissions',      icon: '🏦',  perms: ['view_sbp_submissions'] },
+  { group: 'Operations', label: 'Stock / Inventory',    icon: '📦',  perms: ['view_inventories'] },
+  { group: 'Operations', label: 'Equipment Register',   icon: '🔧',  perms: ['view_assets'] },
+  { group: 'Operations', label: 'Demand & Issuance',    icon: '🔄',  perms: ['view_demands', 'view_inventories', 'add_inventories'] },
+  { group: 'Operations', label: 'Diaries / Dispatches', icon: '📝',  perms: ['view_diaries', 'view_dispatches'] },
+  { group: 'Operations', label: 'Water Scheme Details', icon: '💧',  perms: ['view_water_schemes'] },
 
   // ── Secretary portal screens ────────────────────────────────────────
   // Granting "Secretary Portal" gives umbrella access (lets the user enter
-  // /secretary/*). Each per-screen perm below controls a single tab so admin
-  // can hide individual tabs from a secretary without revoking the whole
-  // portal. Non-secretary roles that get granted these can navigate to
-  // Secretary screens by URL — useful for admin stand-in scenarios.
-  { label: 'Secretary Portal',           icon: '🏛️', perms: ['view_secretary_portal'] },
-  { label: 'Secretary Dashboard',        icon: '📊', perms: ['view_secretary_dashboard'] },
-  { label: 'Secretary CE Unfit Trail',   icon: '📍', perms: ['view_secretary_ce_unfit'] },
-  { label: 'Secretary Fate Decisions',   icon: '⚖️', perms: ['view_secretary_fate_decisions'] },
-  { label: 'Secretary Persistent Unfit', icon: '🔴', perms: ['view_secretary_persistent_unfit'] },
-  { label: 'Secretary GAR',              icon: '📄', perms: ['view_secretary_gar'] },
-  { label: 'Secretary WSS Register',     icon: '💧', perms: ['view_secretary_wss_register'] },
+  // /secretary/*). Each per-screen perm below controls a single tab.
+  { group: 'Secretary Portal', label: 'Secretary Portal',           icon: '🏛️', perms: ['view_secretary_portal'] },
+  { group: 'Secretary Portal', label: 'Secretary Dashboard',        icon: '📊', perms: ['view_secretary_dashboard'] },
+  { group: 'Secretary Portal', label: 'Secretary CE Unfit Trail',   icon: '📍', perms: ['view_secretary_ce_unfit'] },
+  { group: 'Secretary Portal', label: 'Secretary Fate Decisions',   icon: '⚖️', perms: ['view_secretary_fate_decisions'] },
+  { group: 'Secretary Portal', label: 'Secretary Persistent Unfit', icon: '🔴', perms: ['view_secretary_persistent_unfit'] },
+  { group: 'Secretary Portal', label: 'Secretary GAR',              icon: '📄', perms: ['view_secretary_gar'] },
+  { group: 'Secretary Portal', label: 'Secretary WSS Register',     icon: '💧', perms: ['view_secretary_wss_register'] },
 
   // ── CE portal screens ───────────────────────────────────────────────
-  // Same pattern as Secretary: umbrella + 6 per-screen perms. The
-  // chief-engineer role gets all 7 by default; admin can revoke per-screen
-  // via this grid.
-  { label: 'CE Portal',                  icon: '🏢', perms: ['view_ce_portal'] },
-  { label: 'CE Dashboard',               icon: '📊', perms: ['view_ce_dashboard'] },
-  { label: 'CE Circle Detail',           icon: '📍', perms: ['view_ce_circle_detail'] },
-  { label: 'CE Escalated Cases',         icon: '⚠️', perms: ['view_ce_escalated_cases'] },
-  { label: 'CE Persistent Unfit',        icon: '🔴', perms: ['view_ce_persistent_unfit'] },
-  { label: 'CE GAR',                     icon: '📄', perms: ['view_ce_gar'] },
-  { label: 'CE WSS Register',            icon: '💧', perms: ['view_ce_wss_register'] },
+  { group: 'CE Portal', label: 'CE Portal',          icon: '🏢', perms: ['view_ce_portal'] },
+  { group: 'CE Portal', label: 'CE Dashboard',       icon: '📊', perms: ['view_ce_dashboard'] },
+  { group: 'CE Portal', label: 'CE Circle Detail',   icon: '📍', perms: ['view_ce_circle_detail'] },
+  { group: 'CE Portal', label: 'CE Escalated Cases', icon: '⚠️', perms: ['view_ce_escalated_cases'] },
+  { group: 'CE Portal', label: 'CE Persistent Unfit',icon: '🔴', perms: ['view_ce_persistent_unfit'] },
+  { group: 'CE Portal', label: 'CE GAR',             icon: '📄', perms: ['view_ce_gar'] },
+  { group: 'CE Portal', label: 'CE WSS Register',    icon: '💧', perms: ['view_ce_wss_register'] },
 
   // ── XEN portal screens ──────────────────────────────────────────────
-  // Largest portal: umbrella + 7 view + 2 write perms. The xen and
-  // superintending-engineer roles get the full bundle by default.
-  // Write perms (submit_xen_retest, update_xen_settings) sit alongside
-  // view perms so admin can grant read-only view of a screen and
-  // separately disable the write action.
-  { label: 'XEN Portal',                 icon: '🛠', perms: ['view_xen_portal'] },
-  { label: 'XEN Dashboard',              icon: '📊', perms: ['view_xen_dashboard'] },
-  { label: 'XEN Unfit Trail',            icon: '⚠️', perms: ['view_xen_unfit_trail'] },
-  { label: 'XEN Retest Samples',         icon: '🧪', perms: ['view_xen_retest_samples'] },
-  { label: 'XEN GSR',                    icon: '📄', perms: ['view_xen_gsr'] },
-  { label: 'XEN ISR',                    icon: '📋', perms: ['view_xen_isr'] },
-  { label: 'XEN WSS Register',           icon: '💧', perms: ['view_xen_wss_register'] },
-  { label: 'XEN Settings',               icon: '⚙️', perms: ['view_xen_settings'] },
-  { label: 'XEN: Submit Retest',         icon: '🔁', perms: ['submit_xen_retest'] },
-  { label: 'XEN: Update Settings',       icon: '✏️', perms: ['update_xen_settings'] },
+  // Write perms (submit_xen_retest, update_xen_settings) sit alongside view
+  // perms so admin can grant read-only view of a screen and separately
+  // disable the write action.
+  { group: 'XEN Portal', label: 'XEN Portal',          icon: '🛠', perms: ['view_xen_portal'] },
+  { group: 'XEN Portal', label: 'XEN Dashboard',       icon: '📊', perms: ['view_xen_dashboard'] },
+  { group: 'XEN Portal', label: 'XEN Unfit Trail',     icon: '⚠️', perms: ['view_xen_unfit_trail'] },
+  { group: 'XEN Portal', label: 'XEN Retest Samples',  icon: '🧪', perms: ['view_xen_retest_samples'] },
+  { group: 'XEN Portal', label: 'XEN GSR',             icon: '📄', perms: ['view_xen_gsr'] },
+  { group: 'XEN Portal', label: 'XEN ISR',             icon: '📋', perms: ['view_xen_isr'] },
+  { group: 'XEN Portal', label: 'XEN WSS Register',    icon: '💧', perms: ['view_xen_wss_register'] },
+  { group: 'XEN Portal', label: 'XEN Settings',        icon: '⚙️', perms: ['view_xen_settings'] },
+  { group: 'XEN Portal', label: 'XEN: Submit Retest',  icon: '🔁', perms: ['submit_xen_retest'] },
+  { group: 'XEN Portal', label: 'XEN: Update Settings',icon: '✏️', perms: ['update_xen_settings'] },
 
-  // Quality / Compliance modules (KPI Framework data sources).
-  // view_ → can see the screen and the KPI value derived from it.
-  // manage_ / submit_ → write actions on the underlying records.
-  { label: 'KPI Framework',              icon: '📊', perms: ['view_kpi_framework'] },
-  { label: 'KPI Framework: Manage',      icon: '✏️', perms: ['manage_kpi_framework'] },
-  { label: 'Training Register',          icon: '🎓', perms: ['view_staff_trainings'] },
-  { label: 'Training Register: Manage',  icon: '✏️', perms: ['manage_staff_trainings'] },
-  { label: 'SOP Audit',                  icon: '✅', perms: ['view_audit_inspections'] },
-  { label: 'SOP Audit: Manage',          icon: '✏️', perms: ['manage_audit_inspections'] },
-  { label: 'PT Rounds',                  icon: '🧪', perms: ['view_pt_rounds'] },
-  { label: 'PT Rounds: Manage',          icon: '✏️', perms: ['manage_pt_rounds'] },
-  { label: 'PT Rounds: Submit Results',  icon: '🔁', perms: ['submit_pt_results'] },
-  { label: 'Verification Log',           icon: '🔎', perms: ['view_verification_visits'] },
-  { label: 'Verification Log: Manage',   icon: '✏️', perms: ['manage_verification_visits'] },
+  // ── Quality / Compliance (KPI Framework data sources) ──────────────
+  { group: 'Quality Framework', label: 'KPI Framework',             icon: '📊', perms: ['view_kpi_framework'] },
+  { group: 'Quality Framework', label: 'KPI Framework: Manage',     icon: '✏️', perms: ['manage_kpi_framework'] },
+  { group: 'Quality Framework', label: 'Training Register',         icon: '🎓', perms: ['view_staff_trainings'] },
+  { group: 'Quality Framework', label: 'Training Register: Manage', icon: '✏️', perms: ['manage_staff_trainings'] },
+  { group: 'Quality Framework', label: 'SOP Audit',                 icon: '✅', perms: ['view_audit_inspections'] },
+  { group: 'Quality Framework', label: 'SOP Audit: Manage',         icon: '✏️', perms: ['manage_audit_inspections'] },
+  { group: 'Quality Framework', label: 'PT Rounds',                 icon: '🧪', perms: ['view_pt_rounds'] },
+  { group: 'Quality Framework', label: 'PT Rounds: Manage',         icon: '✏️', perms: ['manage_pt_rounds'] },
+  { group: 'Quality Framework', label: 'PT Rounds: Submit Results', icon: '🔁', perms: ['submit_pt_results'] },
+  { group: 'Quality Framework', label: 'Verification Log',          icon: '🔎', perms: ['view_verification_visits'] },
+  { group: 'Quality Framework', label: 'Verification Log: Manage',  icon: '✏️', perms: ['manage_verification_visits'] },
 ]
 // Roles whose access is router/middleware-bypassed (isUnscoped) — toggling
 // module perms for them has no UI effect, so they're hidden from the grid
@@ -133,31 +127,109 @@ const permNameToId = computed(() => {
 })
 const scopedRoles = computed(() => roles.value.filter(r => !UNSCOPED_ROLES.has(r.name)))
 
+// ── Module Access (two-pane editor) ────────────────────────────────────
+// Left pane picks a role; right pane shows toggle switches grouped by
+// `SIDEBAR_MODULES[].group`. Replaces the previous wide-checkbox-grid which
+// horizontally scrolled past the viewport.
+const maSelectedRoleId = ref(null)
+const maSearch         = ref('')
+const maCollapsed      = ref(new Set())   // group names currently collapsed
+
+// Preserve first-occurrence order of groups in SIDEBAR_MODULES — no
+// hard-coded list, so adding a new group only requires tagging modules.
+const moduleGroups = computed(() => {
+  const seen = []
+  const seenSet = new Set()
+  for (const m of SIDEBAR_MODULES) {
+    if (!seenSet.has(m.group)) { seenSet.add(m.group); seen.push(m.group) }
+  }
+  const q = maSearch.value.trim().toLowerCase()
+  return seen.map(g => ({
+    name: g,
+    modules: SIDEBAR_MODULES.filter(m =>
+      m.group === g &&
+      (!q || m.label.toLowerCase().includes(q) || m.perms.some(p => p.toLowerCase().includes(q)))
+    ),
+  })).filter(g => g.modules.length > 0)
+})
+
+const maSelectedRole = computed(() =>
+  scopedRoles.value.find(r => r.id === maSelectedRoleId.value) || null
+)
+
+function groupOnCount(roleId, modules) {
+  if (!roleId) return 0
+  return modules.reduce((n, m) => n + (roleHasModule(roleId, m) ? 1 : 0), 0)
+}
+function groupAllOn(roleId, modules)  { return modules.length > 0 && modules.every(m => roleHasModule(roleId, m)) }
+function groupAllOff(roleId, modules) { return modules.every(m => !roleHasModule(roleId, m)) }
+
+function toggleGroup(roleId, modules, turnOn) {
+  // Apply to each module that isn't already in the target state.
+  for (const m of modules) {
+    const has = roleHasModule(roleId, m)
+    if (turnOn && !has) toggleModule(roleId, m)
+    else if (!turnOn && has) toggleModule(roleId, m)
+  }
+}
+
+function toggleGroupCollapsed(name) {
+  const s = new Set(maCollapsed.value)
+  if (s.has(name)) s.delete(name); else s.add(name)
+  maCollapsed.value = s
+}
+
 async function switchView(mode) {
   viewMode.value = mode
-  if (mode !== 'modules' || rolePermSets.value.size > 0) return
-  gridLoading.value = true
-  try {
-    // Parallel fetch of each role's permission set. With ~10 roles this is
-    // 10 small requests — cheap enough that the simplicity wins over adding
-    // a dedicated /admin/roles-perms-bulk endpoint.
-    const responses = await Promise.all(scopedRoles.value.map(r => adminService.getRole(r.id)))
-    const map = new Map()
-    scopedRoles.value.forEach((r, i) => {
-      const data = responses[i]?.data?.data || responses[i]?.data || {}
-      const ids = new Set()
-      for (const p of data.permissions || []) {
-        const id = p?.id ?? p?.permission_id ?? p
-        if (id != null) ids.add(Number(id))
-      }
-      map.set(r.id, ids)
-    })
-    rolePermSets.value = map
-  } catch (e) {
-    showToast('❌ Failed to load module access: ' + (e?.response?.data?.message || e.message), 'error')
-  } finally {
-    gridLoading.value = false
+  if (mode !== 'modules') return
+  if (rolePermSets.value.size === 0) {
+    gridLoading.value = true
+    try {
+      // Parallel fetch of each role's permission set. With ~10 roles this is
+      // 10 small requests — cheap enough that the simplicity wins over adding
+      // a dedicated /admin/roles-perms-bulk endpoint.
+      const responses = await Promise.all(scopedRoles.value.map(r => adminService.getRole(r.id)))
+      const map = new Map()
+      scopedRoles.value.forEach((r, i) => {
+        const data = responses[i]?.data?.data || responses[i]?.data || {}
+        const ids = new Set()
+        for (const p of data.permissions || []) {
+          const id = p?.id ?? p?.permission_id ?? p
+          if (id != null) ids.add(Number(id))
+        }
+        map.set(r.id, ids)
+      })
+      rolePermSets.value = map
+    } catch (e) {
+      showToast('❌ Failed to load module access: ' + (e?.response?.data?.message || e.message), 'error')
+    } finally {
+      gridLoading.value = false
+    }
   }
+  // Auto-select the first role so the right pane isn't empty on first open.
+  if (!maSelectedRoleId.value && scopedRoles.value.length > 0) {
+    maSelectedRoleId.value = scopedRoles.value[0].id
+  }
+}
+
+// Role badge — colored circle + initials, derived from the role name so
+// the avatar is deterministic without storing extra data.
+function roleInitials(name) {
+  if (!name) return '?'
+  return String(name).replace(/[-_]/g, ' ').split(' ')
+    .filter(Boolean).map(w => w[0].toUpperCase()).slice(0, 2).join('')
+}
+function roleHue(name) {
+  // Stable hash → hue. Same role always gets the same color across reloads.
+  let h = 0
+  for (let i = 0; i < (name || '').length; i++) h = ((h << 5) - h + name.charCodeAt(i)) | 0
+  return Math.abs(h) % 360
+}
+// Count of total active modules for a role (across all groups). Drives the
+// "X / Y modules" line under the role name in the sidebar.
+function roleEnabledCount(roleId) {
+  if (!roleId) return 0
+  return SIDEBAR_MODULES.reduce((n, m) => n + (roleHasModule(roleId, m) ? 1 : 0), 0)
 }
 
 function roleHasModule(roleId, mod) {
@@ -337,6 +409,56 @@ function activeOthers(others) {
   return n
 }
 
+// ── Matrix row/global helpers (UI sugar, no new permissions logic) ─────
+
+// All permission objects on a module row (CRUD slots + others), flattened.
+function modulePerms(mod) {
+  const out = []
+  for (const k of CRUD_PREFIXES) if (mod.slots[k]) out.push(mod.slots[k])
+  for (const p of (mod.others || [])) out.push(p)
+  return out
+}
+function moduleEnabledCount(mod) {
+  return modulePerms(mod).filter(p => rolePerms.value.has(Number(p.id))).length
+}
+function moduleTotalCount(mod) { return modulePerms(mod).length }
+function moduleHasAny(mod)     { return moduleEnabledCount(mod) > 0 }
+function moduleHasAll(mod)     { return moduleEnabledCount(mod) === moduleTotalCount(mod) }
+
+// Bulk action per row: enable or disable every permission belonging to the
+// module. Idempotent — only flips the ones that need flipping.
+function toggleAllForModule(mod, turnOn) {
+  const next = new Set(rolePerms.value)
+  for (const p of modulePerms(mod)) {
+    const id = Number(p.id)
+    if (turnOn) next.add(id); else next.delete(id)
+  }
+  rolePerms.value = next
+}
+
+// Filter chips above the matrix.
+const matrixFilter = ref('all')          // 'all' | 'active' | 'inactive'
+const visibleModules = computed(() => {
+  let list = filteredModules.value
+  if (matrixFilter.value === 'active')   list = list.filter(moduleHasAny)
+  if (matrixFilter.value === 'inactive') list = list.filter(m => !moduleHasAny(m))
+  return list
+})
+
+// Summary stats shown in the modal footer.
+const matrixSummary = computed(() => {
+  let totalEnabled = 0, totalPerms = 0, modulesTouched = 0
+  for (const m of matrixModules.value) {
+    const perms = modulePerms(m)
+    totalPerms += perms.length
+    let any = 0
+    for (const p of perms) if (rolePerms.value.has(Number(p.id))) any++
+    totalEnabled += any
+    if (any > 0) modulesTouched++
+  }
+  return { totalEnabled, totalPerms, modulesTouched, totalModules: matrixModules.value.length }
+})
+
 async function savePermissions() {
   if (!selectedRole.value) return
   saving.value = true
@@ -465,61 +587,143 @@ onMounted(async () => {
       </button>
     </div>
 
-    <!-- ── Module Access grid -------------------------------------- -->
-    <div v-if="viewMode === 'modules'" class="rp-card">
+    <!-- ── Module Access — two-pane editor ------------------------- -->
+    <div v-if="viewMode === 'modules'" class="rp-card ma-card">
       <div class="rp-card-header">
         <div>
           <div class="rp-card-title">Module Access by Role</div>
           <div class="rp-card-sub">
-            Toggle which sidebar modules each role can see. Admin-tier roles
-            (System Administrator, Manager, View-Only Admin, General View) bypass
-            these gates and are hidden from the grid.
+            Pick a role on the left, toggle module access on the right.
+            Admin-tier roles (System Administrator, Manager, View-Only Admin,
+            General View) bypass these gates and are hidden.
           </div>
         </div>
       </div>
 
-      <div v-if="gridLoading" class="rp-grid-skel">
-        <div v-for="n in 5" :key="'gs-' + n" class="rp-skel" style="height: 38px; margin: 8px 0;"></div>
+      <!-- Loading skeleton -->
+      <div v-if="gridLoading" class="ma-shell">
+        <div class="ma-sidebar">
+          <div v-for="n in 6" :key="'sks-' + n" class="rp-skel" style="height:36px;margin:6px 0"></div>
+        </div>
+        <div class="ma-main">
+          <div v-for="n in 8" :key="'skm-' + n" class="rp-skel" style="height:44px;margin:8px 0"></div>
+        </div>
       </div>
 
-      <div v-else class="rp-grid-wrap">
-        <table class="rp-grid">
-          <thead>
-            <tr>
-              <th class="rp-grid-role-h">Role</th>
-              <th v-for="m in SIDEBAR_MODULES" :key="m.label" class="rp-grid-mod-h" :title="m.perms.join(', ')">
-                <div class="rp-grid-mod-icon">{{ m.icon }}</div>
-                <div class="rp-grid-mod-label">{{ m.label }}</div>
-              </th>
-              <th class="rp-grid-save-h">Save</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="r in scopedRoles" :key="r.id" :class="{ 'rp-grid-row-dirty': dirtyRoles.has(r.id) }">
-              <td class="rp-grid-role">{{ displayRole(r.name) }}</td>
-              <td v-for="m in SIDEBAR_MODULES" :key="m.label" class="rp-grid-cell">
-                <input
-                  type="checkbox"
-                  class="rp-grid-chk"
-                  :checked="roleHasModule(r.id, m)"
-                  @change="toggleModule(r.id, m)"
-                />
-              </td>
-              <td class="rp-grid-save">
-                <button
-                  v-if="dirtyRoles.has(r.id)"
-                  class="rp-btn rp-btn-pri rp-btn-sm"
-                  :disabled="gridSaving.has(r.id)"
-                  @click="saveModuleRow(r)"
-                >{{ gridSaving.has(r.id) ? '⏳ Saving' : '💾 Save' }}</button>
-                <span v-else class="rp-grid-save-dash">—</span>
-              </td>
-            </tr>
-            <tr v-if="scopedRoles.length === 0">
-              <td :colspan="SIDEBAR_MODULES.length + 2" class="rp-empty">No scoped roles to display.</td>
-            </tr>
-          </tbody>
-        </table>
+      <div v-else-if="scopedRoles.length === 0" class="rp-empty">
+        No scoped roles to display.
+      </div>
+
+      <div v-else class="ma-shell">
+        <!-- LEFT: role picker -->
+        <aside class="ma-sidebar">
+          <div class="ma-sidebar-h">
+            <span>Roles</span>
+            <span class="ma-sidebar-h-count">{{ scopedRoles.length }}</span>
+          </div>
+          <button
+            v-for="r in scopedRoles"
+            :key="r.id"
+            class="ma-role"
+            :class="{ active: maSelectedRoleId === r.id, dirty: dirtyRoles.has(r.id) }"
+            @click="maSelectedRoleId = r.id"
+          >
+            <span
+              class="ma-role-avatar"
+              :style="{
+                background: `hsl(${roleHue(r.name)}, 65%, 92%)`,
+                color:      `hsl(${roleHue(r.name)}, 55%, 32%)`,
+              }"
+            >{{ roleInitials(r.name) }}</span>
+            <span class="ma-role-info">
+              <span class="ma-role-name">{{ displayRole(r.name) }}</span>
+              <span class="ma-role-meta">
+                <span class="ma-role-count">{{ roleEnabledCount(r.id) }}</span>
+                / {{ SIDEBAR_MODULES.length }} modules
+                <span v-if="dirtyRoles.has(r.id)" class="ma-role-flag">● unsaved</span>
+              </span>
+            </span>
+            <span v-if="maSelectedRoleId === r.id" class="ma-role-caret">›</span>
+          </button>
+        </aside>
+
+        <!-- RIGHT: grouped switches for selected role -->
+        <section class="ma-main">
+          <div v-if="!maSelectedRole" class="ma-empty">
+            <div style="font-size:32px;margin-bottom:6px">👈</div>
+            Pick a role on the left to edit its module access.
+          </div>
+
+          <template v-else>
+            <!-- Toolbar: search + save -->
+            <div class="ma-toolbar">
+              <input
+                v-model="maSearch"
+                class="ma-search"
+                placeholder="🔎 Search modules…"
+              />
+              <div class="ma-toolbar-spacer"></div>
+              <div v-if="dirtyRoles.has(maSelectedRole.id)" class="ma-dirty-pill">● Unsaved changes</div>
+              <button
+                class="rp-btn rp-btn-pri"
+                :disabled="!dirtyRoles.has(maSelectedRole.id) || gridSaving.has(maSelectedRole.id)"
+                @click="saveModuleRow(maSelectedRole)"
+              >
+                {{ gridSaving.has(maSelectedRole.id) ? '⏳ Saving…' : '💾 Save Changes' }}
+              </button>
+            </div>
+
+            <!-- Group sections -->
+            <div v-for="g in moduleGroups" :key="g.name" class="ma-group">
+              <div class="ma-group-head" @click="toggleGroupCollapsed(g.name)">
+                <span class="ma-group-caret">{{ maCollapsed.has(g.name) ? '▸' : '▾' }}</span>
+                <span class="ma-group-name">{{ g.name }}</span>
+                <span class="ma-group-count">{{ groupOnCount(maSelectedRole.id, g.modules) }} / {{ g.modules.length }}</span>
+                <span class="ma-group-actions" @click.stop>
+                  <button
+                    class="ma-group-btn"
+                    :disabled="groupAllOn(maSelectedRole.id, g.modules)"
+                    @click="toggleGroup(maSelectedRole.id, g.modules, true)"
+                  >Enable all</button>
+                  <button
+                    class="ma-group-btn"
+                    :disabled="groupAllOff(maSelectedRole.id, g.modules)"
+                    @click="toggleGroup(maSelectedRole.id, g.modules, false)"
+                  >Disable all</button>
+                </span>
+              </div>
+
+              <div v-if="!maCollapsed.has(g.name)" class="ma-group-body">
+                <label
+                  v-for="m in g.modules"
+                  :key="m.label"
+                  class="ma-row"
+                  :class="{ on: roleHasModule(maSelectedRole.id, m) }"
+                  :title="m.perms.join(', ')"
+                >
+                  <span class="ma-row-icon">{{ m.icon }}</span>
+                  <span class="ma-row-text">
+                    <span class="ma-row-label">{{ m.label }}</span>
+                    <span class="ma-row-perms">{{ m.perms.join(' · ') }}</span>
+                  </span>
+                  <!-- Toggle switch -->
+                  <span class="ma-switch">
+                    <input
+                      type="checkbox"
+                      :checked="roleHasModule(maSelectedRole.id, m)"
+                      @change="toggleModule(maSelectedRole.id, m)"
+                    />
+                    <span class="ma-switch-track"><span class="ma-switch-knob"></span></span>
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            <div v-if="moduleGroups.length === 0" class="ma-empty">
+              No modules match “{{ maSearch }}”.
+            </div>
+          </template>
+        </section>
       </div>
     </div>
 
@@ -578,8 +782,14 @@ onMounted(async () => {
           <button class="rp-modal-close" @click="closeMatrix">✕</button>
         </div>
 
+        <!-- Search + filter chips -->
         <div class="rp-modal-search">
-          <input v-model="moduleSearch" class="rp-input" placeholder="Search modules…" />
+          <input v-model="moduleSearch" class="rp-input" placeholder="🔎 Search modules…" />
+          <div class="rp-filter-chips">
+            <button class="rp-chip" :class="{ active: matrixFilter === 'all' }"      @click="matrixFilter = 'all'">All <span class="rp-chip-n">{{ matrixModules.length }}</span></button>
+            <button class="rp-chip" :class="{ active: matrixFilter === 'active' }"   @click="matrixFilter = 'active'">With access <span class="rp-chip-n">{{ matrixSummary.modulesTouched }}</span></button>
+            <button class="rp-chip" :class="{ active: matrixFilter === 'inactive' }" @click="matrixFilter = 'inactive'">No access <span class="rp-chip-n">{{ matrixSummary.totalModules - matrixSummary.modulesTouched }}</span></button>
+          </div>
         </div>
 
         <!-- Skeleton matrix while permissions load for the selected role -->
@@ -595,17 +805,37 @@ onMounted(async () => {
           <table class="rp-matrix">
             <thead>
               <tr>
-                <th style="width:40px">ID</th>
-                <th>Module</th>
-                <th v-for="col in CRUD_PREFIXES" :key="col">{{ col.charAt(0).toUpperCase() + col.slice(1) }}</th>
-                <th style="width:60px">More</th>
+                <th class="col-id">#</th>
+                <th class="col-mod">Module</th>
+                <th class="col-act"><span class="th-ic" title="Add">＋</span> Add</th>
+                <th class="col-act"><span class="th-ic" title="Edit">✎</span> Edit</th>
+                <th class="col-act"><span class="th-ic" title="Show / detail">👁</span> Show</th>
+                <th class="col-act"><span class="th-ic" title="View / list">📋</span> View</th>
+                <th class="col-act"><span class="th-ic" title="Delete">🗑</span> Delete</th>
+                <th class="col-more">Extra</th>
+                <th class="col-bulk">Bulk</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(mod, idx) in filteredModules" :key="mod.name">
-                <td>{{ idx + 1 }}</td>
-                <td>{{ displayRole(mod.name) }}</td>
-                <td v-for="col in CRUD_PREFIXES" :key="col">
+              <tr v-if="visibleModules.length === 0">
+                <td colspan="9" class="rp-matrix-empty">
+                  No modules match the current filter.
+                </td>
+              </tr>
+              <tr
+                v-for="(mod, idx) in visibleModules"
+                :key="mod.name"
+                :class="{ 'row-active': moduleHasAny(mod), 'row-full': moduleHasAll(mod) }"
+              >
+                <td class="col-id">{{ idx + 1 }}</td>
+                <td class="col-mod">
+                  <span class="mod-name">{{ displayRole(mod.name) }}</span>
+                  <span
+                    class="mod-count"
+                    :class="{ all: moduleHasAll(mod), some: moduleHasAny(mod) && !moduleHasAll(mod) }"
+                  >{{ moduleEnabledCount(mod) }} / {{ moduleTotalCount(mod) }}</span>
+                </td>
+                <td v-for="col in CRUD_PREFIXES" :key="col" class="col-act">
                   <label v-if="mod.slots[col]" class="rp-switch">
                     <input
                       type="checkbox"
@@ -616,7 +846,7 @@ onMounted(async () => {
                   </label>
                   <span v-else class="rp-na">—</span>
                 </td>
-                <td>
+                <td class="col-more">
                   <details v-if="mod.others.length > 0">
                     <summary>
                       <span class="rp-others-chev">›</span>
@@ -641,12 +871,32 @@ onMounted(async () => {
                   </details>
                   <span v-else class="rp-na">—</span>
                 </td>
+                <td class="col-bulk">
+                  <div class="rp-bulk-btns">
+                    <button
+                      class="rp-bulk-btn on"
+                      :disabled="moduleHasAll(mod)"
+                      :title="`Enable all ${moduleTotalCount(mod)} permissions for ${displayRole(mod.name)}`"
+                      @click="toggleAllForModule(mod, true)"
+                    >All</button>
+                    <button
+                      class="rp-bulk-btn off"
+                      :disabled="!moduleHasAny(mod)"
+                      :title="`Disable all permissions for ${displayRole(mod.name)}`"
+                      @click="toggleAllForModule(mod, false)"
+                    >None</button>
+                  </div>
+                </td>
               </tr>
             </tbody>
           </table>
         </div>
 
         <div class="rp-modal-footer">
+          <div class="rp-footer-summary">
+            <strong>{{ matrixSummary.totalEnabled }}</strong> / {{ matrixSummary.totalPerms }} permissions ·
+            <strong>{{ matrixSummary.modulesTouched }}</strong> / {{ matrixSummary.totalModules }} modules
+          </div>
           <button class="rp-btn rp-btn-ghost" @click="closeMatrix">Cancel</button>
           <button class="rp-btn rp-btn-pri" :disabled="saving || matrixLoading" @click="savePermissions">
             {{ saving ? 'Saving…' : 'Save Permissions' }}
@@ -748,15 +998,84 @@ onMounted(async () => {
 .rp-modal-title   { font-size: 16px; font-weight: 700; color: #0f172a; margin-top: 2px; }
 .rp-modal-close   { background: transparent; border: none; font-size: 18px; color: #64748b; cursor: pointer; padding: 4px 8px; border-radius: 6px; }
 .rp-modal-close:hover { background: #f1f5f9; color: #0f172a; }
-.rp-modal-footer  { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 22px; border-top: 1px solid #eef1f5; background: #f8fafc; border-radius: 0 0 12px 12px; }
+.rp-modal-footer  { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 14px 22px; border-top: 1px solid #eef1f5; background: #f8fafc; border-radius: 0 0 12px 12px; }
 
-.rp-modal-search { padding: 12px 22px 0; }
+.rp-modal-search { padding: 12px 22px 0; display: flex; flex-direction: column; gap: 8px; }
+
+/* Filter chips above the matrix */
+.rp-filter-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.rp-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: #fff; border: 1px solid #cbd5e1; color: #475569;
+  font-size: 11.5px; font-weight: 600;
+  padding: 5px 11px; border-radius: 999px; cursor: pointer;
+  transition: background .12s, border-color .12s, color .12s;
+}
+.rp-chip:hover { border-color: #94a3b8; background: #f8fafc; }
+.rp-chip.active {
+  background: #1e293b; border-color: #1e293b; color: #fff;
+}
+.rp-chip-n {
+  background: #e2e8f0; color: #334155;
+  font-size: 10px; padding: 1px 6px; border-radius: 8px; font-weight: 700;
+}
+.rp-chip.active .rp-chip-n { background: #475569; color: #fff; }
 
 .rp-matrix-wrap { padding: 12px 22px; overflow-x: auto; max-height: 60vh; overflow-y: auto; }
 .rp-matrix      { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-.rp-matrix th   { text-align: left; background: #f8fafc; color: #334155; font-weight: 700; padding: 10px 8px; border-bottom: 2px solid #e2e8f0; position: sticky; top: 0; }
-.rp-matrix td   { padding: 10px 8px; border-bottom: 1px solid #f1f5f9; color: #1e293b; }
+.rp-matrix th   { text-align: center; background: #f8fafc; color: #334155; font-weight: 700; padding: 10px 8px; border-bottom: 2px solid #e2e8f0; position: sticky; top: 0; z-index: 1; white-space: nowrap; }
+.rp-matrix th.col-id, .rp-matrix th.col-mod { text-align: left; }
+.rp-matrix td   { padding: 10px 8px; border-bottom: 1px solid #f1f5f9; color: #1e293b; text-align: center; vertical-align: middle; }
+.rp-matrix td.col-id, .rp-matrix td.col-mod { text-align: left; }
 .rp-matrix tr:hover td { background: #f8fafc; }
+
+/* Row tinting based on activity. Even a single active perm = pale green;
+   every perm enabled = stronger green. Helps admins eyeball the row state. */
+.rp-matrix tr.row-active td      { background: #f0fdf4; }
+.rp-matrix tr.row-active:hover td { background: #dcfce7; }
+.rp-matrix tr.row-full   td       { background: #ecfccb; }
+.rp-matrix tr.row-full:hover td   { background: #d9f99d; }
+
+/* Column sizing */
+.rp-matrix th.col-id,  .rp-matrix td.col-id   { width: 36px; color: #94a3b8; font-size: 11px; font-family: 'DM Mono', monospace; }
+.rp-matrix th.col-mod, .rp-matrix td.col-mod  { min-width: 180px; }
+.rp-matrix th.col-act, .rp-matrix td.col-act  { width: 64px; }
+.rp-matrix th.col-more,.rp-matrix td.col-more { width: 70px; }
+.rp-matrix th.col-bulk,.rp-matrix td.col-bulk { width: 92px; }
+.th-ic { display: inline-block; margin-right: 3px; font-size: 13px; vertical-align: middle; }
+
+/* Module name + count badge */
+.col-mod .mod-name { display: inline-block; font-weight: 600; color: #0f172a; }
+.col-mod .mod-count {
+  display: inline-block; margin-left: 7px;
+  background: #e2e8f0; color: #475569;
+  font-size: 10.5px; font-weight: 700; padding: 1px 7px;
+  border-radius: 9px; font-family: 'DM Mono', monospace; min-width: 32px; text-align: center;
+}
+.col-mod .mod-count.some { background: #dbeafe; color: #1d4ed8; }
+.col-mod .mod-count.all  { background: #bbf7d0; color: #166534; }
+
+/* Row bulk button pair — small, paired, only active when something to do */
+.rp-bulk-btns { display: inline-flex; gap: 0; border: 1px solid #cbd5e1; border-radius: 5px; overflow: hidden; }
+.rp-bulk-btn  {
+  background: #fff; border: none; color: #334155;
+  padding: 4px 9px; font-size: 10.5px; font-weight: 700;
+  cursor: pointer; transition: background .12s, color .12s;
+  border-right: 1px solid #cbd5e1;
+}
+.rp-bulk-btn:last-child { border-right: none; }
+.rp-bulk-btn:hover:not(:disabled) { background: #f1f5f9; }
+.rp-bulk-btn.on:hover:not(:disabled)  { background: #16a34a; color: #fff; }
+.rp-bulk-btn.off:hover:not(:disabled) { background: #dc2626; color: #fff; }
+.rp-bulk-btn:disabled { color: #cbd5e1; cursor: not-allowed; background: #f8fafc; }
+
+.rp-matrix-empty { text-align: center; color: #94a3b8; padding: 40px 20px; font-size: 13px; }
+
+/* Footer summary on the left */
+.rp-modal-footer .rp-footer-summary {
+  margin-right: auto; font-size: 11.5px; color: #64748b;
+}
+.rp-modal-footer .rp-footer-summary strong { color: #0f172a; font-weight: 700; }
 
 .rp-na { color: #cbd5e1; font-size: 11px; }
 
@@ -882,4 +1201,196 @@ details[open] .rp-others-chev { transform: rotate(90deg); color: #2563eb; }
 .toast-slide-leave-active { transition: all 0.3s ease; }
 .toast-slide-enter-from,
 .toast-slide-leave-to { opacity: 0; transform: translateY(-20px); }
+
+/* ── Module Access two-pane editor ──────────────────────────────────── */
+.ma-card { padding: 0; overflow: hidden; }
+.ma-card .rp-card-header { padding: 16px 20px; border-bottom: 1px solid #e2e8f0; margin-bottom: 0; }
+.ma-shell {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+}
+.ma-sidebar {
+  border-right: 1px solid #e2e8f0;
+  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+  padding: 12px 10px;
+  overflow-y: auto;
+  max-height: 72vh;
+  min-height: 480px;
+}
+.ma-sidebar-h {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 10.5px; font-weight: 700; color: #64748b;
+  text-transform: uppercase; letter-spacing: .08em;
+  padding: 4px 10px 12px;
+}
+.ma-sidebar-h-count {
+  background: #cbd5e1; color: #334155;
+  font-size: 10px; padding: 1px 7px; border-radius: 8px;
+  font-weight: 700;
+}
+
+/* Role row — avatar + name + meta + caret. Selected row pops with navy
+   background + light shadow; hover adds a subtle indent feel. */
+.ma-role {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; text-align: left;
+  background: #fff; border: 1px solid #e2e8f0;
+  padding: 10px 11px; border-radius: 8px;
+  cursor: pointer; margin-bottom: 6px;
+  transition: transform .12s, box-shadow .12s, border-color .12s, background .12s;
+}
+.ma-role:hover {
+  border-color: #94a3b8;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, .06);
+  transform: translateX(2px);
+}
+.ma-role.active {
+  background: #1e293b; border-color: #1e293b;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, .25);
+}
+.ma-role-avatar {
+  flex-shrink: 0;
+  width: 34px; height: 34px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12.5px; font-weight: 700;
+  letter-spacing: .02em;
+}
+.ma-role.active .ma-role-avatar {
+  box-shadow: 0 0 0 2px rgba(255,255,255,.4);
+}
+.ma-role-info { flex: 1; min-width: 0; }
+.ma-role-name {
+  display: block; font-size: 13px; font-weight: 600; color: #0f172a;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ma-role.active .ma-role-name { color: #fff; }
+.ma-role-meta {
+  display: block; font-size: 10.5px; color: #64748b; margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ma-role.active .ma-role-meta { color: #cbd5e1; }
+.ma-role-count {
+  font-weight: 700; color: #1e293b; font-family: 'DM Mono', monospace;
+}
+.ma-role.active .ma-role-count { color: #fde68a; }
+.ma-role-flag {
+  display: inline-block; margin-left: 6px;
+  color: #ca8a04; font-weight: 700;
+}
+.ma-role.active .ma-role-flag { color: #fde047; }
+.ma-role-caret {
+  color: #fff; font-size: 22px; font-weight: 300; flex-shrink: 0;
+  margin-right: -2px;
+}
+
+.ma-main {
+  padding: 16px 20px;
+  overflow-y: auto;
+  max-height: 72vh;
+  min-height: 480px;
+}
+.ma-empty {
+  text-align: center; color: #94a3b8; font-size: 13px;
+  padding: 40px 20px;
+}
+
+.ma-toolbar {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f1f5f9;
+}
+.ma-search {
+  flex: 0 1 320px;
+  padding: 7px 11px;
+  border: 1px solid #cbd5e1; border-radius: 6px;
+  font-size: 12.5px;
+}
+.ma-search:focus { outline: none; border-color: #1e293b; }
+.ma-toolbar-spacer { flex: 1; }
+.ma-dirty-pill {
+  font-size: 11px; font-weight: 600;
+  color: #854d0e; background: #fef3c7;
+  border: 1px solid #fde68a; padding: 3px 9px; border-radius: 9px;
+}
+
+.ma-group {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+.ma-group-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 12px;
+  background: #f8fafc;
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid #e2e8f0;
+}
+.ma-group-head:hover { background: #f1f5f9; }
+.ma-group-caret { color: #64748b; font-size: 11px; width: 12px; flex-shrink: 0; }
+.ma-group-name  { font-weight: 700; color: #0f172a; font-size: 13px; flex: 1; }
+.ma-group-count {
+  font-size: 11px; font-weight: 600; color: #475569;
+  background: #e2e8f0; padding: 2px 8px; border-radius: 9px;
+}
+.ma-group-actions { display: flex; gap: 4px; margin-left: 8px; }
+.ma-group-btn {
+  background: transparent; border: 1px solid #cbd5e1;
+  color: #475569; font-size: 10.5px; font-weight: 600;
+  padding: 3px 8px; border-radius: 4px; cursor: pointer;
+}
+.ma-group-btn:hover:not(:disabled) { background: #1e293b; color: #fff; border-color: #1e293b; }
+.ma-group-btn:disabled { opacity: .35; cursor: not-allowed; }
+
+.ma-group-body { padding: 4px 0; }
+
+.ma-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 9px 14px;
+  cursor: pointer;
+  border-bottom: 1px solid #f8fafc;
+  transition: background .12s;
+}
+.ma-row:last-child { border-bottom: none; }
+.ma-row:hover { background: #f8fafc; }
+.ma-row.on { background: #f0fdf4; }
+.ma-row.on:hover { background: #dcfce7; }
+.ma-row-icon { font-size: 16px; flex-shrink: 0; width: 22px; text-align: center; }
+.ma-row-text { flex: 1; min-width: 0; }
+.ma-row-label { display: block; font-size: 13px; font-weight: 500; color: #0f172a; }
+.ma-row-perms {
+  display: block;
+  font-size: 10.5px; color: #94a3b8;
+  font-family: 'DM Mono', monospace;
+  margin-top: 1px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* iOS-style toggle switch */
+.ma-switch { position: relative; flex-shrink: 0; }
+.ma-switch input { position: absolute; opacity: 0; pointer-events: none; }
+.ma-switch-track {
+  display: block; width: 38px; height: 22px;
+  background: #cbd5e1; border-radius: 11px;
+  transition: background .18s;
+  position: relative;
+}
+.ma-switch-knob {
+  position: absolute; top: 2px; left: 2px;
+  width: 18px; height: 18px;
+  background: #fff; border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0,0,0,.18);
+  transition: transform .18s;
+}
+.ma-switch input:checked + .ma-switch-track { background: #16a34a; }
+.ma-switch input:checked + .ma-switch-track .ma-switch-knob { transform: translateX(16px); }
+
+@media (max-width: 880px) {
+  .ma-shell { grid-template-columns: 1fr; }
+  .ma-sidebar { border-right: none; border-bottom: 1px solid #e2e8f0; max-height: 220px; }
+  .ma-main { max-height: none; }
+}
 </style>

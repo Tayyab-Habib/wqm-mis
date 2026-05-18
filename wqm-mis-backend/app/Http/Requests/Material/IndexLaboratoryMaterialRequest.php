@@ -14,7 +14,7 @@ class IndexLaboratoryMaterialRequest extends FormRequest
     public function authorize()
     {
         $u = auth()->user();
-        return $u && ($u->isUnscoped() || $u->can('view_materials') || $u->can('show_material'));
+        return $u && ($u->isUnscoped() || $u->can('view_material') || $u->can('show_material'));
     }
 
     /**
