@@ -1002,15 +1002,35 @@ class DashboardController extends Controller
             ->where('status', '=', ComplaintStatusEnum::RE_OPENED->value)
             ->count();
 
+        // SRS §2.9 Escalation rule — auto-escalate any complaint that has
+        // stayed unresolved (not CLOSED) for more than 72 hours since it
+        // was opened. Feeds the Dashboard "Escalated Issues" card.
+        $totalEscalatedComplaints = (clone $query)
+            ->whereNotIn('status', [ComplaintStatusEnum::CLOSED->value])
+            ->where('created_at', '<', \Carbon\Carbon::now()->subHours(72))
+            ->count();
+
         return [
-            'labels' => array_merge(['Total Complaints'], array_map(fn($element) => ucwords(str_replace('_', ' ', $element)), ComplaintStatusEnum::values())),
+            'labels' => array_merge(
+                ['Total Complaints'],
+                array_map(fn($element) => ucwords(str_replace('_', ' ', $element)), ComplaintStatusEnum::values()),
+                ['Escalated (>72h)']
+            ),
             'datasets' => [
                 [
                     'label' => 'Total Complaints',
-                    'data' => [$totalComplaints, $totalPendingComplaints, $totalInProgressComplaints, $totalClosedComplaints, $totalReopenComplaints],
+                    'data' => [
+                        $totalComplaints,
+                        $totalPendingComplaints,
+                        $totalInProgressComplaints,
+                        $totalClosedComplaints,
+                        $totalReopenComplaints,
+                        $totalEscalatedComplaints,
+                    ],
                     'backgroundColor' => '#AB47BC',
                 ]
-            ]
+            ],
+            'escalated_count' => $totalEscalatedComplaints,
         ];
     }
 

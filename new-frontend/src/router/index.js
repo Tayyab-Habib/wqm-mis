@@ -55,6 +55,19 @@ const routes = [
       { path: 'admin/pt-rounds',           name: 'PtRounds',           meta: { title: 'Quality / PT Rounds',          permissions: ['view_pt_rounds'] },                                           component: () => import('../views/Admin/PtRounds/PtRounds.vue') },
       { path: 'admin/diaries-dispatches',  name: 'DiariesDispatches',  meta: { title: 'Admin / Diaries & Dispatches', permissions: ['view_diaries', 'view_dispatches'] },                          component: () => import('../views/Admin/DiariesDispatches/DiariesDispatches.vue') },
 
+      // Settings (system-administrator only — placeholder pages for now)
+      { path: 'settings/provinces',        name: 'SettingsProvinces',       meta: { title: 'Settings / Provinces',        roles: ['system-administrator'] }, component: () => import('../views/Settings/Provinces/Provinces.vue') },
+      { path: 'settings/divisions',        name: 'SettingsDivisions',       meta: { title: 'Settings / Divisions',        roles: ['system-administrator'] }, component: () => import('../views/Settings/Divisions/Divisions.vue') },
+      { path: 'settings/districts',        name: 'SettingsDistricts',       meta: { title: 'Settings / Districts',        roles: ['system-administrator'] }, component: () => import('../views/Settings/Districts/Districts.vue') },
+      { path: 'settings/tehsils',          name: 'SettingsTehsils',         meta: { title: 'Settings / Tehsils',          roles: ['system-administrator'] }, component: () => import('../views/Settings/Tehsils/Tehsils.vue') },
+      { path: 'settings/union-councils',   name: 'SettingsUnionCouncils',   meta: { title: 'Settings / Union Councils',   roles: ['system-administrator'] }, component: () => import('../views/Settings/UnionCouncils/UnionCouncils.vue') },
+      { path: 'settings/designations',     name: 'SettingsDesignations',    meta: { title: 'Settings / Designations',     roles: ['system-administrator'] }, component: () => import('../views/Settings/Designations/Designations.vue') },
+      { path: 'settings/water-parameters', name: 'SettingsWaterParameters', meta: { title: 'Settings / Water Parameters', roles: ['system-administrator'] }, component: () => import('../views/Settings/WaterParameters/WaterParameters.vue') },
+      { path: 'settings/abbreviations',    name: 'SettingsAbbreviations',   meta: { title: 'Settings / Abbreviations',    roles: ['system-administrator'] }, component: () => import('../views/Settings/Abbreviations/Abbreviations.vue') },
+      { path: 'settings/units',            name: 'SettingsUnits',           meta: { title: 'Settings / Units',            roles: ['system-administrator'] }, component: () => import('../views/Settings/Units/Units.vue') },
+      { path: 'settings/complaint-type',   name: 'SettingsComplaintType',   meta: { title: 'Settings / Complaint Type',   roles: ['system-administrator'] }, component: () => import('../views/Settings/ComplaintType/ComplaintType.vue') },
+      { path: 'settings/discounts',        name: 'SettingsDiscounts',       meta: { title: 'Settings / Discounts',        roles: ['system-administrator'] }, component: () => import('../views/Settings/Discounts/Discounts.vue') },
+
       // WSS Details
       { path: 'wss-details', name: 'WSSDetails', meta: { title: 'Water Scheme Details' }, component: () => import('../views/WSSDetails/WSSDetails.vue') },
     ],

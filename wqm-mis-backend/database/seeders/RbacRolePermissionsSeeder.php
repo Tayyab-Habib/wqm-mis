@@ -305,11 +305,11 @@ class RbacRolePermissionsSeeder extends Seeder
             // via the Module Access grid. junior-clerk does NOT hold
             // view_water_samples so this is a no-op for them — admin grants
             // individual reports through the UI as needed.
-            // Spatie's `permission()` query scope only applies to User/HasRoles —
-            // not Role::query(). Get roles-by-permission via the reverse
-            // BelongsToMany on the Permission instead.
-            $samplesPerm = Permission::query()->where('name', 'view_water_samples')->first();
-            $rolesWithSamples = $samplesPerm ? $samplesPerm->roles()->pluck('name')->toArray() : [];
+            // Spatie's `permission()` scope lives on the User model, not Role.
+            // To find roles that hold a permission, query through the relation.
+            $rolesWithSamples = Role::query()
+                ->whereHas('permissions', fn ($q) => $q->where('name', 'view_water_samples'))
+                ->pluck('name')->toArray();
             foreach ($rolesWithSamples as $rname) {
                 $r = Role::query()->where('name', $rname)->first();
                 if (!$r) continue;
