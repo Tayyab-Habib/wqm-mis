@@ -77,9 +77,15 @@ class InventoryOutController extends Controller
                 'dispatch_reference' => $request->dispatch_reference,
             ];
 
-            // 1. Decrement master
-            $newMasterQty = max(0, (float) $asset->quantity - $qty);
-            $asset->update(['quantity' => $newMasterQty]);
+            $isTransfer = $request->type === \App\Enums\AssetDisposalTypeEnum::TRANSFERRED->value;
+
+            // 1. Decrement master ONLY for true disposals — a transfer moves
+            //    the asset between labs within the org so the org-wide count
+            //    must not change.
+            if (!$isTransfer) {
+                $newMasterQty = max(0, (float) $asset->quantity - $qty);
+                $asset->update(['quantity' => $newMasterQty]);
+            }
 
             // 2. Global ledger entry (status=out + disposal metadata)
             $assetLog = $asset->assetLogs()->create(array_merge([
@@ -90,18 +96,58 @@ class InventoryOutController extends Controller
                 'status'        => AssetLogStatusEnum::OUT->value,
             ], $extraMetadata));
 
-            // 3. Decrement lab allocation
+            // 3. Decrement source lab allocation
             $labAsset->update([
                 'quantity' => (string) ($labAvailable - $qty),
             ]);
 
-            // 4. Lab ledger entry, linked to the global log
+            // 4. Source lab ledger entry, linked to the global log
             $labAsset->laboratoryAssetLogs()->create(array_merge([
                 'asset_log_id' => $assetLog->id,
                 'quantity'     => (string) $qty,
                 'unit'         => $request->unit,
                 'status'       => AssetLogStatusEnum::OUT->value,
             ], $extraMetadata));
+
+            // 5. (transfer only) Credit the destination lab — find-or-create
+            //    its laboratory_assets row and append a status=in ledger entry
+            //    so the receiving lab-incharge actually sees the inbound item
+            //    in their Inventory Register and history. Without this step
+            //    the asset evaporates from the receiver's perspective.
+            if ($isTransfer && $request->recipient_lab_id) {
+                $destLabAsset = LaboratoryAsset::query()
+                    ->where('laboratory_id', $request->recipient_lab_id)
+                    ->where('asset_id', $asset->id)
+                    ->first();
+
+                if ($destLabAsset) {
+                    $destLabAsset->update([
+                        'quantity' => (string) ((float) $destLabAsset->quantity + $qty),
+                    ]);
+                } else {
+                    $destLabAsset = LaboratoryAsset::query()->create([
+                        'laboratory_id' => $request->recipient_lab_id,
+                        'asset_id'      => $asset->id,
+                        'quantity'      => (string) $qty,
+                        'unit'          => $request->unit,
+                    ]);
+                }
+
+                // Destination ledger — record the inbound side of the transfer
+                // pointing back at the source lab in recipient_lab_id (so the
+                // receiver's trail can answer "where did this come from?").
+                $destLabAsset->laboratoryAssetLogs()->create([
+                    'asset_log_id'     => $assetLog->id,
+                    'quantity'         => (string) $qty,
+                    'unit'             => $request->unit,
+                    'status'           => AssetLogStatusEnum::IN->value,
+                    'type'             => $request->type,
+                    'recipient_lab_id' => $labAsset->laboratory_id, // source lab
+                    'remarks'          => $request->remarks
+                        ? 'Received via transfer. ' . $request->remarks
+                        : 'Received via transfer from source lab.',
+                ]);
+            }
 
             DB::commit();
 

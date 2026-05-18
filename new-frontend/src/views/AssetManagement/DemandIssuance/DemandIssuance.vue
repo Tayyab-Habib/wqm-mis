@@ -6,7 +6,8 @@ import { dropdownService } from '../../../services/dropdownService.js'
 const loading  = ref(false)
 const errorMsg = ref('')
 const demands  = ref([])
-const stockItems = ref([])
+const stockItems = ref([])      // materials catalog (kind=stock)
+const inventoryItems = ref([])  // assets catalog   (kind=inventory)
 const savingId = ref(null)
 
 const toast = ref({ show: false, type: 'success', message: '' })
@@ -81,18 +82,26 @@ async function loadData() {
   errorMsg.value = ''
   try {
     // Demand list is lab-scoped by the backend controller.
-    // Materials dropdown comes from the FULL master catalog (cross-lab) so users
-    // can request items their lab doesn't currently stock.
-    const [invRes, matRes] = await Promise.all([
+    // Materials and assets dropdowns come from the FULL master catalog (cross-lab)
+    // so users can request items their lab doesn't currently hold.
+    const [invRes, matRes, assetRes] = await Promise.all([
       assetService.getInventories(),
       dropdownService.getMaterialsDropdown(),
+      // Master assets catalog — cross-lab, so users can demand items their
+      // lab doesn't currently hold (mirrors how materials are picked).
+      dropdownService.getAssetsDropdown(),
     ])
     const invData = invRes.data?.data?.data || invRes.data?.data || invRes.data || []
     const matData = matRes.data?.data || matRes.data || []
+    const assetData = assetRes.data?.data || assetRes.data || []
     demands.value = Array.isArray(invData) ? invData.flatMap(mapDemand) : []
 
     stockItems.value = (Array.isArray(matData) ? matData : [])
       .map(m => ({ id: m.id, name: m.name || '(unnamed)', unit: m.unit || 'pcs' }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+
+    inventoryItems.value = (Array.isArray(assetData) ? assetData : [])
+      .map(a => ({ id: a.id, name: a.name || '(unnamed)', unit: a.unit || 'Pcs' }))
       .sort((a, b) => a.name.localeCompare(b.name))
   } catch (e) {
     errorMsg.value = 'Failed to load demand data'
@@ -173,10 +182,27 @@ async function confirmIssue() {
 }
 
 // ─── Raise Demand modal ────────────────────────────────────────────────────
+// `kind` discriminator selects which dropdown + which polymorphic morph the
+// payload references. Stock → 'material' (IssueTypeEnum::STOCK->value);
+// Inventory → 'asset' (IssueTypeEnum::INVENTORY->value).
 const showDemandModal = ref(false)
-const demandForm = ref({ itemId: '', itemName: '', unit: '', qty: '', urgency: 'routine', justification: '' })
+const demandForm = ref({ kind: 'stock', itemId: '', itemName: '', unit: '', qty: '', urgency: 'routine', justification: '' })
 const demandErrors = ref({})
 const demandSaving = ref(false)
+
+// Dropdown list and inventoryable_type derived from `kind`.
+const demandKindItems = computed(() =>
+  demandForm.value.kind === 'inventory' ? inventoryItems.value : stockItems.value
+)
+
+function onDemandKindChange() {
+  // Reset item selection when switching kind so we never submit a material id
+  // tagged as an asset (or vice versa).
+  demandForm.value.itemId   = ''
+  demandForm.value.itemName = ''
+  demandForm.value.unit     = ''
+  demandErrors.value = {}
+}
 
 async function saveDemand() {
   demandErrors.value = {}
@@ -184,8 +210,11 @@ async function saveDemand() {
   const errs = {}
   if (!f.itemId)                errs.material_id = ['Item is required']
   if (!f.qty || Number(f.qty) <= 0) errs.quantity = ['Quantity must be greater than 0']
+  else if (!Number.isInteger(Number(f.qty))) errs.quantity = ['Quantity must be a whole number (no decimals)']
   if (!f.urgency)               errs.urgency = ['Urgency is required']
   if (Object.keys(errs).length) { demandErrors.value = errs; return }
+
+  const inventoryableType = f.kind === 'inventory' ? 'asset' : 'material'
 
   demandSaving.value = true
   try {
@@ -193,15 +222,15 @@ async function saveDemand() {
       urgency:       f.urgency,
       justification: f.justification || null,
       details: [{
-        inventoryable_type: 'material',
+        inventoryable_type: inventoryableType,
         inventoryable_id:   f.itemId,
-        quantity:           Number(f.qty).toFixed(2),
+        quantity:           parseInt(f.qty, 10),
         unit:               f.unit || 'pcs',
       }],
     })
     showDemandModal.value = false
     showToast('success', `📤 Demand submitted for "${f.itemName}" — pending Central Lab review`)
-    demandForm.value = { itemId: '', itemName: '', unit: '', qty: '', urgency: 'routine', justification: '' }
+    demandForm.value = { kind: 'stock', itemId: '', itemName: '', unit: '', qty: '', urgency: 'routine', justification: '' }
     await loadData()
   } catch (err) {
     const status = err?.response?.status
@@ -341,20 +370,42 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
           <div class="modal-body">
             <p class="modal-desc">Demand will be submitted to Central Lab (Peshawar) for approval.</p>
 
+            <!-- Stock (material) vs Inventory (asset) toggle. Drives which
+                 dropdown is shown below and what inventoryable_type goes on
+                 the payload. -->
+            <div class="form-group full-width">
+              <label>Demand Type <span class="req">*</span></label>
+              <div class="kind-toggle">
+                <label class="kind-option" :class="{ active: demandForm.kind === 'stock' }">
+                  <input type="radio" value="stock" v-model="demandForm.kind" @change="onDemandKindChange" />
+                  <span class="kind-icon">📦</span>
+                  <span class="kind-label">Stock <em>(Consumable)</em></span>
+                </label>
+                <label class="kind-option" :class="{ active: demandForm.kind === 'inventory' }">
+                  <input type="radio" value="inventory" v-model="demandForm.kind" @change="onDemandKindChange" />
+                  <span class="kind-icon">🔧</span>
+                  <span class="kind-label">Inventory <em>(Non-consumable)</em></span>
+                </label>
+              </div>
+            </div>
+
             <div class="form-group full-width">
               <label>Item <span class="req">*</span></label>
               <select v-model="demandForm.itemId" class="form-select" :class="{ 'has-error': demandErrors.material_id }"
-                @change="() => { const m = stockItems.find(i => i.id == demandForm.itemId); demandForm.unit = m?.unit || 'pcs'; demandForm.itemName = m?.name || '' }">
+                @change="() => { const m = demandKindItems.find(i => i.id == demandForm.itemId); demandForm.unit = m?.unit || 'pcs'; demandForm.itemName = m?.name || '' }">
                 <option value="">&mdash; Select Item &mdash;</option>
-                <option v-for="item in stockItems" :key="item.id" :value="item.id">{{ item.name }} ({{ item.unit || 'pcs' }})</option>
+                <option v-for="item in demandKindItems" :key="item.id" :value="item.id">{{ item.name }} ({{ item.unit || 'pcs' }})</option>
               </select>
               <div v-if="demandErrors.material_id" class="field-error">{{ demandErrors.material_id[0] }}</div>
+              <div v-if="demandForm.kind === 'inventory' && !inventoryItems.length" class="field-error">
+                No inventory items available in the catalog. Add one from Asset Management → Equipment Register or Stock & Inventory → Inventory tab.
+              </div>
             </div>
 
             <div class="form-row">
               <div class="form-group half-width">
                 <label>Quantity <span class="req">*</span></label>
-                <input type="number" step="0.01" min="0" v-model="demandForm.qty" placeholder="e.g. 10" class="form-input" :class="{ 'has-error': demandErrors.quantity }" />
+                <input type="number" step="1" min="1" v-model="demandForm.qty" placeholder="e.g. 10" class="form-input" :class="{ 'has-error': demandErrors.quantity }" />
                 <div v-if="demandErrors.quantity" class="field-error">{{ demandErrors.quantity[0] }}</div>
               </div>
               <div class="form-group half-width">
@@ -406,8 +457,8 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
               <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px">Quantity to Issue <span style="color:#b91c1c">*</span></label>
               <input
                 type="number"
-                step="0.01"
-                min="0"
+                step="1"
+                min="1"
                 :max="Math.min(issueModal.demand?.detailQty || 0, issueModal.demand?.centralAvailable ?? issueModal.demand?.detailQty ?? 0)"
                 v-model.number="issueModal.issueQty"
                 @input="issueModal.error = ''"
@@ -478,6 +529,44 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
   min-height: 100vh;
   font-family: 'Inter', sans-serif;
   color: #172235;
+}
+
+// Stock-vs-Inventory radio toggle inside the Raise Demand modal — two large
+// click targets side by side so the choice is visually obvious before the
+// user picks an item from the catalog.
+.kind-toggle {
+  display: flex;
+  gap: 10px;
+  margin-top: 4px;
+}
+.kind-option {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1.5px solid #d1d5db;
+  border-radius: 6px;
+  cursor: pointer;
+  background: #fff;
+  transition: border-color .15s, background .15s;
+  user-select: none;
+
+  input[type="radio"] {
+    margin: 0;
+    cursor: pointer;
+  }
+  .kind-icon { font-size: 16px; }
+  .kind-label {
+    font-size: 13px;
+    font-weight: 600;
+    em { font-style: normal; font-weight: 400; color: #6b7280; }
+  }
+  &:hover { border-color: #9ca3af; }
+  &.active {
+    border-color: #1d4ed8;
+    background: #eff6ff;
+  }
 }
 
 // Workflow steps

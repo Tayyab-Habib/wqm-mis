@@ -246,8 +246,12 @@ const raiseDemandForm = ref({ quantity: '', urgency: 'routine', required_by: '',
 const raiseDemandErrors = ref({})
 const raiseDemandSaving = ref(false)
 
-function openRaiseDemand(item) {
-  raiseDemandItem.value = item
+// `kind` is 'stock' (material/consumable) or 'inventory' (asset/non-consumable).
+// Stock-tab rows carry `materialId`; Inventory-tab rows carry `assetId`. We tag
+// the item with its kind here so the submit handler can pick the right
+// inventoryable_type + id without re-resolving from row shape.
+function openRaiseDemand(item, kind = 'stock') {
+  raiseDemandItem.value = { ...item, kind }
   raiseDemandForm.value = { quantity: '', urgency: 'routine', required_by: '', justification: '' }
   raiseDemandErrors.value = {}
   showRaiseDemandModal.value = true
@@ -259,17 +263,25 @@ async function submitRaiseDemand() {
   const f = raiseDemandForm.value
   const errs = {}
   if (!f.quantity || Number(f.quantity) <= 0) errs.quantity = ['Qty Requested must be greater than 0']
+  else if (!Number.isInteger(Number(f.quantity))) errs.quantity = ['Quantity must be a whole number (no decimals)']
   if (!f.urgency) errs.urgency = ['Urgency is required']
   if (Object.keys(errs).length) { raiseDemandErrors.value = errs; return }
+
+  const item = raiseDemandItem.value
+  const isInventory = item?.kind === 'inventory'
+  // Backend's IssueTypeEnum maps STOCK→'material', INVENTORY→'asset'.
+  // Stock rows pass the material master id; inventory rows pass the asset master id.
+  const inventoryableType = isInventory ? 'asset' : 'material'
+  const inventoryableId   = isInventory ? item?.assetId : item?.materialId
 
   const payload = {
     urgency: f.urgency,
     justification: f.justification?.trim() || null,
     details: [{
-      inventoryable_type: 'stock',
-      inventoryable_id: raiseDemandItem.value?.materialId,
-      quantity: Number(f.quantity).toFixed(2),
-      unit: raiseDemandItem.value?.unit || 'Pcs',
+      inventoryable_type: inventoryableType,
+      inventoryable_id:   inventoryableId,
+      quantity:           parseInt(f.quantity, 10),
+      unit:               item?.unit || 'Pcs',
     }],
   }
 
@@ -277,7 +289,7 @@ async function submitRaiseDemand() {
   try {
     await assetService.createInventory(payload)
     showRaiseDemandModal.value = false
-    showToast('success', `Demand raised for "${raiseDemandItem.value?.name}"`)
+    showToast('success', `Demand raised for "${item?.name}"`)
   } catch (err) {
     const status = err?.response?.status
     if (status === 422) {
@@ -483,7 +495,9 @@ const TYPE_LABELS = {
 }
 
 function mapStockOutTxn(log, parentMaterial, idx) {
-  const qty = Number(log.quantity ?? log.qty ?? 0)
+  // Round to integer for display — matches inventoryOutLogs and the new
+  // integer-only validation on the Log Stock-Out / Log Inventory-Out forms.
+  const qty = Math.round(Number(log.quantity ?? log.qty ?? 0))
   const when = log.created_at || log.date
   const yr  = when ? new Date(when).getFullYear().toString().slice(-2) : ''
   const typeRaw = log.type || 'analysis'
@@ -644,7 +658,12 @@ function mapAsset(labAsset) {
     condition:     a.condition || 'good',
     date_of_purchase: a.date_of_purchase ? formatExpiry(a.date_of_purchase) : '-',
     purchase_value:   a.purchase_value ? Number(a.purchase_value).toLocaleString() : '-',
-    location:      a.location || labAsset.laboratory?.name || '-',
+    // Each laboratory_assets row is owned by one lab. After a transfer the
+    // same master asset can exist at multiple labs, so the row's lab name
+    // is the authoritative location for that row. The master's `location`
+    // field is a finer-grained sub-label (e.g. "Room 204, Shelf B") and
+    // is used only as a fallback when the lab name is absent.
+    location:      labAsset.laboratory?.name || a.location || '-',
     last_verified: a.last_verified ? formatExpiry(a.last_verified) : '—',
     remarks:       a.remarks || '',
     rawLogs:       labAsset.laboratory_asset_logs || [],
@@ -718,7 +737,10 @@ const inventoryOutLogs = computed(() => {
         assetCode:    item.item_code || '-',
         itemName:     item.name,
         category:     item.category,
-        qty:          -Math.abs(Number(log.quantity ?? 0)),
+        // Round to integer for display. New entries are integer-only (FE + BE
+        // validation), but legacy rows may still carry a decimal qty — round
+        // those rather than expose .xx fragments in the table.
+        qty:          -Math.abs(Math.round(Number(log.quantity ?? 0))),
         type:         log.type || 'condemned',
         typeLabel:    DISPOSAL_LABELS[log.type] || log.type || 'Disposal',
         recipientLab: log.recipient_lab?.name || '-',
@@ -778,6 +800,7 @@ async function saveLogOut() {
   const errs = {}
   if (!f.asset_id) errs.asset_id = ['Asset is required']
   if (!f.qty || Number(f.qty) <= 0) errs.quantity = ['Quantity must be greater than 0']
+  else if (!Number.isInteger(Number(f.qty))) errs.quantity = ['Quantity must be a whole number (no decimals)']
   if (!f.type) errs.type = ['Disposal type is required']
   if (f.type === 'transferred' && !f.recipient_lab_id) errs.recipient_lab_id = ['Recipient lab is required for transfers']
   if (Object.keys(errs).length) { logOutErrors.value = errs; return }
@@ -786,7 +809,7 @@ async function saveLogOut() {
   const recipientLabId = f.type === 'transferred' ? (f.recipient_lab_id || null) : null
   const payload = {
     asset_id:           selected?.assetId ?? f.asset_id,
-    quantity:           Number(f.qty).toFixed(2),
+    quantity:           parseInt(f.qty, 10),
     unit:               selected?.unit || 'Pcs',
     date:               f.date || null,
     type:               f.type,
@@ -953,6 +976,7 @@ async function saveLogIssue() {
   const localErrors = {}
   if (!f.item_id)               localErrors.material_id = ['Item is required']
   if (!f.qty || Number(f.qty) <= 0) localErrors.quantity = ['Quantity must be greater than 0']
+  else if (!Number.isInteger(Number(f.qty))) localErrors.quantity = ['Quantity must be a whole number (no decimals)']
   if (!f.type)                  localErrors.type = ['Type is required']
   if (Object.keys(localErrors).length) { logIssueErrors.value = localErrors; return }
 
@@ -965,7 +989,7 @@ async function saveLogIssue() {
     : null
   const payload = {
     material_id:      selectedItem?.materialId ?? f.item_id,
-    quantity:         Number(f.qty).toFixed(2),
+    quantity:         parseInt(f.qty, 10),
     unit:             selectedItem?.unit || '',
     date:             f.date || null,
     type:             f.type,
@@ -1315,7 +1339,7 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
 
           <div class="tsp"></div>
 
-          <button class="btn btn-pri add-btn" @click="showLogIssueModal = true">+ Log Issue</button>
+          <button v-write="'add_material_logs'" class="btn btn-pri add-btn" @click="showLogIssueModal = true">+ Log Issue</button>
         </div>
 
         <!-- Skeleton loading -->
@@ -1488,6 +1512,7 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
                 <th style="text-align: right;">Purchase Value</th>
                 <th style="text-align: left;">Location</th>
                 <th style="text-align: center;">Last Verified</th>
+                <th style="text-align: center;">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -1503,6 +1528,7 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
                 <td><span class="sk-bar sk-bar-sm"></span></td>
                 <td><span class="sk-bar sk-bar-md"></span></td>
                 <td><span class="sk-bar sk-bar-md"></span></td>
+                <td><span class="sk-bar sk-bar-sm"></span></td>
               </tr>
             </tbody>
           </table>
@@ -1528,6 +1554,7 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
                 <th style="text-align: right;">Purchase Value</th>
                 <th style="text-align: left;">Location</th>
                 <th style="text-align: center;">Last Verified</th>
+                <th style="text-align: center;">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -1549,9 +1576,14 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
                 <td style="text-align: right;">{{ item.purchase_value }}</td>
                 <td>{{ item.location }}</td>
                 <td style="text-align: center;">{{ item.last_verified }}</td>
+                <td style="text-align: center;" class="action-cell">
+                  <button class="btn-actions" type="button" @click.stop="toggleActionMenu(item, $event)">
+                    <span class="dots">⋮</span> Actions
+                  </button>
+                </td>
               </tr>
               <tr v-if="!filteredInventory.length">
-                <td colspan="11" class="text-center empty-row">No inventory items found.</td>
+                <td colspan="12" class="text-center empty-row">No inventory items found.</td>
               </tr>
             </tbody>
           </table>
@@ -1604,7 +1636,7 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
           <button class="btn btn-sec outline clear-btn" type="button" @click="clearInventoryOutFilters">✕ Clear</button>
           <div class="tsp"></div>
           <button class="btn btn-sec outline" type="button">↓ Export</button>
-          <button v-write="['edit_inventory_issue_status','add_material_logs']" class="btn btn-pri add-btn" @click="openLogOutModal">+ Log Out</button>
+          <button v-write="'add_asset_logs'" class="btn btn-pri add-btn" @click="openLogOutModal">+ Log Out</button>
         </div>
 
         <!-- Skeleton loading -->
@@ -1818,7 +1850,7 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
             </div>
             <div class="form-group half-width">
               <label>Qty <span class="req">*</span></label>
-              <input type="number" step="0.01" min="0" v-model="logOutForm.qty" placeholder="e.g. 1" class="form-input" :class="{ 'has-error': logOutErrors.quantity }" />
+              <input type="number" step="1" min="1" v-model="logOutForm.qty" placeholder="e.g. 1" class="form-input" :class="{ 'has-error': logOutErrors.quantity }" />
               <div v-if="logOutErrors.quantity" class="field-error">{{ logOutErrors.quantity[0] }}</div>
             </div>
           </div>
@@ -1873,7 +1905,7 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
           </div>
         </div>
         <div class="modal-footer">
-          <button v-write="['edit_inventory_issue_status','add_material_logs']" class="btn btn-pri" type="button" :disabled="logOutSaving" @click="saveLogOut">
+          <button v-write="'add_asset_logs'" class="btn btn-pri" type="button" :disabled="logOutSaving" @click="saveLogOut">
             <span class="btn-icon">💾</span> {{ logOutSaving ? 'Saving…' : 'Save' }}
           </button>
           <button class="btn btn-sec outline" type="button" :disabled="logOutSaving" @click="showLogOutModal = false">Cancel</button>
@@ -1956,7 +1988,7 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
           </div>
         </div>
         <div class="modal-footer">
-          <button v-write="['add_material','add_inventories']" class="btn btn-pri" type="button" :disabled="newItemSaving" @click="saveNewItem">
+          <button v-write="'add_material'" class="btn btn-pri" type="button" :disabled="newItemSaving" @click="saveNewItem">
             <span class="btn-icon">💾</span> {{ newItemSaving ? 'Saving…' : 'Save Item' }}
           </button>
           <button class="btn btn-sec outline" type="button" :disabled="newItemSaving" @click="showNewItemModal = false">Cancel</button>
@@ -1976,13 +2008,17 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
                width:  MENU_WIDTH + 'px'
              }"
              @click.stop>
-          <div class="action-menu-item" @click="openTrail(actionMenuItem)">
+          <!-- Trail / Edit Item are stock-only (they read from material logs and
+               post to the material endpoints). Inventory rows currently only
+               support Raise Demand; equipment edit lives on Equipment Register. -->
+          <div v-if="actionMenuItem.materialId" class="action-menu-item" @click="openTrail(actionMenuItem)">
             <span class="ami-icon">📋</span> Trail
           </div>
-          <div class="action-menu-item" @click="openRaiseDemand(actionMenuItem)">
+          <div class="action-menu-item"
+               @click="openRaiseDemand(actionMenuItem, actionMenuItem.assetId ? 'inventory' : 'stock')">
             <span class="ami-icon ami-amber">⚡</span> Raise Demand
           </div>
-          <div class="action-menu-item" @click="openEditItem(actionMenuItem)">
+          <div v-if="actionMenuItem.materialId" class="action-menu-item" @click="openEditItem(actionMenuItem)">
             <span class="ami-icon">✎</span> Edit Item
           </div>
         </div>
@@ -2095,7 +2131,7 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
             </div>
             <div class="form-group half-width">
               <label>Qty Requested <span class="req">*</span></label>
-              <input type="number" step="0.01" min="0" v-model="raiseDemandForm.quantity" placeholder="e.g. 10" class="form-input" :class="{ 'has-error': raiseDemandErrors.quantity }" />
+              <input type="number" step="1" min="1" v-model="raiseDemandForm.quantity" placeholder="e.g. 10" class="form-input" :class="{ 'has-error': raiseDemandErrors.quantity }" />
               <div v-if="raiseDemandErrors.quantity" class="field-error">{{ raiseDemandErrors.quantity[0] }}</div>
             </div>
           </div>
@@ -2106,7 +2142,6 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
               <select v-model="raiseDemandForm.urgency" class="form-select" :class="{ 'has-error': raiseDemandErrors.urgency }">
                 <option value="routine">Routine</option>
                 <option value="urgent">Urgent</option>
-                <option value="emergency">Emergency</option>
               </select>
               <div v-if="raiseDemandErrors.urgency" class="field-error">{{ raiseDemandErrors.urgency[0] }}</div>
             </div>
@@ -2200,7 +2235,7 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
         </div>
         <div class="modal-footer justify-end">
           <button v-write class="btn btn-sec outline" type="button" :disabled="editItemSaving" @click="showEditItemModal = false">Cancel</button>
-          <button v-write="['edit_material','edit_inventories']" class="btn btn-pri" type="button" :disabled="editItemSaving" @click="saveEditItem">
+          <button v-write="'edit_material'" class="btn btn-pri" type="button" :disabled="editItemSaving" @click="saveEditItem">
             <span class="btn-icon">💾</span> {{ editItemSaving ? 'Saving…' : 'Save Changes' }}
           </button>
         </div>
@@ -2293,7 +2328,7 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
             </div>
             <div class="form-group half-width">
               <label>Qty Out <span class="req">*</span></label>
-              <input type="number" step="0.01" min="0" v-model="logIssueForm.qty" placeholder="e.g. 3" class="form-input" :class="{ 'has-error': logIssueErrors.quantity }" />
+              <input type="number" step="1" min="1" v-model="logIssueForm.qty" placeholder="e.g. 3" class="form-input" :class="{ 'has-error': logIssueErrors.quantity }" />
               <div v-if="logIssueErrors.quantity" class="field-error">{{ logIssueErrors.quantity[0] }}</div>
             </div>
           </div>
@@ -2347,7 +2382,7 @@ onUnmounted(() => { if (toastTimer) clearTimeout(toastTimer) })
           </div>
         </div>
         <div class="modal-footer">
-          <button v-write="'edit_inventory_issue_status'" class="btn btn-pri" type="button" :disabled="logIssueSaving" @click="saveLogIssue">
+          <button v-write="'add_material_logs'" class="btn btn-pri" type="button" :disabled="logIssueSaving" @click="saveLogIssue">
             <span class="btn-icon">💾</span> {{ logIssueSaving ? 'Saving…' : 'Save' }}
           </button>
           <button class="btn btn-sec outline" type="button" :disabled="logIssueSaving" @click="showLogIssueModal = false">Cancel</button>

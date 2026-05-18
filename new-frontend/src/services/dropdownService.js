@@ -53,6 +53,9 @@ export const dropdownService = {
   getMaterialStatus: () => api.get('/material-status'),
   // Full master catalog of materials — for Raise Demand picker (cross-lab).
   getMaterialsDropdown: () => api.get('/all-materials'),
+  // Full master catalog of assets / equipment — same cross-lab semantics
+  // so labs can demand items they don't currently hold.
+  getAssetsDropdown:    () => api.get('/all-assets'),
   getInventoryDetailStatus: () => api.get('/inventory_detail-status'),
   getIssuable: (data) => api.post('/issuable', data),
   getPurchasable: (data) => api.post('/purchasable', data),

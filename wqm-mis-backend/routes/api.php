@@ -304,6 +304,7 @@ Route::middleware(['auth:sanctum', 'dummy.account', 'view.only'])->group(callbac
     Route::get('focal-persons', FocalPersonController::class);
     Route::get('all-laboratories', \App\Http\Controllers\Dropdowns\LaboratoryController::class);
     Route::get('all-materials',    \App\Http\Controllers\Dropdowns\MaterialDropdownController::class);
+    Route::get('all-assets',       \App\Http\Controllers\Dropdowns\AssetDropdownController::class);
     Route::get('all-diary-dispatches', \App\Http\Controllers\Dropdowns\DiaryDispatchController::class);
     Route::get('all-water-schemes', \App\Http\Controllers\Dropdowns\WaterSchemeController::class);
     Route::get('all-designations', \App\Http\Controllers\Dropdowns\DesignationController::class);
@@ -380,7 +381,12 @@ Route::middleware(['auth:sanctum', 'dummy.account', 'view.only'])->group(callbac
     //end material management routes
 
     //start asset management routes
-    Route::apiResource('assets', AssetController::class)->middleware(['role:system-administrator']);
+    // Per-action auth lives in the FormRequests (StoreAssetRequest checks
+    // add_assets, UpdateAssetRequest edit_assets, DeleteAssetRequest delete_assets,
+    // ViewAssetRequest view_assets). Removed the route-level role gate so any
+    // role granted the relevant perm via Roles & Permissions can transact —
+    // matches the perm-based RBAC model used across the rest of the codebase.
+    Route::apiResource('assets', AssetController::class);
     Route::get('assets/{asset}/status/{isActive}', UpdateAssetStatusController::class);
     Route::apiResource('asset-logs', AssetLogController::class);
     Route::apiResource('asset-maintenance-schedules', AssetMaintenanceScheduleController::class);
