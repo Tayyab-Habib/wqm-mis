@@ -196,6 +196,49 @@ Route::middleware(['auth:sanctum', 'dummy.account', 'view.only'])->group(callbac
     Route::post('dashboard/lab-kpis', [DashboardController::class, 'labKpis']);
     Route::post('district-wise-contaminants', DistrictWiseContaminantsController::class);
 
+    // Admin → KPI Framework (manual monthly entries for KPI-001/007/008/009).
+    // Read of the KPI matrix piggybacks on /dashboard/lab-kpis above — admin
+    // is unscoped there, so all labs are returned with manual values merged.
+    Route::prefix('admin/kpi-framework')->group(function () {
+        Route::get('labs',     [\App\Http\Controllers\Admin\KpiFrameworkController::class, 'labs']);
+        Route::get('history',  [\App\Http\Controllers\Admin\KpiFrameworkController::class, 'history']);
+        Route::post('save',    [\App\Http\Controllers\Admin\KpiFrameworkController::class, 'save']);
+    });
+
+    // Quality / Compliance modules backing the KPI Framework.
+    Route::prefix('quality')->group(function () {
+        // KPI-007 — Training Register
+        Route::get   ('staff-trainings',                [\App\Http\Controllers\Quality\StaffTrainingController::class, 'index']);
+        Route::post  ('staff-trainings',                [\App\Http\Controllers\Quality\StaffTrainingController::class, 'store']);
+        Route::put   ('staff-trainings/{id}',           [\App\Http\Controllers\Quality\StaffTrainingController::class, 'update']);
+        Route::delete('staff-trainings/{id}',           [\App\Http\Controllers\Quality\StaffTrainingController::class, 'destroy']);
+        Route::get   ('staff-trainings/lab-staff/{id}', [\App\Http\Controllers\Quality\StaffTrainingController::class, 'labStaff']);
+
+        // KPI-009 — Verification Visit Log
+        Route::get   ('verification-visits',       [\App\Http\Controllers\Quality\VerificationVisitController::class, 'index']);
+        Route::get   ('verification-visits/{id}',  [\App\Http\Controllers\Quality\VerificationVisitController::class, 'show']);
+        Route::post  ('verification-visits',       [\App\Http\Controllers\Quality\VerificationVisitController::class, 'store']);
+        Route::delete('verification-visits/{id}',  [\App\Http\Controllers\Quality\VerificationVisitController::class, 'destroy']);
+
+        // KPI-008 — Audit / SOP Checklist
+        Route::get   ('audit/items',               [\App\Http\Controllers\Quality\AuditChecklistController::class, 'items']);
+        Route::post  ('audit/items',               [\App\Http\Controllers\Quality\AuditChecklistController::class, 'storeItem']);
+        Route::put   ('audit/items/{id}',          [\App\Http\Controllers\Quality\AuditChecklistController::class, 'updateItem']);
+        Route::delete('audit/items/{id}',          [\App\Http\Controllers\Quality\AuditChecklistController::class, 'destroyItem']);
+        Route::get   ('audit/inspections',         [\App\Http\Controllers\Quality\AuditChecklistController::class, 'inspections']);
+        Route::get   ('audit/inspections/{id}',    [\App\Http\Controllers\Quality\AuditChecklistController::class, 'showInspection']);
+        Route::post  ('audit/inspections',         [\App\Http\Controllers\Quality\AuditChecklistController::class, 'storeInspection']);
+        Route::delete('audit/inspections/{id}',    [\App\Http\Controllers\Quality\AuditChecklistController::class, 'destroyInspection']);
+
+        // KPI-001 — PT (Proficiency Testing) rounds
+        Route::get   ('pt-rounds',                 [\App\Http\Controllers\Quality\PtRoundController::class, 'index']);
+        Route::get   ('pt-rounds/{id}',            [\App\Http\Controllers\Quality\PtRoundController::class, 'show']);
+        Route::post  ('pt-rounds',                 [\App\Http\Controllers\Quality\PtRoundController::class, 'store']);
+        Route::post  ('pt-rounds/{id}/close',      [\App\Http\Controllers\Quality\PtRoundController::class, 'close']);
+        Route::delete('pt-rounds/{id}',            [\App\Http\Controllers\Quality\PtRoundController::class, 'destroy']);
+        Route::post  ('pt-rounds/{roundId}/submit/{labId}', [\App\Http\Controllers\Quality\PtRoundController::class, 'submit']);
+    });
+
     // XEN Dashboard Routes
     Route::prefix('xen')->group(function () {
         Route::get('dashboard', [\App\Http\Controllers\Xen\XenDashboardController::class, 'index']);

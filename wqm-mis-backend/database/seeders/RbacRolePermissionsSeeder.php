@@ -305,7 +305,11 @@ class RbacRolePermissionsSeeder extends Seeder
             // via the Module Access grid. junior-clerk does NOT hold
             // view_water_samples so this is a no-op for them — admin grants
             // individual reports through the UI as needed.
-            $rolesWithSamples = Role::query()->permission('view_water_samples')->pluck('name')->toArray();
+            // Spatie's `permission()` query scope only applies to User/HasRoles —
+            // not Role::query(). Get roles-by-permission via the reverse
+            // BelongsToMany on the Permission instead.
+            $samplesPerm = Permission::query()->where('name', 'view_water_samples')->first();
+            $rolesWithSamples = $samplesPerm ? $samplesPerm->roles()->pluck('name')->toArray() : [];
             foreach ($rolesWithSamples as $rname) {
                 $r = Role::query()->where('name', $rname)->first();
                 if (!$r) continue;
@@ -432,6 +436,130 @@ class RbacRolePermissionsSeeder extends Seeder
                     ->filter(fn ($u) => $u->laboratoryUser?->id === (int) $centralLabId);
                 foreach ($centralUsers as $u) {
                     $u->givePermissionTo($centralLabPerms);
+                }
+            }
+
+            // KPI Framework — admin enters the 4 manual KPIs (001/007/008/009)
+            // as monthly per-lab snapshots. View/manage perms split so a future
+            // read-only auditor role can be added without granting write.
+            // module_id is NOT NULL in permissions; admin-side meta perms live
+            // under the settings module (id 15 on this DB).
+            $kpiModuleId = DB::table('modules')->where('name', 'settings')->value('id');
+            $kpiPerms = [
+                'view_kpi_framework',
+                'manage_kpi_framework',
+                // Quality / Compliance modules (KPI-001/007/008/009 data sources)
+                'view_staff_trainings',     'manage_staff_trainings',
+                'view_verification_visits', 'manage_verification_visits',
+                'view_audit_inspections',   'manage_audit_inspections',
+                'view_pt_rounds',           'manage_pt_rounds',
+                'submit_pt_results',        // lab-incharge submits their own PT readings
+            ];
+            foreach ($kpiPerms as $name) {
+                Permission::firstOrCreate(
+                    ['name' => $name, 'guard_name' => 'web'],
+                    ['module_id' => $kpiModuleId]
+                );
+            }
+            $kpiViewers = [
+                'system-administrator', 'system-manager',
+                'view-only-admin',      'general-view-account',
+                'secretary',
+                'chief-engineer',       'superintending-engineer', 'xen',
+                'lab-incharge',
+            ];
+            foreach ($kpiViewers as $rname) {
+                $r = Role::query()->where('name', $rname)->first();
+                if ($r && !$r->hasPermissionTo('view_kpi_framework')) {
+                    $r->givePermissionTo('view_kpi_framework');
+                }
+            }
+            $kpiManagers = ['system-administrator', 'system-manager'];
+            foreach ($kpiManagers as $rname) {
+                $r = Role::query()->where('name', $rname)->first();
+                if ($r && !$r->hasPermissionTo('manage_kpi_framework')) {
+                    $r->givePermissionTo('manage_kpi_framework');
+                }
+            }
+
+            // Training Register (KPI-007): lab-incharge stands in for RO/SRO
+            // (closest existing role); admin/manager get full access; view-only
+            // roles read.
+            $trainingReaders = [
+                'system-administrator', 'system-manager',
+                'view-only-admin',      'general-view-account',
+                'secretary',
+                'chief-engineer',       'superintending-engineer', 'xen',
+                'lab-incharge',
+            ];
+            $trainingWriters = ['system-administrator', 'system-manager', 'lab-incharge'];
+            foreach ($trainingReaders as $rname) {
+                $r = Role::query()->where('name', $rname)->first();
+                if ($r && !$r->hasPermissionTo('view_staff_trainings')) {
+                    $r->givePermissionTo('view_staff_trainings');
+                }
+            }
+            foreach ($trainingWriters as $rname) {
+                $r = Role::query()->where('name', $rname)->first();
+                if ($r && !$r->hasPermissionTo('manage_staff_trainings')) {
+                    $r->givePermissionTo('manage_staff_trainings');
+                }
+            }
+
+            // Verification Log (KPI-009): technical-head role doesn't exist
+            // yet — admin/manager have write; same readers as training.
+            $verificationReaders = $trainingReaders;
+            $verificationWriters = ['system-administrator', 'system-manager'];
+            foreach ($verificationReaders as $rname) {
+                $r = Role::query()->where('name', $rname)->first();
+                if ($r && !$r->hasPermissionTo('view_verification_visits')) {
+                    $r->givePermissionTo('view_verification_visits');
+                }
+            }
+            foreach ($verificationWriters as $rname) {
+                $r = Role::query()->where('name', $rname)->first();
+                if ($r && !$r->hasPermissionTo('manage_verification_visits')) {
+                    $r->givePermissionTo('manage_verification_visits');
+                }
+            }
+
+            // Audit Checklist (KPI-008): same access model as Verification.
+            $auditReaders = $trainingReaders;
+            $auditWriters = ['system-administrator', 'system-manager'];
+            foreach ($auditReaders as $rname) {
+                $r = Role::query()->where('name', $rname)->first();
+                if ($r && !$r->hasPermissionTo('view_audit_inspections')) {
+                    $r->givePermissionTo('view_audit_inspections');
+                }
+            }
+            foreach ($auditWriters as $rname) {
+                $r = Role::query()->where('name', $rname)->first();
+                if ($r && !$r->hasPermissionTo('manage_audit_inspections')) {
+                    $r->givePermissionTo('manage_audit_inspections');
+                }
+            }
+
+            // PT Module (KPI-001): admin creates rounds, labs submit their
+            // own readings, everyone reads.
+            $ptReaders = $trainingReaders;
+            $ptWriters = ['system-administrator', 'system-manager'];
+            $ptSubmitters = ['lab-incharge', 'laboratory-assistant'];
+            foreach ($ptReaders as $rname) {
+                $r = Role::query()->where('name', $rname)->first();
+                if ($r && !$r->hasPermissionTo('view_pt_rounds')) {
+                    $r->givePermissionTo('view_pt_rounds');
+                }
+            }
+            foreach ($ptWriters as $rname) {
+                $r = Role::query()->where('name', $rname)->first();
+                if ($r && !$r->hasPermissionTo('manage_pt_rounds')) {
+                    $r->givePermissionTo('manage_pt_rounds');
+                }
+            }
+            foreach ($ptSubmitters as $rname) {
+                $r = Role::query()->where('name', $rname)->first();
+                if ($r && !$r->hasPermissionTo('submit_pt_results')) {
+                    $r->givePermissionTo('submit_pt_results');
                 }
             }
 

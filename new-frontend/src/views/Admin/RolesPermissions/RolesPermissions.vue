@@ -95,6 +95,21 @@ const SIDEBAR_MODULES = [
   { label: 'XEN Settings',               icon: '⚙️', perms: ['view_xen_settings'] },
   { label: 'XEN: Submit Retest',         icon: '🔁', perms: ['submit_xen_retest'] },
   { label: 'XEN: Update Settings',       icon: '✏️', perms: ['update_xen_settings'] },
+
+  // Quality / Compliance modules (KPI Framework data sources).
+  // view_ → can see the screen and the KPI value derived from it.
+  // manage_ / submit_ → write actions on the underlying records.
+  { label: 'KPI Framework',              icon: '📊', perms: ['view_kpi_framework'] },
+  { label: 'KPI Framework: Manage',      icon: '✏️', perms: ['manage_kpi_framework'] },
+  { label: 'Training Register',          icon: '🎓', perms: ['view_staff_trainings'] },
+  { label: 'Training Register: Manage',  icon: '✏️', perms: ['manage_staff_trainings'] },
+  { label: 'SOP Audit',                  icon: '✅', perms: ['view_audit_inspections'] },
+  { label: 'SOP Audit: Manage',          icon: '✏️', perms: ['manage_audit_inspections'] },
+  { label: 'PT Rounds',                  icon: '🧪', perms: ['view_pt_rounds'] },
+  { label: 'PT Rounds: Manage',          icon: '✏️', perms: ['manage_pt_rounds'] },
+  { label: 'PT Rounds: Submit Results',  icon: '🔁', perms: ['submit_pt_results'] },
+  { label: 'Verification Log',           icon: '🔎', perms: ['view_verification_visits'] },
+  { label: 'Verification Log: Manage',   icon: '✏️', perms: ['manage_verification_visits'] },
 ]
 // Roles whose access is router/middleware-bypassed (isUnscoped) — toggling
 // module perms for them has no UI effect, so they're hidden from the grid

@@ -48,7 +48,11 @@ const routes = [
       // custom role granted view_diaries can land there.
       { path: 'admin/users-hr',            name: 'UsersHR',            meta: { title: 'Admin / Users & HR',           roles: ['system-administrator'] },                                           component: () => import('../views/Admin/UsersHR/UsersHR.vue') },
       { path: 'admin/roles-permissions',   name: 'RolesPermissions',   meta: { title: 'Admin / Roles & Permissions',  roles: ['system-administrator'] },                                           component: () => import('../views/Admin/RolesPermissions/RolesPermissions.vue') },
-      { path: 'admin/kpi-framework',       name: 'KPIFramework',       meta: { title: 'Admin / KPI Framework',        roles: ['system-administrator','system-manager','view-only-admin'] },        component: () => import('../views/Admin/KPIFramework/KPIFramework.vue') },
+      { path: 'admin/kpi-framework',       name: 'KPIFramework',       meta: { title: 'Admin / KPI Framework',        permissions: ['view_kpi_framework'] },                                       component: () => import('../views/Admin/KPIFramework/KPIFramework.vue') },
+      { path: 'admin/staff-trainings',     name: 'StaffTrainings',     meta: { title: 'Quality / Training Register',  permissions: ['view_staff_trainings'] },                                     component: () => import('../views/Admin/StaffTrainings/StaffTrainings.vue') },
+      { path: 'admin/verification-visits', name: 'VerificationVisits', meta: { title: 'Quality / Verification Log',   permissions: ['view_verification_visits'] },                                 component: () => import('../views/Admin/VerificationVisits/VerificationVisits.vue') },
+      { path: 'admin/audit-checklist',     name: 'AuditChecklist',     meta: { title: 'Quality / SOP Audit',          permissions: ['view_audit_inspections'] },                                   component: () => import('../views/Admin/AuditChecklist/AuditChecklist.vue') },
+      { path: 'admin/pt-rounds',           name: 'PtRounds',           meta: { title: 'Quality / PT Rounds',          permissions: ['view_pt_rounds'] },                                           component: () => import('../views/Admin/PtRounds/PtRounds.vue') },
       { path: 'admin/diaries-dispatches',  name: 'DiariesDispatches',  meta: { title: 'Admin / Diaries & Dispatches', permissions: ['view_diaries', 'view_dispatches'] },                          component: () => import('../views/Admin/DiariesDispatches/DiariesDispatches.vue') },
 
       // WSS Details

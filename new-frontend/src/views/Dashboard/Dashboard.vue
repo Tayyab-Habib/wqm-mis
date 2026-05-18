@@ -865,6 +865,9 @@ async function fetchLabKpis() {
         id: k.id,
         name: k.name,
         target_pct: k.target_pct,
+        rag_green: k.rag_green,
+        rag_amber: k.rag_amber,
+        manual: k.manual,
         missing_reason: k.missing_reason,
         values,
       }
@@ -879,10 +882,15 @@ async function fetchLabKpis() {
   }
 }
 
-function kpiCellStyle(val) {
+// Per-KPI RAG band lookup. Falls back to a generic 90/75 split when the
+// catalog row doesn't supply rag_green/rag_amber (older clients, missing
+// catalog entries).
+function kpiCellStyle(val, kpi) {
   if (val == null) return 'background:#f1f5f9;color:#94a3b8;border:1px solid #e2e8f0'
-  if (val >= 90) return 'background:#d1fae5;color:#065f46;border:1px solid #6ee7b7'
-  if (val >= 75) return 'background:#fef9c3;color:#713f12;border:1px solid #fde047'
+  const green = kpi?.rag_green ?? 90
+  const amber = kpi?.rag_amber ?? 75
+  if (val >= green) return 'background:#d1fae5;color:#065f46;border:1px solid #6ee7b7'
+  if (val >= amber) return 'background:#fef9c3;color:#713f12;border:1px solid #fde047'
   return 'background:#fee2e2;color:#991b1b;border:1px solid #fca5a5'
 }
 
@@ -1334,7 +1342,7 @@ function exportKpiCsv() {
                   :title="kpi.values[lab.id] == null ? (kpi.missing_reason || 'No data for this lab in current filter') : ''">
                 <span v-if="kpi.values[lab.id] != null"
                   style="display:inline-block;padding:2px 8px;border-radius:4px;font-weight:700;font-size:11.5px;min-width:44px"
-                  :style="kpiCellStyle(kpi.values[lab.id])">
+                  :style="kpiCellStyle(kpi.values[lab.id], kpi)">
                   {{ kpi.values[lab.id] }}%
                 </span>
                 <span v-else style="color:#ccc;font-size:11px">—</span>
