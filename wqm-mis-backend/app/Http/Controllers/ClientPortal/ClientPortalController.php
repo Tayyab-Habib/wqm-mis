@@ -132,12 +132,26 @@ class ClientPortalController extends Controller
     /**
      * PUT /api/client-portal/change-password
      * Client changes their own password.
+     *
+     * Hardened 2026-05-18:
+     *   - Bumped min length 6 → 8 + complexity rules (mixed case + digit)
+     *     so trivial passwords like "123456" stop passing.
+     *   - Invalidates the current portal_token after successful change so
+     *     anyone sitting on a hijacked session loses it. Client must
+     *     re-login. Frontend should redirect to /login after a 200 here.
+     *   - Rate-limited at the route level (throttle:3,5).
      */
     public function changePassword(Request $request): JsonResponse
     {
         $request->validate([
             'current_password' => ['required', 'string'],
-            'new_password'     => ['required', 'string', 'min:6', 'confirmed'],
+            'new_password'     => [
+                'required', 'string', 'min:8', 'confirmed',
+                // At least one lowercase, one uppercase, one digit.
+                'regex:/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/',
+            ],
+        ], [
+            'new_password.regex' => 'Password must contain at least one uppercase letter, one lowercase letter, and one digit.',
         ]);
 
         $client = $this->client($request);
@@ -149,9 +163,16 @@ class ClientPortalController extends Controller
             ], SymfonyResponse::HTTP_UNPROCESSABLE_ENTITY);
         }
 
-        $client->update(['password' => Hash::make($request->new_password)]);
+        $client->update([
+            'password'                 => Hash::make($request->new_password),
+            // Invalidate token — forces re-login on this and any other device.
+            'portal_token'             => null,
+            'portal_token_expires_at'  => null,
+        ]);
 
-        return response()->json(['message' => 'Password updated successfully.']);
+        return response()->json([
+            'message' => 'Password updated successfully. Please log in again.',
+        ]);
     }
 
     /**

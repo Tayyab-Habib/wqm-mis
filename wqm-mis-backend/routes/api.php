@@ -537,9 +537,10 @@ Route::middleware(['auth:sanctum', 'dummy.account', 'view.only'])->group(callbac
 
 // ── Client Portal ─────────────────────────────────────────────────────
 Route::prefix('client-portal')->group(function () {
-    // Public: login & logout
-    Route::post('login',  [\App\Http\Controllers\ClientPortal\ClientPortalAuthController::class, 'login']);
-    Route::post('logout', [\App\Http\Controllers\ClientPortal\ClientPortalAuthController::class, 'logout']);
+    // Public login — rate-limited (5 attempts per minute per IP) so
+    // credential-stuffing / brute-force gets backed off.
+    Route::middleware('throttle:5,1')->post('login',
+        [\App\Http\Controllers\ClientPortal\ClientPortalAuthController::class, 'login']);
 
     // Protected: requires client portal token
     Route::middleware('client.portal')->group(function () {
@@ -547,6 +548,19 @@ Route::prefix('client-portal')->group(function () {
         Route::get('samples',        [\App\Http\Controllers\ClientPortal\ClientPortalController::class, 'samples']);
         Route::get('invoices',       [\App\Http\Controllers\ClientPortal\ClientPortalController::class, 'invoices']);
         Route::get('email-reports',  [\App\Http\Controllers\ClientPortal\ClientPortalController::class, 'emailReports']);
-        Route::put('change-password',[\App\Http\Controllers\ClientPortal\ClientPortalController::class, 'changePassword']);
+
+        // Change-password is throttled separately + needs an active session.
+        // Throttle is tighter (3 per 5 min) because a hijacked session
+        // could otherwise be used to rapidly lock the legitimate client out.
+        Route::middleware('throttle:3,5')->put('change-password',
+            [\App\Http\Controllers\ClientPortal\ClientPortalController::class, 'changePassword']);
+
+        // Logout moved inside the protected group — it needs to know which
+        // client is logging out, and a hashed-token DB lookup belongs to
+        // the middleware. Expired/invalid tokens just get rejected at the
+        // middleware layer, which is the correct behaviour (nothing to
+        // revoke if the session is already dead).
+        Route::post('logout',
+            [\App\Http\Controllers\ClientPortal\ClientPortalAuthController::class, 'logout']);
     });
 });

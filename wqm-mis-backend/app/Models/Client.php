@@ -26,11 +26,16 @@ class Client extends Model
         'organization_name',
         'password',
         'portal_token',
+        'portal_token_expires_at',
     ];
     protected $hidden = [
         'deleted_at',
         'password',
         'portal_token',
+        'portal_token_expires_at',
+    ];
+    protected $casts = [
+        'portal_token_expires_at' => 'datetime',
     ];
 
     protected static function booted()
