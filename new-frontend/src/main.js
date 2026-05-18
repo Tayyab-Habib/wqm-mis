@@ -6,9 +6,14 @@ import App from './App.vue'
 import { vWrite } from './directives/vWrite.js'
 import './assets/styles/main.scss'
 
-const BASE = import.meta.env.VITE_APP_BASE_URL || import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8002'
+const BASE = import.meta.env.DEV
+  ? ''
+  : import.meta.env.VITE_APP_BASE_URL || import.meta.env.VITE_API_BASE_URL || 'https://127.0.0.1:8002'
 
 // Fetch CSRF cookie once on app startup — required by Laravel Sanctum stateful auth
+// Ensure axios sends credentials (cookies) for cross-site requests when needed
+axios.defaults.withCredentials = true
+
 axios.get(`${BASE}/sanctum/csrf-cookie`, { withCredentials: true })
   .catch(() => { /* silently ignore if backend not reachable */ })
 
