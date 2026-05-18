@@ -61,6 +61,17 @@ const navItems = [
   { label: 'Diaries / Dispatches', icon: '📝', route: '/admin/diaries-dispatches',                     permissions: ['view_diaries', 'view_dispatches'] },
   { label: 'Water Scheme Details', icon: '💧', route: '/wss-details',                                  permissions: ['view_water_schemes'] },
   { section: 'Settings',                                                                               adminOnly: true },
+  { label: 'Provinces',           icon: '🗺️', route: '/settings/provinces',                            adminOnly: true },
+  { label: 'Divisions',           icon: '🗺️', route: '/settings/divisions',                            adminOnly: true },
+  { label: 'Districts',           icon: '🗺️', route: '/settings/districts',                            adminOnly: true },
+  { label: 'Tehsils',             icon: '🗺️', route: '/settings/tehsils',                              adminOnly: true },
+  { label: 'Union Councils',      icon: '🗺️', route: '/settings/union-councils',                       adminOnly: true },
+  { label: 'Designations',        icon: '👔', route: '/settings/designations',                         adminOnly: true },
+  { label: 'Water Parameters',    icon: '🧪', route: '/settings/water-parameters',                     adminOnly: true },
+  { label: 'Abbreviations',       icon: '🔤', route: '/settings/abbreviations',                        adminOnly: true },
+  { label: 'Units',               icon: '📏', route: '/settings/units',                                adminOnly: true },
+  { label: 'Complaint Type',      icon: '📋', route: '/settings/complaint-type',                       adminOnly: true },
+  { label: 'Discounts',           icon: '💰', route: '/settings/discounts',                            adminOnly: true },
   { label: 'Roles & Permissions', icon: '🔐', route: '/admin/roles-permissions',                       adminOnly: true },
 ]
 

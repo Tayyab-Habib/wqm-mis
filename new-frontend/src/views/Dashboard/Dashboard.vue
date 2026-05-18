@@ -486,6 +486,12 @@ async function fetchDashboard() {
       totalLabs:         d.total_laboratories ?? '—',
       totalComplaints:   d.total_complaints?.datasets?.[0]?.data?.[0] ?? '—',
       pendingComplaints: d.total_complaints?.datasets?.[0]?.data?.[1] ?? '—',
+      // SRS §2.9 — auto-escalated count: complaints unresolved > 72h.
+      // Backend now returns this on `total_complaints.escalated_count`;
+      // fall back to position 5 of the dataset for safety.
+      escalatedComplaints: d.total_complaints?.escalated_count
+                           ?? d.total_complaints?.datasets?.[0]?.data?.[5]
+                           ?? 0,
       totalIssues:       d.total_issues?.datasets?.[0]?.data?.[0] ?? '—',
       pendingInventory:  d.total_pending_inventory_requests ?? '—',
       revenue:           rev.series?.[0]?.data?.reduce((a, b) => a + b, 0)?.toLocaleString() ?? '—',
@@ -1066,13 +1072,23 @@ function exportKpiCsv() {
         <div class="c-val">{{ stats.totalComplaints }}</div>
         <div class="c-row"><span>Pending: <b>{{ stats.pendingComplaints }}</b></span></div>
         <div class="c-sub">Active complaints</div>
-        <div class="c-nav">→ Complaints</div>
+        <!-- SRS §2.9 Feature 1: button label uses "Report Issue", not legacy "Create Issue". -->
+        <div class="c-nav">→ Report Issue</div>
       </div>
       <div class="card c-red clickable">
         <div class="c-lbl">Issues</div>
         <div class="c-val">{{ stats.totalIssues }}</div>
         <div class="c-sub">Total issues logged</div>
-        <div class="c-nav">→ Issues</div>
+        <div class="c-nav">→ Report Issue</div>
+      </div>
+      <!-- SRS §2.9 Feature 2: Escalated Issues — complaints unresolved > 72h.
+           Computed in backend DashboardController::getTotalComplaints. -->
+      <div class="card c-amber clickable" :class="{ 'c-red': Number(stats.escalatedComplaints) > 0 }">
+        <div class="c-lbl">Escalated Issues</div>
+        <div class="c-val">{{ stats.escalatedComplaints }}</div>
+        <div class="c-row"><span>Unresolved &gt; 72h</span></div>
+        <div class="c-sub">Auto-escalated complaints</div>
+        <div class="c-nav">→ Review &amp; Resolve</div>
       </div>
       <div class="card c-amber clickable" @click="router.push('/admin/kpi-framework')">
         <div class="c-lbl">Pending Inventory</div>
