@@ -107,6 +107,33 @@ const SIDEBAR_MODULES = [
   { group: 'Quality Framework', label: 'PT Rounds: Submit Results', icon: '🔁', perms: ['submit_pt_results'] },
   { group: 'Quality Framework', label: 'Verification Log',          icon: '🔎', perms: ['view_verification_visits'] },
   { group: 'Quality Framework', label: 'Verification Log: Manage',  icon: '✏️', perms: ['manage_verification_visits'] },
+
+  // ── Settings (master-data admin pages) ─────────────────────────────
+  // Each page has a `view_*` toggle (sees the screen, read-only) and a
+  // `Manage` toggle bundling add/edit/delete. Complaint Types lacks an
+  // edit perm in DB (and the page has no edit action), so its Manage
+  // bundle is add + delete only. Discounts has no fine-grained perms —
+  // it's pure SA-only and not exposed here.
+  { group: 'Settings', label: 'Provinces',                  icon: '🌍', perms: ['view_provinces'] },
+  { group: 'Settings', label: 'Provinces: Manage',          icon: '✏️', perms: ['add_provinces', 'edit_provinces', 'delete_provinces'] },
+  { group: 'Settings', label: 'Divisions',                  icon: '🗺️', perms: ['view_divisions'] },
+  { group: 'Settings', label: 'Divisions: Manage',          icon: '✏️', perms: ['add_divisions', 'edit_divisions', 'delete_divisions'] },
+  { group: 'Settings', label: 'Districts',                  icon: '📍', perms: ['view_districts'] },
+  { group: 'Settings', label: 'Districts: Manage',          icon: '✏️', perms: ['add_districts', 'edit_districts', 'delete_districts'] },
+  { group: 'Settings', label: 'Tehsils',                    icon: '🏘️', perms: ['view_tehsils'] },
+  { group: 'Settings', label: 'Tehsils: Manage',            icon: '✏️', perms: ['add_tehsils', 'edit_tehsils', 'delete_tehsils'] },
+  { group: 'Settings', label: 'Union Councils',             icon: '🏠', perms: ['view_union_councils'] },
+  { group: 'Settings', label: 'Union Councils: Manage',     icon: '✏️', perms: ['add_union_councils', 'edit_union_councils', 'delete_union_councils'] },
+  { group: 'Settings', label: 'Designations',               icon: '👔', perms: ['view_designations'] },
+  { group: 'Settings', label: 'Designations: Manage',       icon: '✏️', perms: ['add_designations', 'edit_designations', 'delete_designations'] },
+  { group: 'Settings', label: 'Water Parameters',           icon: '🧪', perms: ['view_tests'] },
+  { group: 'Settings', label: 'Water Parameters: Manage',   icon: '✏️', perms: ['add_tests', 'edit_tests', 'delete_tests'] },
+  { group: 'Settings', label: 'Abbreviations',              icon: '🔤', perms: ['view_abbreviations'] },
+  { group: 'Settings', label: 'Abbreviations: Manage',      icon: '✏️', perms: ['add_abbreviations', 'edit_abbreviations', 'delete_abbreviations'] },
+  { group: 'Settings', label: 'Units',                      icon: '📏', perms: ['view_units'] },
+  { group: 'Settings', label: 'Units: Manage',              icon: '✏️', perms: ['add_units', 'edit_units', 'delete_units'] },
+  { group: 'Settings', label: 'Complaint Types',            icon: '📋', perms: ['view_complaint_types'] },
+  { group: 'Settings', label: 'Complaint Types: Manage',    icon: '✏️', perms: ['add_complaint_types', 'delete_complaint_types'] },
 ]
 // Roles whose access is router/middleware-bypassed (isUnscoped) — toggling
 // module perms for them has no UI effect, so they're hidden from the grid
