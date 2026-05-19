@@ -1,11 +1,18 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { xenService } from '../services/xenService.js'
 import { useUserStore } from '../stores/useUserStore.js'
 
 const router = useRouter()
+const route  = useRoute()
 const userStore = useUserStore()
+
+// Off-canvas mobile nav
+const navOpen = ref(false)
+function toggleNav() { navOpen.value = !navOpen.value }
+function closeNav()  { navOpen.value = false }
+watch(() => route.fullPath, closeNav)
 
 const me = ref(null)
 const unfitCount = ref(0)
@@ -186,7 +193,7 @@ function badgeFor(ref) {
 </script>
 
 <template>
-  <div class="xen-app">
+  <div class="xen-app" :class="{ 'nav-open': navOpen }">
     <!-- ── Sidebar ────────────────────────────────────────────── -->
     <aside class="xen-sidebar">
       <div class="xb-brand">
@@ -212,10 +219,12 @@ function badgeFor(ref) {
         </template>
       </nav>
     </aside>
+    <div class="mobile-nav-backdrop" @click="closeNav"></div>
 
     <!-- ── Main ───────────────────────────────────────────────── -->
     <div class="xen-main">
       <header class="xen-topbar">
+        <button class="mobile-nav-toggle" @click="toggleNav" title="Menu" aria-label="Menu">☰</button>
         <div class="xt-title">{{ $route.meta?.title || 'XEN Dashboard' }}</div>
         <div class="xt-right">
           <span class="xt-scope-chip">

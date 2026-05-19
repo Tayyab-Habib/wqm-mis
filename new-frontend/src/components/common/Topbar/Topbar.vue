@@ -6,6 +6,7 @@ import { computed, ref, watch } from 'vue'
 const userStore = useUserStore()
 const route = useRoute()
 const router = useRouter()
+defineEmits(['toggle-nav'])
 
 const breadcrumb = computed(() => route.meta?.title || route.name || 'Dashboard')
 
@@ -58,6 +59,7 @@ async function handleLogout() {
       </Transition>
     </Teleport>
 
+    <button class="mobile-nav-toggle" @click="$emit('toggle-nav')" title="Menu" aria-label="Menu">☰</button>
     <div class="tbar-bc" id="bc">{{ breadcrumb }}</div>
     <div class="tbar-sp"></div>
     <div class="notif">

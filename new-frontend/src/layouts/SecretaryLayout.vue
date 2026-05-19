@@ -1,11 +1,18 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { secretaryService } from '../services/secretaryService.js'
 import { useUserStore } from '../stores/useUserStore.js'
 
 const router = useRouter()
+const route  = useRoute()
 const userStore = useUserStore()
+
+// Off-canvas mobile nav
+const navOpen = ref(false)
+function toggleNav() { navOpen.value = !navOpen.value }
+function closeNav()  { navOpen.value = false }
+watch(() => route.fullPath, closeNav)
 
 const me = ref(null)
 const fatePending = ref(0)
@@ -101,7 +108,7 @@ function badgeFor(ref) {
 </script>
 
 <template>
-  <div class="sec-app">
+  <div class="sec-app" :class="{ 'nav-open': navOpen }">
     <aside class="sec-sidebar">
       <div class="sb-brand">
         <div class="sb-eyebrow">PHED KP — SECRETARY PORTAL</div>
@@ -126,9 +133,11 @@ function badgeFor(ref) {
         </template>
       </nav>
     </aside>
+    <div class="mobile-nav-backdrop" @click="closeNav"></div>
 
     <div class="sec-main">
       <header class="sec-topbar">
+        <button class="mobile-nav-toggle" @click="toggleNav" title="Menu" aria-label="Menu">☰</button>
         <div class="st-title">{{ $route.meta?.title || 'Dashboard' }}</div>
         <div class="st-right">
           <span class="st-scope-chip">

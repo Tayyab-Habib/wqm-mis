@@ -8,7 +8,9 @@ const router    = useRouter()
 const route     = useRoute()
 const userStore = useUserStore()
 
-const BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8002'
+const BASE = import.meta.env.DEV
+  ? ''
+  : import.meta.env.VITE_API_BASE_URL || 'http://localhost:8002'
 
 const form         = ref({ email: '', password: '' })
 const loading      = ref(false)
