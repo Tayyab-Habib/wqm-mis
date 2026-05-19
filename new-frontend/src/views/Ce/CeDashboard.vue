@@ -24,6 +24,16 @@ const ceEscalated = computed(() => data.value?.ce_escalated || [])
 const notifications = computed(() => data.value?.notifications || [])
 const scope  = computed(() => data.value?.scope || { circles: [] })
 
+// Abandoned / Ignored WSS = functional schemes that have never had a sample.
+// Backend exposes `abandoned_wss` if available; otherwise we compute from
+// the two adjacent metrics so the card stays accurate without a server change.
+const abandonedWss = computed(() => {
+  if (row1.value?.abandoned_wss != null) return row1.value.abandoned_wss
+  const total  = row1.value?.functional_wss?.total ?? 0
+  const tested = row1.value?.tested_wss ?? 0
+  return Math.max(0, total - tested)
+})
+
 const fmtDate = (d) => {
   if (!d) return '—'
   try { return new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }) }
@@ -85,18 +95,6 @@ function intervene(row) {
         <RouterLink to="/ce/wss-register" class="link">→ WSS Register</RouterLink>
       </div>
       <div class="c">
-        <div class="lbl">TESTED WSS</div>
-        <div v-if="loading" class="cd-skel cd-val-skel"></div>
-        <div v-else class="val">{{ row1.tested_wss?.toLocaleString() ?? 0 }}</div>
-        <div class="sub" v-if="!loading">
-          ✅ Fit: {{ row1.fit_samples ?? 0 }} &nbsp; ❌ Unfit: {{ row1.unfit_samples ?? 0 }}
-        </div>
-        <div class="sub" v-if="!loading && row1.functional_wss?.total > 0">
-          {{ ((row1.tested_wss / row1.functional_wss.total) * 100).toFixed(1) }}% of Functional WSS
-        </div>
-        <RouterLink to="/ce/wss-register" class="link">→ WSS Register</RouterLink>
-      </div>
-      <div class="c">
         <div class="lbl">TESTED SAMPLES</div>
         <div v-if="loading" class="cd-skel cd-val-skel"></div>
         <div v-else class="val">{{ row1.tested_samples?.toLocaleString() ?? 0 }}</div>
@@ -124,6 +122,16 @@ function intervene(row) {
         </div>
         <div class="sub" v-if="!loading">{{ row1.unfit_followup?.rate_percent ?? 0 }}% follow-up rate</div>
         <RouterLink to="/ce/escalated-cases" class="link">→ Unfit Trail</RouterLink>
+      </div>
+      <div class="c c-rose">
+        <div class="lbl">ABANDONED / IGNORED WSS</div>
+        <div v-if="loading" class="cd-skel cd-val-skel"></div>
+        <div v-else class="val">{{ abandonedWss.toLocaleString() }}</div>
+        <div class="sub" v-if="!loading">Functional WSS never sampled</div>
+        <div class="sub" v-if="!loading && row1.functional_wss?.total > 0">
+          {{ ((abandonedWss / row1.functional_wss.total) * 100).toFixed(1) }}% of Functional WSS
+        </div>
+        <RouterLink to="/ce/wss-register" class="link">→ WSS Register</RouterLink>
       </div>
     </div>
 

@@ -105,7 +105,14 @@ async function openTrail(user) {
   trailLoading.value = true
   try {
     const res = await api.get(`/acitivity-logs?user_id=${user.id}`)
-    activityLogs.value = res.data || []
+    // The axios response interceptor in services/axios.js already unwraps
+    // `response.data`, so `res` here is the body itself: { message, data: [...] }.
+    // The backend returns a flat array under `data`, but stay defensive in
+    // case it's ever wrapped in a paginator (`.data.data`).
+    const payload = res?.data ?? res
+    activityLogs.value = Array.isArray(payload)
+      ? payload
+      : (Array.isArray(payload?.data) ? payload.data : [])
   } catch (e) { console.error('Activity log error:', e) }
   finally { trailLoading.value = false }
 }
