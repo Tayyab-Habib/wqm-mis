@@ -83,6 +83,21 @@ const diaryForm = ref({
 })
 function onDiaryFile(e) { diaryForm.value.attachment = e.target.files[0] || null }
 
+// Diary wizard
+const diaryStep = ref(1)
+const diarySteps = [
+  { n: 1, icon: '📨', title: 'Source',     subtitle: 'Sender & references' },
+  { n: 2, icon: '📝', title: 'Content',    subtitle: 'Subject & priority' },
+  { n: 3, icon: '📎', title: 'Action',     subtitle: 'Due date, status, file' },
+]
+function diaryGoTo(n) { if (n >= 1 && n <= diarySteps.length) diaryStep.value = n }
+function diaryNext()  { if (diaryStep.value < diarySteps.length) diaryStep.value++ }
+function diaryPrev()  { if (diaryStep.value > 1) diaryStep.value-- }
+function openDiaryModal() {
+  diaryStep.value = 1
+  showDiaryModal.value = true
+}
+
 async function saveDiary() {
   if (!diaryForm.value.subject) { showToast('⚠️ Subject is required.', 'error'); return }
   try {
@@ -112,6 +127,21 @@ const dispForm = ref({
   attachment: null, attachment_name: '',
 })
 function onDispatchFile(e) { dispForm.value.attachment = e.target.files[0] || null }
+
+// Dispatch wizard
+const dispStep = ref(1)
+const dispSteps = [
+  { n: 1, icon: '📤', title: 'Recipient',  subtitle: 'To, references, dates' },
+  { n: 2, icon: '📝', title: 'Content',    subtitle: 'Subject, category, priority' },
+  { n: 3, icon: '🚚', title: 'Dispatch',   subtitle: 'Mode, prepared by, attachment' },
+]
+function dispGoTo(n) { if (n >= 1 && n <= dispSteps.length) dispStep.value = n }
+function dispNext()  { if (dispStep.value < dispSteps.length) dispStep.value++ }
+function dispPrev()  { if (dispStep.value > 1) dispStep.value-- }
+function openDispatchModal() {
+  dispStep.value = 1
+  showDispatchModal.value = true
+}
 
 async function saveDispatch() {
   if (!dispForm.value.subject || !dispForm.value.to_recipient) { showToast('⚠️ Subject and To are required.', 'error'); return }
@@ -218,7 +248,7 @@ onMounted(loadData)
           <option value="Completed">Completed</option>
         </select>
         <div class="tsp"></div>
-        <button class="btn btn-pri btn-sm" @click="showDiaryModal = true">+ New Diary Entry</button>
+        <button class="btn btn-pri btn-sm" @click="openDiaryModal">+ New Diary Entry</button>
       </div>
       <div class="tbl-wrap">
         <table style="font-size:11.5px">
@@ -281,7 +311,7 @@ onMounted(loadData)
       <div class="toolbar">
         <input type="text" v-model="diarySearch" placeholder="Search subject, recipient...">
         <div class="tsp"></div>
-        <button class="btn btn-pri btn-sm" @click="showDispatchModal = true">+ New Dispatch</button>
+        <button class="btn btn-pri btn-sm" @click="openDispatchModal">+ New Dispatch</button>
       </div>
       <div class="tbl-wrap">
         <table style="font-size:11.5px">
@@ -399,116 +429,343 @@ onMounted(loadData)
       </div>
     </div>
 
-    <!-- NEW DIARY MODAL -->
+    <!-- NEW DIARY MODAL (step-by-step wizard) -->
     <Teleport to="body">
-      <div v-if="showDiaryModal" @click.self="showDiaryModal = false"
-           style="display:flex;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:3800;align-items:flex-start;justify-content:center;overflow-y:auto;padding:30px">
-        <div style="background:#fff;border-radius:10px;width:100%;max-width:720px;margin:auto;box-shadow:0 8px 40px rgba(0,0,0,.28);overflow:hidden">
-          <div style="background:var(--navy);color:#fff;padding:14px 20px;display:flex;align-items:center;justify-content:space-between">
-            <div style="font-size:14px;font-weight:700">New Diary Entry (Inward Correspondence)</div>
-            <button @click="showDiaryModal = false" style="background:rgba(255,255,255,.15);border:none;color:#fff;border-radius:5px;padding:5px 12px;cursor:pointer;font-size:13px">Close</button>
+      <div v-if="showDiaryModal" @click.self="showDiaryModal = false" class="wz-overlay">
+        <div class="wz-modal">
+
+          <div class="wz-header">
+            <div>
+              <div class="wz-title">📨 New Diary Entry (Inward)</div>
+              <div class="wz-subtitle">Record an incoming letter or correspondence. Required fields are marked *.</div>
+            </div>
+            <button class="wz-close" @click="showDiaryModal = false" aria-label="Close">✕</button>
           </div>
-          <div style="padding:22px 24px">
-            <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:12px">
-              <div class="fg2 span2"><label>From (Sender / Organisation) *</label><input type="text" v-model="diaryForm.from_sender" placeholder="e.g. UNOPS Office, DHO Peshawar"></div>
-              <div class="fg2"><label>Reference No.</label><input type="text" v-model="diaryForm.reference_no" placeholder="e.g. UNOPS/2026/041"></div>
-              <div class="fg2"><label>Letter Date</label><input type="date" v-model="diaryForm.date_on_letter"></div>
-              <div class="fg2 span2"><label>Subject *</label><input type="text" v-model="diaryForm.subject" placeholder="Brief subject of the communication"></div>
-              <div class="fg2">
-                <label>Category</label>
-                <select v-model="diaryForm.category">
-                  <option value="">Select</option>
-                  <option>Order</option><option>Circular</option><option>Notification</option>
-                  <option>Report Request</option><option>Complaint</option><option>Other</option>
-                </select>
+
+          <div class="wz-stepper">
+            <div v-for="s in diarySteps" :key="s.n"
+                 class="wz-step"
+                 :class="{ 'is-active': diaryStep === s.n, 'is-done': diaryStep > s.n }"
+                 @click="diaryGoTo(s.n)">
+              <div class="wz-step-circle">
+                <span v-if="diaryStep > s.n">✓</span>
+                <span v-else>{{ s.n }}</span>
               </div>
-              <div class="fg2">
-                <label>Priority</label>
-                <select v-model="diaryForm.priority">
-                  <option value="Routine">Routine</option>
-                  <option value="Urgent">Urgent</option>
-                  <option value="Immediate">Immediate</option>
-                </select>
+              <div class="wz-step-label">
+                <div class="wz-step-title">{{ s.icon }} {{ s.title }}</div>
+                <div class="wz-step-sub">{{ s.subtitle }}</div>
               </div>
-              <div class="fg2"><label>Addressed To</label><input type="text" v-model="diaryForm.addressed_to" placeholder="e.g. Lab In-charge"></div>
-              <div class="fg2"><label>Action Due Date</label><input type="date" v-model="diaryForm.action_due_date"></div>
-              <div class="fg2" style="display:flex;align-items:center;gap:8px;padding-top:20px">
-                <input type="checkbox" v-model="diaryForm.action_required" id="action_req">
-                <label for="action_req" style="margin:0;font-size:12px">Action Required</label>
-              </div>
-              <div class="fg2">
-                <label>Action Status</label>
-                <select v-model="diaryForm.action_status">
-                  <option value="Pending">Pending</option>
-                  <option value="In Progress">In Progress</option>
-                  <option value="Completed">Completed</option>
-                </select>
-              </div>
-              <div class="fg2 span2"><label>Remarks</label><textarea v-model="diaryForm.remarks" rows="2" placeholder="Any remarks"></textarea></div>
-              <div class="fg2"><label>Attachment (PDF/JPG/DOC)</label><input type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" @change="onDiaryFile" style="font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:4px;width:100%;box-sizing:border-box"></div>
-              <div class="fg2"><label>Attachment Name</label><input type="text" v-model="diaryForm.attachment_name" placeholder="e.g. Letter_Mar26.pdf"></div>
+              <div v-if="s.n < diarySteps.length" class="wz-step-bar" :class="{ 'is-filled': diaryStep > s.n }"></div>
             </div>
           </div>
-          <div style="padding:14px 24px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px;background:#fafbfc">
-            <button class="btn btn-sec" @click="showDiaryModal = false">Cancel</button>
-            <button v-write="['add_diaries','edit_diaries']" class="btn btn-pri" @click="saveDiary">Save Diary Entry</button>
+
+          <div class="wz-body">
+
+            <!-- Step 1 — Source -->
+            <div v-show="diaryStep === 1" class="wz-step-content">
+              <div class="wz-section-head">
+                <div class="wz-section-title">📨 Source & References</div>
+                <div class="wz-section-sub">Who sent this letter, and how is it referenced?</div>
+              </div>
+              <div class="wz-grid wz-grid-1">
+                <div class="wz-field">
+                  <label>From (Sender / Organisation) <span class="req">*</span></label>
+                  <input type="text" v-model="diaryForm.from_sender" placeholder="e.g. UNOPS Office, DHO Peshawar">
+                </div>
+              </div>
+              <div class="wz-grid wz-grid-2">
+                <div class="wz-field">
+                  <label>Reference No.</label>
+                  <input type="text" v-model="diaryForm.reference_no" placeholder="e.g. UNOPS/2026/041">
+                </div>
+                <div class="wz-field">
+                  <label>Letter Date</label>
+                  <input type="date" v-model="diaryForm.date_on_letter">
+                </div>
+              </div>
+            </div>
+
+            <!-- Step 2 — Content -->
+            <div v-show="diaryStep === 2" class="wz-step-content">
+              <div class="wz-section-head">
+                <div class="wz-section-title">📝 Subject & Priority</div>
+                <div class="wz-section-sub">Brief description, classification and how urgently it needs handling.</div>
+              </div>
+              <div class="wz-grid wz-grid-1">
+                <div class="wz-field">
+                  <label>Subject <span class="req">*</span></label>
+                  <input type="text" v-model="diaryForm.subject" placeholder="Brief subject of the communication">
+                </div>
+              </div>
+              <div class="wz-grid wz-grid-3">
+                <div class="wz-field">
+                  <label>Category</label>
+                  <select v-model="diaryForm.category">
+                    <option value="">Select</option>
+                    <option>Order</option><option>Circular</option><option>Notification</option>
+                    <option>Report Request</option><option>Complaint</option><option>Other</option>
+                  </select>
+                </div>
+                <div class="wz-field">
+                  <label>Priority</label>
+                  <select v-model="diaryForm.priority">
+                    <option value="Routine">Routine</option>
+                    <option value="Urgent">Urgent</option>
+                    <option value="Immediate">Immediate</option>
+                  </select>
+                </div>
+                <div class="wz-field">
+                  <label>Addressed To</label>
+                  <input type="text" v-model="diaryForm.addressed_to" placeholder="e.g. Lab In-charge">
+                </div>
+              </div>
+            </div>
+
+            <!-- Step 3 — Action & Attachment -->
+            <div v-show="diaryStep === 3" class="wz-step-content">
+              <div class="wz-section-head">
+                <div class="wz-section-title">📎 Action & Attachment</div>
+                <div class="wz-section-sub">Track follow-up status and upload the scanned letter.</div>
+              </div>
+              <div class="wz-grid wz-grid-2">
+                <div class="wz-field wz-checkbox">
+                  <label class="wz-checkbox-label">
+                    <input type="checkbox" v-model="diaryForm.action_required" id="action_req">
+                    <span>Action Required</span>
+                  </label>
+                  <span class="wz-hint">Tick if this letter needs follow-up action.</span>
+                </div>
+                <div class="wz-field">
+                  <label>Action Due Date</label>
+                  <input type="date" v-model="diaryForm.action_due_date" :disabled="!diaryForm.action_required">
+                </div>
+                <div class="wz-field">
+                  <label>Action Status</label>
+                  <select v-model="diaryForm.action_status">
+                    <option value="Pending">Pending</option>
+                    <option value="In Progress">In Progress</option>
+                    <option value="Completed">Completed</option>
+                  </select>
+                </div>
+                <div class="wz-field">
+                  <label>Attachment Name</label>
+                  <input type="text" v-model="diaryForm.attachment_name" placeholder="e.g. Letter_Mar26.pdf">
+                </div>
+              </div>
+              <div class="wz-grid wz-grid-1">
+                <div class="wz-field">
+                  <label>Attachment File</label>
+                  <input type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" @change="onDiaryFile" class="wz-file">
+                  <span class="wz-hint">PDF, JPG, PNG, DOC or DOCX. Optional.</span>
+                </div>
+                <div class="wz-field">
+                  <label>Remarks</label>
+                  <textarea v-model="diaryForm.remarks" rows="3" placeholder="Any additional remarks…"></textarea>
+                </div>
+              </div>
+
+              <!-- Review summary -->
+              <div class="wz-review">
+                <div class="wz-review-title">📋 Review Before Saving</div>
+                <div class="wz-review-grid">
+                  <div><span>From</span><b>{{ diaryForm.from_sender || '—' }}</b></div>
+                  <div><span>Reference No.</span><b>{{ diaryForm.reference_no || '—' }}</b></div>
+                  <div><span>Letter Date</span><b>{{ diaryForm.date_on_letter || '—' }}</b></div>
+                  <div><span>Subject</span><b>{{ diaryForm.subject || '—' }}</b></div>
+                  <div><span>Category</span><b>{{ diaryForm.category || '—' }}</b></div>
+                  <div><span>Priority</span><b>{{ diaryForm.priority || '—' }}</b></div>
+                  <div><span>Addressed To</span><b>{{ diaryForm.addressed_to || '—' }}</b></div>
+                  <div><span>Action Due</span><b>{{ diaryForm.action_due_date || '—' }}</b></div>
+                </div>
+              </div>
+            </div>
+
           </div>
+
+          <div class="wz-footer">
+            <div class="wz-footer-left">
+              <span class="wz-step-counter">Step {{ diaryStep }} of {{ diarySteps.length }}</span>
+            </div>
+            <div class="wz-footer-right">
+              <button class="btn btn-sec" @click="showDiaryModal = false">Cancel</button>
+              <button v-if="diaryStep > 1" class="btn btn-sec" @click="diaryPrev">← Back</button>
+              <button v-if="diaryStep < diarySteps.length" class="btn btn-pri" @click="diaryNext">Next →</button>
+              <button v-else v-write="['add_diaries','edit_diaries']" class="btn btn-pri" @click="saveDiary">💾 Save Diary Entry</button>
+            </div>
+          </div>
+
         </div>
       </div>
     </Teleport>
 
-    <!-- NEW DISPATCH MODAL -->
+    <!-- NEW DISPATCH MODAL (step-by-step wizard) -->
     <Teleport to="body">
-      <div v-if="showDispatchModal" @click.self="showDispatchModal = false"
-           style="display:flex;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:3900;align-items:flex-start;justify-content:center;overflow-y:auto;padding:30px">
-        <div style="background:#fff;border-radius:10px;width:100%;max-width:720px;margin:auto;box-shadow:0 8px 40px rgba(0,0,0,.28);overflow:hidden">
-          <div style="background:var(--navy);color:#fff;padding:14px 20px;display:flex;align-items:center;justify-content:space-between">
-            <div style="font-size:14px;font-weight:700">New Dispatch (Outward Correspondence)</div>
-            <button @click="showDispatchModal = false" style="background:rgba(255,255,255,.15);border:none;color:#fff;border-radius:5px;padding:5px 12px;cursor:pointer;font-size:13px">Close</button>
+      <div v-if="showDispatchModal" @click.self="showDispatchModal = false" class="wz-overlay">
+        <div class="wz-modal">
+
+          <div class="wz-header">
+            <div>
+              <div class="wz-title">📤 New Dispatch (Outward)</div>
+              <div class="wz-subtitle">Record an outgoing letter or correspondence. Required fields are marked *.</div>
+            </div>
+            <button class="wz-close" @click="showDispatchModal = false" aria-label="Close">✕</button>
           </div>
-          <div style="padding:22px 24px">
-            <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:12px">
-              <div class="fg2 span2"><label>To (Recipient / Organisation) *</label><input type="text" v-model="dispForm.to_recipient" placeholder="e.g. UNOPS Office, DHO Peshawar"></div>
-              <div class="fg2"><label>Reference No.</label><input type="text" v-model="dispForm.reference_no" placeholder="e.g. CLB/DSP/2026/018"></div>
-              <div class="fg2"><label>In Reply to Diary No.</label><input type="text" v-model="dispForm.reference_diary_no" placeholder="e.g. DR/26/CLB/0041"></div>
-              <div class="fg2"><label>Letter Date</label><input type="date" v-model="dispForm.date_on_letter"></div>
-              <div class="fg2 span2"><label>Subject *</label><input type="text" v-model="dispForm.subject" placeholder="Subject of dispatch"></div>
-              <div class="fg2">
-                <label>Category</label>
-                <select v-model="dispForm.category">
-                  <option value="">Select</option>
-                  <option>Report</option><option>Reply</option><option>Forwarding</option>
-                  <option>Office Order</option><option>Complaint Response</option><option>Other</option>
-                </select>
+
+          <div class="wz-stepper">
+            <div v-for="s in dispSteps" :key="s.n"
+                 class="wz-step"
+                 :class="{ 'is-active': dispStep === s.n, 'is-done': dispStep > s.n }"
+                 @click="dispGoTo(s.n)">
+              <div class="wz-step-circle">
+                <span v-if="dispStep > s.n">✓</span>
+                <span v-else>{{ s.n }}</span>
               </div>
-              <div class="fg2">
-                <label>Priority</label>
-                <select v-model="dispForm.priority">
-                  <option value="Routine">Routine</option>
-                  <option value="Urgent">Urgent</option>
-                  <option value="Immediate">Immediate</option>
-                </select>
+              <div class="wz-step-label">
+                <div class="wz-step-title">{{ s.icon }} {{ s.title }}</div>
+                <div class="wz-step-sub">{{ s.subtitle }}</div>
               </div>
-              <div class="fg2">
-                <label>Mode of Dispatch</label>
-                <select v-model="dispForm.mode_of_dispatch">
-                  <option value="">Select</option>
-                  <option>Hand Delivery</option><option>Post</option>
-                  <option>Courier</option><option>Email</option><option>Fax</option>
-                </select>
-              </div>
-              <div class="fg2"><label>Dispatch Reference No.</label><input type="text" v-model="dispForm.dispatch_reference_no" placeholder="e.g. DSP/2026/018"></div>
-              <div class="fg2"><label>Prepared By</label><input type="text" v-model="dispForm.prepared_by" placeholder="Name of preparer"></div>
-              <div class="fg2"><label>Dispatched By</label><input type="text" v-model="dispForm.dispatched_by" placeholder="Name of dispatcher"></div>
-              <div class="fg2 span2"><label>Remarks</label><textarea v-model="dispForm.remarks" rows="2" placeholder="Any remarks"></textarea></div>
-              <div class="fg2"><label>Attachment (PDF/JPG/DOC)</label><input type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" @change="onDispatchFile" style="font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:4px;width:100%;box-sizing:border-box"></div>
-              <div class="fg2"><label>Attachment Name</label><input type="text" v-model="dispForm.attachment_name" placeholder="e.g. Monthly_Report_Feb26.pdf"></div>
+              <div v-if="s.n < dispSteps.length" class="wz-step-bar" :class="{ 'is-filled': dispStep > s.n }"></div>
             </div>
           </div>
-          <div style="padding:14px 24px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px;background:#fafbfc">
-            <button class="btn btn-sec" @click="showDispatchModal = false">Cancel</button>
-            <button v-write="['add_dispatches','edit_dispatches']" class="btn btn-pri" @click="saveDispatch">Save Dispatch</button>
+
+          <div class="wz-body">
+
+            <!-- Step 1 — Recipient -->
+            <div v-show="dispStep === 1" class="wz-step-content">
+              <div class="wz-section-head">
+                <div class="wz-section-title">📤 Recipient & References</div>
+                <div class="wz-section-sub">Where is this letter going, and what is it referencing?</div>
+              </div>
+              <div class="wz-grid wz-grid-1">
+                <div class="wz-field">
+                  <label>To (Recipient / Organisation) <span class="req">*</span></label>
+                  <input type="text" v-model="dispForm.to_recipient" placeholder="e.g. UNOPS Office, DHO Peshawar">
+                </div>
+              </div>
+              <div class="wz-grid wz-grid-3">
+                <div class="wz-field">
+                  <label>Reference No.</label>
+                  <input type="text" v-model="dispForm.reference_no" placeholder="e.g. CLB/DSP/2026/018">
+                </div>
+                <div class="wz-field">
+                  <label>In Reply to Diary No.</label>
+                  <input type="text" v-model="dispForm.reference_diary_no" placeholder="e.g. DR/26/CLB/0041">
+                </div>
+                <div class="wz-field">
+                  <label>Letter Date</label>
+                  <input type="date" v-model="dispForm.date_on_letter">
+                </div>
+              </div>
+            </div>
+
+            <!-- Step 2 — Content -->
+            <div v-show="dispStep === 2" class="wz-step-content">
+              <div class="wz-section-head">
+                <div class="wz-section-title">📝 Subject, Category & Priority</div>
+                <div class="wz-section-sub">Brief description and classification of the dispatch.</div>
+              </div>
+              <div class="wz-grid wz-grid-1">
+                <div class="wz-field">
+                  <label>Subject <span class="req">*</span></label>
+                  <input type="text" v-model="dispForm.subject" placeholder="Subject of dispatch">
+                </div>
+              </div>
+              <div class="wz-grid wz-grid-2">
+                <div class="wz-field">
+                  <label>Category</label>
+                  <select v-model="dispForm.category">
+                    <option value="">Select</option>
+                    <option>Report</option><option>Reply</option><option>Forwarding</option>
+                    <option>Office Order</option><option>Complaint Response</option><option>Other</option>
+                  </select>
+                </div>
+                <div class="wz-field">
+                  <label>Priority</label>
+                  <select v-model="dispForm.priority">
+                    <option value="Routine">Routine</option>
+                    <option value="Urgent">Urgent</option>
+                    <option value="Immediate">Immediate</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Step 3 — Dispatch & Attachment -->
+            <div v-show="dispStep === 3" class="wz-step-content">
+              <div class="wz-section-head">
+                <div class="wz-section-title">🚚 Dispatch & Attachment</div>
+                <div class="wz-section-sub">How is it being sent, who prepared it, and any supporting file.</div>
+              </div>
+              <div class="wz-grid wz-grid-2">
+                <div class="wz-field">
+                  <label>Mode of Dispatch</label>
+                  <select v-model="dispForm.mode_of_dispatch">
+                    <option value="">Select</option>
+                    <option>Hand Delivery</option><option>Post</option>
+                    <option>Courier</option><option>Email</option><option>Fax</option>
+                  </select>
+                </div>
+                <div class="wz-field">
+                  <label>Dispatch Reference No.</label>
+                  <input type="text" v-model="dispForm.dispatch_reference_no" placeholder="e.g. DSP/2026/018">
+                </div>
+                <div class="wz-field">
+                  <label>Prepared By</label>
+                  <input type="text" v-model="dispForm.prepared_by" placeholder="Name of preparer">
+                </div>
+                <div class="wz-field">
+                  <label>Dispatched By</label>
+                  <input type="text" v-model="dispForm.dispatched_by" placeholder="Name of dispatcher">
+                </div>
+              </div>
+              <div class="wz-grid wz-grid-1">
+                <div class="wz-field">
+                  <label>Attachment File</label>
+                  <input type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" @change="onDispatchFile" class="wz-file">
+                  <span class="wz-hint">PDF, JPG, PNG, DOC or DOCX. Optional.</span>
+                </div>
+                <div class="wz-field">
+                  <label>Attachment Name</label>
+                  <input type="text" v-model="dispForm.attachment_name" placeholder="e.g. Monthly_Report_Feb26.pdf">
+                </div>
+                <div class="wz-field">
+                  <label>Remarks</label>
+                  <textarea v-model="dispForm.remarks" rows="3" placeholder="Any additional remarks…"></textarea>
+                </div>
+              </div>
+
+              <!-- Review summary -->
+              <div class="wz-review">
+                <div class="wz-review-title">📋 Review Before Saving</div>
+                <div class="wz-review-grid">
+                  <div><span>To</span><b>{{ dispForm.to_recipient || '—' }}</b></div>
+                  <div><span>Reference No.</span><b>{{ dispForm.reference_no || '—' }}</b></div>
+                  <div><span>Reply to Diary</span><b>{{ dispForm.reference_diary_no || '—' }}</b></div>
+                  <div><span>Letter Date</span><b>{{ dispForm.date_on_letter || '—' }}</b></div>
+                  <div><span>Subject</span><b>{{ dispForm.subject || '—' }}</b></div>
+                  <div><span>Category</span><b>{{ dispForm.category || '—' }}</b></div>
+                  <div><span>Priority</span><b>{{ dispForm.priority || '—' }}</b></div>
+                  <div><span>Mode</span><b>{{ dispForm.mode_of_dispatch || '—' }}</b></div>
+                  <div><span>Prepared By</span><b>{{ dispForm.prepared_by || '—' }}</b></div>
+                  <div><span>Dispatched By</span><b>{{ dispForm.dispatched_by || '—' }}</b></div>
+                </div>
+              </div>
+            </div>
+
           </div>
+
+          <div class="wz-footer">
+            <div class="wz-footer-left">
+              <span class="wz-step-counter">Step {{ dispStep }} of {{ dispSteps.length }}</span>
+            </div>
+            <div class="wz-footer-right">
+              <button class="btn btn-sec" @click="showDispatchModal = false">Cancel</button>
+              <button v-if="dispStep > 1" class="btn btn-sec" @click="dispPrev">← Back</button>
+              <button v-if="dispStep < dispSteps.length" class="btn btn-pri" @click="dispNext">Next →</button>
+              <button v-else v-write="['add_dispatches','edit_dispatches']" class="btn btn-pri" @click="saveDispatch">💾 Save Dispatch</button>
+            </div>
+          </div>
+
         </div>
       </div>
     </Teleport>
@@ -546,6 +803,183 @@ onMounted(loadData)
   height: 13px;
   background: linear-gradient(90deg, rgba(0,0,0,.08) 0%, rgba(0,0,0,.04) 50%, rgba(0,0,0,.08) 100%);
   background-size: 800px 100%;
+}
+
+/* ── Wizard (shared for Diary + Dispatch modals) ─────────────────── */
+.wz-overlay {
+  position: fixed; inset: 0;
+  background: rgba(15, 23, 42, .55);
+  z-index: 3900;
+  display: flex; align-items: flex-start; justify-content: center;
+  overflow-y: auto;
+  padding: 24px 12px;
+  backdrop-filter: blur(2px);
+}
+.wz-modal {
+  background: #fff;
+  border-radius: 12px;
+  width: 100%;
+  max-width: 820px;
+  margin: auto;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .35);
+  overflow: hidden;
+  display: flex; flex-direction: column;
+  max-height: calc(100vh - 48px);
+}
+
+.wz-header {
+  background: linear-gradient(135deg, var(--navy, #0f2945) 0%, #1e3a5f 100%);
+  color: #fff;
+  padding: 16px 24px;
+  display: flex; align-items: center; justify-content: space-between;
+  flex-shrink: 0;
+}
+.wz-title    { font-size: 15px; font-weight: 700; letter-spacing: .2px; }
+.wz-subtitle { font-size: 11.5px; opacity: .72; margin-top: 3px; }
+.wz-close {
+  background: rgba(255, 255, 255, .15);
+  border: none; color: #fff; border-radius: 6px;
+  padding: 6px 12px; cursor: pointer; font-size: 14px;
+  transition: background .15s;
+  &:hover { background: rgba(255, 255, 255, .28); }
+}
+
+.wz-stepper {
+  display: flex; align-items: stretch;
+  padding: 18px 24px 16px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+  flex-shrink: 0;
+}
+.wz-step {
+  flex: 1; display: flex; align-items: center; gap: 10px;
+  cursor: pointer; position: relative; min-width: 0; user-select: none;
+}
+.wz-step-circle {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: #e2e8f0; color: #64748b;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700; flex-shrink: 0;
+  border: 2px solid transparent;
+  transition: all .2s;
+}
+.wz-step.is-active .wz-step-circle {
+  background: var(--navy, #0f2945); color: #fff;
+  border-color: var(--navy, #0f2945);
+  box-shadow: 0 0 0 4px rgba(15, 41, 69, .15);
+}
+.wz-step.is-done .wz-step-circle { background: #10b981; color: #fff; }
+.wz-step-label { min-width: 0; flex: 1; }
+.wz-step-title { font-size: 12px; font-weight: 700; color: #334155; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wz-step.is-active .wz-step-title { color: var(--navy, #0f2945); }
+.wz-step-sub   { font-size: 10.5px; color: #64748b; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wz-step-bar {
+  position: absolute; top: 16px; right: -50%;
+  width: 100%; height: 2px; background: #e2e8f0; z-index: 0;
+  &.is-filled { background: #10b981; }
+}
+
+.wz-body { padding: 24px 28px; overflow-y: auto; flex: 1; }
+.wz-step-content { animation: wzFadeIn .22s ease; }
+@keyframes wzFadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.wz-section-head  { margin-bottom: 18px; padding-bottom: 12px; border-bottom: 1px dashed #e2e8f0; }
+.wz-section-title { font-size: 14px; font-weight: 700; color: var(--navy, #0f2945); }
+.wz-section-sub   { font-size: 12px; color: #64748b; margin-top: 4px; line-height: 1.5; }
+
+.wz-grid { display: grid; gap: 14px 18px; margin-bottom: 14px; }
+.wz-grid-1 { grid-template-columns: 1fr; }
+.wz-grid-2 { grid-template-columns: 1fr 1fr; }
+.wz-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+
+.wz-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.wz-field label {
+  font-size: 11.5px; font-weight: 600; color: #334155; letter-spacing: .15px;
+}
+.wz-field .req { color: #ef4444; font-weight: 700; }
+.wz-field input[type="text"],
+.wz-field input[type="email"],
+.wz-field input[type="number"],
+.wz-field input[type="date"],
+.wz-field select,
+.wz-field textarea {
+  width: 100%;
+  padding: 8px 11px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-family: inherit;
+  background: #fff;
+  color: #0f172a;
+  box-sizing: border-box;
+  transition: border-color .15s, box-shadow .15s;
+}
+.wz-field textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
+.wz-field input:focus,
+.wz-field select:focus,
+.wz-field textarea:focus {
+  outline: none;
+  border-color: var(--navy, #0f2945);
+  box-shadow: 0 0 0 3px rgba(15, 41, 69, .12);
+}
+.wz-field input:disabled,
+.wz-field select:disabled {
+  background: #f1f5f9; color: #94a3b8; cursor: not-allowed;
+}
+.wz-file { padding: 6px 8px !important; cursor: pointer; }
+
+.wz-checkbox { justify-content: flex-end; }
+.wz-checkbox-label {
+  display: flex !important; align-items: center; gap: 8px;
+  font-size: 12.5px !important; font-weight: 600;
+  padding: 8px 11px; border: 1px dashed #cbd5e1; border-radius: 6px;
+  background: #f8fafc; cursor: pointer; user-select: none;
+  input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
+}
+
+.wz-hint { font-size: 10.5px; color: #94a3b8; font-style: italic; }
+
+.wz-review {
+  margin-top: 22px; padding: 16px 18px;
+  background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;
+}
+.wz-review-title { font-size: 12px; font-weight: 700; color: var(--navy, #0f2945); margin-bottom: 10px; }
+.wz-review-grid {
+  display: grid; grid-template-columns: repeat(2, 1fr);
+  gap: 10px 16px;
+}
+.wz-review-grid > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.wz-review-grid span  { font-size: 10.5px; color: #64748b; text-transform: uppercase; letter-spacing: .3px; }
+.wz-review-grid b     { font-size: 12px; color: #0f172a; font-weight: 600; word-break: break-word; }
+
+.wz-footer {
+  padding: 14px 24px;
+  border-top: 1px solid #e2e8f0;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  background: #fafbfc; flex-shrink: 0;
+}
+.wz-footer-left  { font-size: 11.5px; color: #64748b; font-weight: 600; }
+.wz-footer-right { display: flex; gap: 8px; }
+.wz-step-counter {
+  background: #e2e8f0; padding: 5px 11px; border-radius: 99px;
+  color: #475569; font-size: 11px; letter-spacing: .3px;
+}
+
+@media (max-width: 720px) {
+  .wz-modal     { max-height: calc(100vh - 24px); }
+  .wz-stepper   { padding: 14px 14px 12px; gap: 4px; overflow-x: auto; }
+  .wz-step      { flex: 0 0 auto; }
+  .wz-step-label { display: none; }
+  .wz-step-bar   { display: none; }
+  .wz-body      { padding: 18px 16px; }
+  .wz-grid-2,
+  .wz-grid-3    { grid-template-columns: 1fr; }
+  .wz-review-grid { grid-template-columns: 1fr; }
+  .wz-footer    { flex-direction: column-reverse; align-items: stretch; }
+  .wz-footer-right { justify-content: flex-end; }
 }
 </style>
 
