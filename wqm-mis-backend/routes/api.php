@@ -280,6 +280,21 @@ Route::middleware(['auth:sanctum', 'dummy.account', 'view.only'])->group(callbac
         Route::get('wss-register',      [\App\Http\Controllers\Ce\CePortalController::class, 'wssRegister']);
     });
 
+    // SE Portal Routes — Superintendent Engineer (circle-scoped oversight)
+    Route::prefix('se')->group(function () {
+        Route::get('me',                [\App\Http\Controllers\Se\SePortalController::class, 'me']);
+        Route::get('dashboard',         [\App\Http\Controllers\Se\SePortalController::class, 'dashboard']);
+        Route::get('unfit-trail',       [\App\Http\Controllers\Se\SePortalController::class, 'unfitTrail']);
+        Route::get('retest-samples',    [\App\Http\Controllers\Se\SePortalController::class, 'retestSamples']);
+        Route::get('gar',               [\App\Http\Controllers\Se\SePortalController::class, 'gar']);
+        Route::get('gsr',               [\App\Http\Controllers\Se\SePortalController::class, 'gsr']);
+        Route::get('isr',               [\App\Http\Controllers\Se\SePortalController::class, 'isrList']);
+        Route::get('isr/{id}',          [\App\Http\Controllers\Se\SePortalController::class, 'isrShow']);
+        Route::get('wss-register',      [\App\Http\Controllers\Se\SePortalController::class, 'wssRegister']);
+        Route::get('samples/{id}/trail',[\App\Http\Controllers\Se\SePortalController::class, 'trailDetail']);
+        Route::post('actions/request-retest', [\App\Http\Controllers\Se\SePortalController::class, 'requestRetest']);
+    });
+
     //start locality routes
     Route::apiResource('provinces', ProvinceController::class);
     Route::apiResource('divisions', DivisionController::class);

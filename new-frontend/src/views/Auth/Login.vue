@@ -135,9 +135,9 @@ async function handleLogin() {
 
         // Role-aware redirect:
         //   secretary                     → Secretary portal (province-wide oversight)
-        //   chief-engineer / ce           → CE portal (region-scoped oversight)
-        //   superintending-engineer / xen → XEN portal (shared layout, scoped queries)
-        //   legacy short slug (se)        → XEN portal (back-compat)
+        //   chief-engineer / ce           → CE portal   (region-scoped oversight)
+        //   superintending-engineer / se  → SE portal   (circle-scoped oversight)
+        //   xen                           → XEN portal  (division-scoped)
         //   everyone else                 → main /dashboard
         const roleSlug = (userData.role_slug || '').toString().toLowerCase()
         let target = '/dashboard'
@@ -145,8 +145,9 @@ async function handleLogin() {
           target = '/secretary/dashboard'
         } else if (roleSlug === 'chief-engineer' || roleSlug === 'ce') {
           target = '/ce/dashboard'
-        } else if (roleSlug === 'superintending-engineer' || roleSlug === 'xen' ||
-                   roleSlug === 'se') {
+        } else if (roleSlug === 'superintending-engineer' || roleSlug === 'se') {
+          target = '/se/dashboard'
+        } else if (roleSlug === 'xen') {
           target = '/xen/dashboard'
         }
         router.push({ path: target, query: { loggedIn: '1' } })

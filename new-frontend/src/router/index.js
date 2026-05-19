@@ -141,6 +141,24 @@ const routes = [
     ],
   },
 
+  // ── SE Portal (Superintendent Engineer — circle-scoped oversight) ──
+  {
+    path: '/se',
+    component: () => import('../layouts/SeLayout.vue'),
+    meta: { requiresAuth: true, portal: 'se' },
+    children: [
+      { path: '', redirect: '/se/dashboard' },
+      { path: 'dashboard',      name: 'SeDashboard',     meta: { title: 'Dashboard' },                 component: () => import('../views/Se/SeDashboard.vue') },
+      { path: 'unfit-trail',    name: 'SeUnfitTrail',    meta: { title: 'Unfit Trail' },               component: () => import('../views/Se/SeUnfitTrail.vue') },
+      { path: 'retest-samples', name: 'SeRetestSamples', meta: { title: 'Retest Samples' },            component: () => import('../views/Se/SeRetestSamples.vue') },
+      { path: 'gar',            name: 'SeGar',           meta: { title: 'GAR — My Area' },             component: () => import('../views/Se/SeGar.vue') },
+      { path: 'gsr',            name: 'SeGsr',           meta: { title: 'GSR — My Area' },             component: () => import('../views/Se/SeGsr.vue') },
+      { path: 'isr',            name: 'SeIsr',           meta: { title: 'Individual Sample Report' },  component: () => import('../views/Se/SeIsr.vue') },
+      { path: 'isr/:id',        name: 'SeIsrDetail',     meta: { title: 'Sample Report' },             component: () => import('../views/Se/SeIsrDetail.vue') },
+      { path: 'wss-register',   name: 'SeWssRegister',   meta: { title: 'WSS Register' },              component: () => import('../views/Se/SeWssRegister.vue') },
+    ],
+  },
+
   // ── Client Portal ──────────────────────────────────────────────────
   {
     path: '/client-portal',
@@ -162,11 +180,11 @@ const router = createRouter({
 })
 
 // Auth guard
-// XEN portal is shared by SE and XEN. CE has its own portal at /ce/*.
-// Secretary now has its own dedicated portal at /secretary/* (province-wide
-// oversight + fate-decision authority), so 'secretary' is no longer routed
-// through XEN_ROLES.
-const XEN_ROLES       = ['xen', 'se', 'superintending-engineer']
+// XEN portal is for division-level officers only. SE has its own portal
+// at /se/* (circle-scoped). CE has /ce/*. Secretary has /secretary/*
+// (province-wide oversight + fate-decision authority).
+const XEN_ROLES       = ['xen']
+const SE_ROLES        = ['se', 'superintending-engineer']
 const CE_ROLES        = ['chief-engineer', 'ce']
 const SECRETARY_ROLES = ['secretary']
 
@@ -177,6 +195,7 @@ router.beforeEach((to, from, next) => {
   try { user = userStr ? JSON.parse(userStr) : null } catch { user = null }
   const roleSlug   = (user?.role_slug || user?.role || '').toString().toLowerCase()
   const isXen       = XEN_ROLES.includes(roleSlug)
+  const isSe        = SE_ROLES.includes(roleSlug)
   const isCe        = CE_ROLES.includes(roleSlug)
   const isSecretary = SECRETARY_ROLES.includes(roleSlug)
   const isClient    = user?.user_type === 'client'
@@ -190,6 +209,7 @@ router.beforeEach((to, from, next) => {
   if (to.path === '/login' && isAuthenticated) {
     if (isSecretary) return next('/secretary/dashboard')
     if (isCe)        return next('/ce/dashboard')
+    if (isSe)        return next('/se/dashboard')
     if (isXen)       return next('/xen/dashboard')
     if (isClient)    return next('/client-portal/results')
     return next('/dashboard')
@@ -228,6 +248,7 @@ router.beforeEach((to, from, next) => {
     let home = '/dashboard'
     if (isSecretary) home = '/secretary/dashboard'
     else if (isCe)        home = '/ce/dashboard'
+    else if (isSe)        home = '/se/dashboard'
     else if (isXen)       home = '/xen/dashboard'
     else if (isClient)    home = '/client-portal/results'
 
