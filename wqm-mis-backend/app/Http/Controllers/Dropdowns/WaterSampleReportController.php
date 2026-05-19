@@ -63,9 +63,14 @@ class WaterSampleReportController extends Controller
                 ->where('type', '=', TestTypeEnum::ON_DEMAND->value))
             ->pluck('water_quality_parameter')->toArray();
 
-        $waterSample->collectable_type = $waterSample->collectable_type === User::class
-            ? CollectableTypeEnum::PHE->value
-            : CollectableTypeEnum::PRIVATE->value;
+        // Replace the polymorphic class with the logical sample kind so the
+        // report header reads 'PHE' / 'Private' / 'PT'. Fall back to the
+        // polymorphic-class inference for legacy rows that pre-date the
+        // sample_kind column.
+        $waterSample->collectable_type = $waterSample->sample_kind
+            ?? ($waterSample->collectable_type === User::class
+                ? CollectableTypeEnum::PHE->value
+                : CollectableTypeEnum::PRIVATE->value);
 
         $waterSample->waterSampleDetails->transform(function ($waterSampleDetail) {
             return [
@@ -188,9 +193,14 @@ class WaterSampleReportController extends Controller
                 ->where('type', '=', TestTypeEnum::ON_DEMAND->value))
             ->pluck('water_quality_parameter')->toArray();
 
-        $waterSample->collectable_type = $waterSample->collectable_type === User::class
-            ? CollectableTypeEnum::PHE->value
-            : CollectableTypeEnum::PRIVATE->value;
+        // Replace the polymorphic class with the logical sample kind so the
+        // report header reads 'PHE' / 'Private' / 'PT'. Fall back to the
+        // polymorphic-class inference for legacy rows that pre-date the
+        // sample_kind column.
+        $waterSample->collectable_type = $waterSample->sample_kind
+            ?? ($waterSample->collectable_type === User::class
+                ? CollectableTypeEnum::PHE->value
+                : CollectableTypeEnum::PRIVATE->value);
 
         $desiredTests = implode(',', $desiredTests);
 
@@ -233,9 +243,14 @@ class WaterSampleReportController extends Controller
                 ->where('type', '=', TestTypeEnum::ON_DEMAND->value))
             ->pluck('water_quality_parameter')->toArray();
 
-        $waterSample->collectable_type = $waterSample->collectable_type === User::class
-            ? CollectableTypeEnum::PHE->value
-            : CollectableTypeEnum::PRIVATE->value;
+        // Replace the polymorphic class with the logical sample kind so the
+        // report header reads 'PHE' / 'Private' / 'PT'. Fall back to the
+        // polymorphic-class inference for legacy rows that pre-date the
+        // sample_kind column.
+        $waterSample->collectable_type = $waterSample->sample_kind
+            ?? ($waterSample->collectable_type === User::class
+                ? CollectableTypeEnum::PHE->value
+                : CollectableTypeEnum::PRIVATE->value);
 
         $desiredTests = implode(',', $desiredTests);
 

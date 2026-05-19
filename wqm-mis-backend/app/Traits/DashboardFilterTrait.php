@@ -22,14 +22,25 @@ trait DashboardFilterTrait
             ->when($tableAlias === (new WaterSample)->getTable(), function ($q) {
                 return AuthScope::waterSamples($q, auth()->user());
             })
-            // Sample type lives on collectable_type, not in the slug string.
-            // PHE = collectable_type is App\Models\User; Private = anything else.
+            // Sample kind filter — prefers the durable sample_kind column,
+            // falls back to the polymorphic-class inference for legacy rows
+            // without the column populated. PT counts as its own kind, not as
+            // PHE (which the old User::class check would have lumped together).
             ->when($tableAlias === (new WaterSample)->getTable() && isset($request->type), function ($query) use ($request) {
                 if ($request->type === 'PHE') {
-                    return $query->where('water_samples.collectable_type', User::class);
+                    return $query->where(function ($w) {
+                        $w->where('water_samples.sample_kind', 'PHE')
+                            ->orWhere(function ($l) { $l->whereNull('water_samples.sample_kind')->where('water_samples.collectable_type', User::class); });
+                    });
                 }
                 if ($request->type === 'Private') {
-                    return $query->where('water_samples.collectable_type', '!=', User::class);
+                    return $query->where(function ($w) {
+                        $w->where('water_samples.sample_kind', 'Private')
+                            ->orWhere(function ($l) { $l->whereNull('water_samples.sample_kind')->where('water_samples.collectable_type', '!=', User::class); });
+                    });
+                }
+                if ($request->type === 'PT') {
+                    return $query->where('water_samples.sample_kind', 'PT');
                 }
                 return $query;
             })

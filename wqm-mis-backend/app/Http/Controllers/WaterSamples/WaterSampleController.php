@@ -178,9 +178,16 @@ class WaterSampleController extends Controller
                 $collectableId = $client->id;
             }
 
+            // Persist the FE-submitted kind (PHE / Private / PT) into the
+            // durable sample_kind column before we rename the validated
+            // 'collectable_type' input to the polymorphic class value below.
+            $sampleKind = $validatedData['collectable_type'];
+
             $waterSample = WaterSample::query()
                 ->create(array_merge(
-                    // Remove water_scheme_id for Private samples — it must be null
+                    // Strip water_scheme_id for anything that isn't a PHE
+                    // (e.g. Private clients, PT blind samples) — they don't
+                    // link to a WSS at all.
                     collect($validatedData)->when(
                         $validatedData['collectable_type'] !== CollectableTypeEnum::PHE->value,
                         fn($c) => $c->except(['water_scheme_id'])
@@ -188,6 +195,7 @@ class WaterSampleController extends Controller
                     [
                         'collectable_id' => $collectableId,
                         'collectable_type' => $collectableType,
+                        'sample_kind' => $sampleKind,
                         'laboratory_id' => $laboratoryId,
                         'sampled_at' => $request->sampled_at,
                         'reported_at' => $request->reported_at,
