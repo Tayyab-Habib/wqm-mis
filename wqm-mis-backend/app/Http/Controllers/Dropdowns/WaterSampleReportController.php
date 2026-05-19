@@ -100,22 +100,25 @@ class WaterSampleReportController extends Controller
             ->select('description')
             ->get();
 
-        // Build the signed public viewer URL (no expiry — official lab reports
-        // are referenced for years), then encode it as an inline SVG QR. The
-        // signature is HMAC'd with APP_KEY so the slug space cannot be
-        // enumerated by scanning sequential IDs.
-        $publicShareUrl = URL::signedRoute('public-water-sample-report', [
-            'water_sample' => $water_sample->id,
-        ]);
+        // QR + signed share URL are only generated AFTER the Lab In-charge has
+        // signed off on the sample. Until then the report is still "draft"
+        // from a sign-off perspective and shouldn't be sharable externally.
+        $publicShareUrl = null;
+        $qrSvg          = null;
+        if ($water_sample->lab_incharge_id) {
+            $publicShareUrl = URL::signedRoute('public-water-sample-report', [
+                'water_sample' => $water_sample->id,
+            ]);
 
-        // ->generate() returns an Illuminate\Support\HtmlString. Laravel's
-        // response()->json() serializes objects to {"html":"..."} instead of
-        // invoking __toString(), so the SPA would receive `[object Object]`.
-        $qrSvg = (string) QrCode::format('svg')
-            ->size(140)
-            ->margin(0)
-            ->errorCorrection('M')
-            ->generate($publicShareUrl);
+            // ->generate() returns an Illuminate\Support\HtmlString. Laravel's
+            // response()->json() serializes objects to {"html":"..."} instead of
+            // invoking __toString(), so the SPA would receive `[object Object]`.
+            $qrSvg = (string) QrCode::format('svg')
+                ->size(140)
+                ->margin(0)
+                ->errorCorrection('M')
+                ->generate($publicShareUrl);
+        }
 
         return response()->json([
             'message' => 'Success fetching water-sample-report',
@@ -191,17 +194,22 @@ class WaterSampleReportController extends Controller
 
         $desiredTests = implode(',', $desiredTests);
 
-        // Same signed URL + QR that the SPA report receives, so the printed
-        // public view also carries a re-scannable QR at the top-right.
-        $publicShareUrl = URL::signedRoute('public-water-sample-report', [
-            'water_sample' => $waterSample->id,
-        ]);
+        // QR is only embedded once the Lab In-charge has signed off. The
+        // public viewer is reachable via signed URL even before then (so
+        // already-issued links don't break), but the report itself shows
+        // the lab-logo instead of a re-scannable QR until issuance.
+        $qrSvg = null;
+        if ($waterSample->lab_incharge_id) {
+            $publicShareUrl = URL::signedRoute('public-water-sample-report', [
+                'water_sample' => $waterSample->id,
+            ]);
 
-        $qrSvg = (string) QrCode::format('svg')
-            ->size(100)
-            ->margin(0)
-            ->errorCorrection('M')
-            ->generate($publicShareUrl);
+            $qrSvg = (string) QrCode::format('svg')
+                ->size(100)
+                ->margin(0)
+                ->errorCorrection('M')
+                ->generate($publicShareUrl);
+        }
 
         return view('waterSample.report', compact('waterSample', 'abbreviations', 'termAndConditions', 'desiredTests', 'qrSvg'));
     }
