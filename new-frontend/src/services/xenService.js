@@ -6,6 +6,8 @@ export const xenService = {
   trail: (type = 'unfit') => api.get(`/xen/trail?type=${type}`),
   trailDetail: (id) => api.get(`/xen/samples/${id}/trail`),
   requestRetest: (payload) => api.post('/xen/actions/request-retest', payload),
+  transferToSecretary: (sampleId, payload = {}) =>
+    api.post(`/xen/samples/${sampleId}/transfer-to-secretary`, payload),
 
   wssRegister: (params = {}) => {
     const qs = new URLSearchParams(params).toString()

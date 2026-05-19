@@ -245,6 +245,7 @@ Route::middleware(['auth:sanctum', 'dummy.account', 'view.only'])->group(callbac
         Route::get('trail', [\App\Http\Controllers\Xen\XenDashboardController::class, 'trail']);
         Route::get('samples/{id}/trail', [\App\Http\Controllers\Xen\XenDashboardController::class, 'trailDetail']);
         Route::post('actions/request-retest', [\App\Http\Controllers\Xen\XenDashboardController::class, 'requestRetest']);
+        Route::post('samples/{id}/transfer-to-secretary', [\App\Http\Controllers\Xen\XenDashboardController::class, 'transferToSecretary']);
 
         // XEN Portal — division-scoped resources
         Route::get('me',              [\App\Http\Controllers\Xen\XenPortalController::class, 'me']);
