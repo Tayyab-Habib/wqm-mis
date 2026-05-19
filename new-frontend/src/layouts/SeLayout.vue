@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { seService } from '../services/seService.js'
 import { useUserStore } from '../stores/useUserStore.js'
@@ -11,7 +11,14 @@ const userStore = useUserStore()
 const me = ref(null)
 const unfitCount = ref(0)
 const retestCount = ref(0)
-const notifUnread = ref(0)
+
+// ── Notification bell state ─────────────────────────────────────────
+const notifUnread  = ref(0)
+const notifItems   = ref([])
+const notifOpen    = ref(false)
+const notifLoading = ref(false)
+const bellRef      = ref(null)
+let pollTimer = null
 
 const navOpen = ref(false)
 function toggleNav() { navOpen.value = !navOpen.value }
@@ -37,10 +44,83 @@ async function loadCounts() {
     const dash = await seService.dashboard()
     unfitCount.value  = dash?.stats?.unfit_no_action ?? 0
     retestCount.value = dash?.stats?.retests_pending ?? 0
-    notifUnread.value = (dash?.notifications || []).length
   } catch { /* silent */ }
+  // Fire notification refresh independently so a missing/forbidden
+  // dashboard endpoint doesn't kill the bell.
+  await refreshNotifications()
 }
-onMounted(() => { loadIdentity(); loadCounts() })
+
+async function refreshNotifications() {
+  notifLoading.value = true
+  try {
+    const n = await seService.notifications()
+    notifUnread.value = n?.count ?? 0
+    notifItems.value  = n?.items ?? []
+  } catch { /* silent */ }
+  finally { notifLoading.value = false }
+}
+
+function toggleNotifications() {
+  notifOpen.value = !notifOpen.value
+  if (notifOpen.value) refreshNotifications()
+}
+
+async function markRead(id) {
+  const item = notifItems.value.find(n => n.id === id)
+  if (!item || item.read_at) return
+  // Optimistic update + rollback on failure
+  item.read_at = new Date().toISOString()
+  notifUnread.value = Math.max(0, notifUnread.value - 1)
+  try {
+    await seService.markNotificationsRead([id])
+  } catch {
+    item.read_at = null
+    notifUnread.value += 1
+  }
+}
+
+async function markAllRead() {
+  const unreadIds = notifItems.value.filter(n => !n.read_at).map(n => n.id)
+  if (unreadIds.length === 0) return
+  const now = new Date().toISOString()
+  notifItems.value.forEach(n => { if (!n.read_at) n.read_at = now })
+  const prev = notifUnread.value
+  notifUnread.value = 0
+  try {
+    await seService.markNotificationsRead(unreadIds)
+  } catch {
+    notifUnread.value = prev
+    notifItems.value.forEach(n => { if (n.read_at === now) n.read_at = null })
+  }
+}
+
+function timeAgo(iso) {
+  if (!iso) return ''
+  const diff = (Date.now() - new Date(iso).getTime()) / 1000
+  if (diff < 60)        return 'just now'
+  if (diff < 3600)      return Math.floor(diff / 60) + 'm ago'
+  if (diff < 86400)     return Math.floor(diff / 3600) + 'h ago'
+  if (diff < 86400 * 7) return Math.floor(diff / 86400) + 'd ago'
+  return new Date(iso).toLocaleDateString()
+}
+
+function onDocClick(e) {
+  if (!notifOpen.value) return
+  if (bellRef.value && !bellRef.value.contains(e.target)) {
+    notifOpen.value = false
+  }
+}
+
+onMounted(() => {
+  loadIdentity()
+  loadCounts()
+  pollTimer = setInterval(refreshNotifications, 60_000)
+  document.addEventListener('click', onDocClick)
+})
+onUnmounted(() => {
+  clearInterval(pollTimer)
+  document.removeEventListener('click', onDocClick)
+})
 
 function logout() {
   userStore.logout()
@@ -109,9 +189,51 @@ function badgeFor(ref) {
             SE {{ circleName }} · {{ districtsLabel }}
           </span>
           <span class="st-user">{{ seName }} — SE</span>
-          <span class="st-bell" :class="{ has: notifUnread > 0 }" title="Notifications">🔔
-            <span v-if="notifUnread > 0" class="bell-dot"></span>
-          </span>
+
+          <!-- Notification bell + dropdown -->
+          <div class="st-bell-wrap" ref="bellRef">
+            <button
+              type="button"
+              class="st-bell"
+              :class="{ ringing: notifUnread > 0, open: notifOpen }"
+              title="Notifications"
+              @click.stop="toggleNotifications"
+            >
+              <span class="bell-icon">🔔</span>
+              <span v-if="notifUnread > 0" class="bell-count">{{ notifUnread > 99 ? '99+' : notifUnread }}</span>
+            </button>
+            <transition name="notif-slide">
+              <div v-if="notifOpen" class="notif-pop" @click.stop>
+                <div class="notif-head">
+                  <span class="notif-title">Notifications</span>
+                  <button v-if="notifUnread > 0" class="notif-mark-all" type="button" @click="markAllRead">Mark all read</button>
+                </div>
+                <div class="notif-list">
+                  <div v-if="notifLoading && notifItems.length === 0" class="notif-empty">Loading…</div>
+                  <div v-else-if="notifItems.length === 0" class="notif-empty">You're all caught up</div>
+                  <button
+                    v-for="n in notifItems"
+                    :key="n.id"
+                    type="button"
+                    class="notif-item"
+                    :class="{ unread: !n.read_at }"
+                    @click="markRead(n.id)"
+                  >
+                    <span class="notif-kind" :data-kind="n.kind">{{ n.kind }}</span>
+                    <div class="notif-body">
+                      <div class="notif-msg">{{ n.message || ('Sample ' + (n.sample_slug || '')) }}</div>
+                      <div class="notif-meta">
+                        <span v-if="n.sample_slug" class="notif-slug">{{ n.sample_slug }}</span>
+                        <span class="notif-time">{{ timeAgo(n.created_at) }}</span>
+                      </div>
+                    </div>
+                    <span v-if="!n.read_at" class="notif-unread-dot"></span>
+                  </button>
+                </div>
+              </div>
+            </transition>
+          </div>
+
           <button class="st-logout" @click="logout" title="Logout">↩</button>
         </div>
       </header>
@@ -211,10 +333,126 @@ function badgeFor(ref) {
   .dot { width: 8px; height: 8px; border-radius: 50%; background: #4ade80; }
 }
 .st-user { font-size: 12.5px; font-weight: 600; color: #334155; }
-.st-bell { position: relative; font-size: 16px; cursor: pointer;
-  .bell-dot { position: absolute; top: -2px; right: -2px;
-    width: 7px; height: 7px; border-radius: 50%; background: #dc2626; }
+
+/* Bell + notification dropdown — same shape as the XEN layout */
+.st-bell-wrap { position: relative; }
+.st-bell {
+  position: relative;
+  background: transparent;
+  border: none;
+  padding: 4px 6px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .15s;
+  &:hover { background: #f1f5f9; }
+  &.open  { background: #e2e8f0; }
+  .bell-icon { font-size: 18px; display: inline-block; transform-origin: 50% 0; }
+  &.ringing .bell-icon { animation: bell-ring 1.6s ease-in-out infinite; }
+  .bell-count {
+    position: absolute;
+    top: -3px; right: -4px;
+    min-width: 16px; height: 16px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: #dc2626;
+    color: #fff;
+    font-size: 9.5px;
+    font-weight: 700;
+    line-height: 16px;
+    text-align: center;
+    box-shadow: 0 0 0 2px #fff;
+  }
 }
+@keyframes bell-ring {
+  0%, 50%, 100% { transform: rotate(0deg); }
+  10% { transform: rotate(14deg); }
+  20% { transform: rotate(-12deg); }
+  30% { transform: rotate(10deg); }
+  40% { transform: rotate(-8deg); }
+}
+.notif-pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 340px;
+  max-height: 440px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, .14);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.notif-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid #eef1f5;
+}
+.notif-title { font-size: 13px; font-weight: 700; color: #0f172a; }
+.notif-mark-all {
+  background: transparent;
+  border: none;
+  color: #2563eb;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  &:hover { background: #eff6ff; }
+}
+.notif-list { overflow-y: auto; max-height: 380px; }
+.notif-empty { padding: 24px 16px; text-align: center; color: #94a3b8; font-size: 12px; }
+.notif-item {
+  position: relative;
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid #f1f5f9;
+  text-align: left;
+  cursor: pointer;
+  transition: background .12s;
+  &:hover  { background: #f8fafc; }
+  &.unread { background: #f0f7ff; }
+  &.unread:hover { background: #e6f0ff; }
+  &:last-child { border-bottom: none; }
+}
+.notif-kind {
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  padding: 3px 7px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  background: #e2e8f0;
+  color: #475569;
+  &[data-kind="Unfit"]      { background: #fee2e2; color: #b91c1c; }
+  &[data-kind="Retest"]     { background: #fef3c7; color: #92400e; }
+  &[data-kind="Escalation"] { background: #fce7f3; color: #9d174d; }
+}
+.notif-body { flex: 1; min-width: 0; }
+.notif-msg  { font-size: 12px; color: #1e293b; line-height: 1.4; margin-bottom: 4px; }
+.notif-meta { display: flex; gap: 8px; align-items: center; font-size: 10.5px; color: #64748b; }
+.notif-slug { font-weight: 600; color: #475569; }
+.notif-unread-dot {
+  position: absolute;
+  top: 14px; right: 12px;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: #2563eb;
+}
+.notif-slide-enter-active, .notif-slide-leave-active { transition: opacity .15s ease, transform .15s ease; }
+.notif-slide-enter-from, .notif-slide-leave-to       { opacity: 0; transform: translateY(-6px); }
+
 .st-logout {
   background: transparent; border: 1px solid #cbd5e1; color: #475569;
   padding: 4px 10px; border-radius: 5px; font-size: 12px; cursor: pointer;

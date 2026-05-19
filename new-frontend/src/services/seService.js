@@ -30,4 +30,11 @@ export const seService = {
   // Trail + Log Action (mirror XEN endpoints, circle-scoped)
   trailDetail:   (id) => api.get(`/se/samples/${id}/trail`),
   requestRetest: (payload) => api.post('/se/actions/request-retest', payload),
+
+  // Notifications — bell dropdown feed + mark-as-read
+  notifications: () => api.get('/se/notifications'),
+  markNotificationsRead: (ids) =>
+    api.post('/mark-as-read-notifications', {
+      notification_id: Array.isArray(ids) ? ids : [ids],
+    }),
 }

@@ -293,6 +293,7 @@ Route::middleware(['auth:sanctum', 'dummy.account', 'view.only'])->group(callbac
         Route::get('wss-register',      [\App\Http\Controllers\Se\SePortalController::class, 'wssRegister']);
         Route::get('samples/{id}/trail',[\App\Http\Controllers\Se\SePortalController::class, 'trailDetail']);
         Route::post('actions/request-retest', [\App\Http\Controllers\Se\SePortalController::class, 'requestRetest']);
+        Route::get('notifications',     [\App\Http\Controllers\Se\SePortalController::class, 'notifications']);
     });
 
     //start locality routes

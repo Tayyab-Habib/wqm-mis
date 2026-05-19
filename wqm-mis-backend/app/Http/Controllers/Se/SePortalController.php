@@ -113,7 +113,7 @@ class SePortalController extends Controller
         $overduePanel = $this->overdueWss($phedIds, limit: 6)['rows'];
 
         // Notifications panel (7 days)
-        $notifications = $this->notifications($phedIds, days: 7, limit: 6);
+        $notifications = $this->notificationsPanel($phedIds, days: 7, limit: 6);
 
         return response()->json([
             'scope' => [
@@ -611,6 +611,55 @@ class SePortalController extends Controller
     }
 
     /* ──────────────────────────────────────────────────────────────────
+     |  /se/notifications  — the SE user's personal bell feed
+     |
+     |  Returns { items, count, total } matching the XEN shape so the layout
+     |  bell + dropdown can share the same component code path. `count` is
+     |  unread only; `items` includes read history so the dropdown can show
+     |  context. Filtered by notifiable_id = current user (Spatie's
+     |  per-user notification routing) so each SE only sees their own.
+     |──────────────────────────────────────────────────────────────────*/
+    public function notifications(Request $request): JsonResponse
+    {
+        $user = auth()->user();
+
+        $rows = DB::table('notifications')
+            ->where('notifiable_id', $user->id)
+            ->where('notifiable_type', \App\Models\User::class)
+            ->orderByDesc('created_at')
+            ->limit(50)
+            ->get();
+
+        $items = $rows->map(function ($n) {
+            $data = is_string($n->data ?? '') ? json_decode($n->data, true) : ($n->data ?? []);
+            $sample = $n->water_sample_id ? WaterSample::find($n->water_sample_id) : null;
+            $kind = match ($n->type_key) {
+                'SAMPLE_UNFIT'             => 'Unfit',
+                'RETEST_REQUESTED'         => 'Retest',
+                'FATE_DECISION_REQUESTED'  => 'Escalation',
+                'ESCALATION'               => 'Escalation',
+                default                    => 'Update',
+            };
+            return [
+                'id'          => $n->id,
+                'sample_slug' => $sample?->slug ?? ($data['sample_slug'] ?? null),
+                'sample_id'   => $n->water_sample_id ?? ($data['sample_id'] ?? null),
+                'kind'        => $kind,
+                'created_at'  => $n->created_at,
+                'due_at'      => $n->due_at,
+                'read_at'     => $n->read_at,
+                'message'     => $data['message'] ?? null,
+            ];
+        });
+
+        return response()->json([
+            'items' => $items,
+            'count' => $rows->whereNull('read_at')->count(),
+            'total' => $items->count(),
+        ]);
+    }
+
+    /* ──────────────────────────────────────────────────────────────────
      |  /se/samples/{id}/trail  — full trail for the SeTrailModal
      |  Mirrors XenDashboardController::trailDetail but scoped by circle.
      |──────────────────────────────────────────────────────────────────*/
@@ -918,7 +967,7 @@ class SePortalController extends Controller
         ];
     }
 
-    private function notifications(array $phedIds, int $days = 7, int $limit = 6): array
+    private function notificationsPanel(array $phedIds, int $days = 7, int $limit = 6): array
     {
         return DB::table('notifications as n')
             ->leftJoin('water_samples as ws', 'n.water_sample_id', '=', 'ws.id')
