@@ -62,8 +62,13 @@
             Email: {{$waterSample->laboratory->email}}
         </p>
     </div>
-    <div>
-        <x-lab-logo/>
+    <div style="width: 90px; text-align: center;">
+        @if(isset($qrSvg) && $qrSvg)
+            <div style="width: 80px; height: 80px; margin: 0 auto;">{!! $qrSvg !!}</div>
+            <div style="font-size: 8px; color: #999; letter-spacing: 0.04em; margin-top: 2px;">SCAN TO VIEW</div>
+        @else
+            <x-lab-logo/>
+        @endif
     </div>
 </div>
 <hr style="border: 1px solid #ccc;">
@@ -173,18 +178,13 @@
     @endforeach
 </table>
 
-<div style="display: flex; justify-content: space-between;">
-    <div>
-        <h3>Term and Conditions</h3>
-        <ul>
-            @foreach($termAndConditions as $term)
-                <li>{{ $term['term_condition'] }}</li>
-            @endforeach
-        </ul>
-    </div>
-    <div>
-        {!! $waterSample->qr_code !!}
-    </div>
+<div>
+    <h3>Term and Conditions</h3>
+    <ul>
+        @foreach($termAndConditions as $term)
+            <li>{{ $term['term_condition'] }}</li>
+        @endforeach
+    </ul>
 </div>
 <div>
     <h3>Remarks:</h3>
