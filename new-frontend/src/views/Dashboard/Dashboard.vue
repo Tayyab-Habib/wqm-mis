@@ -804,6 +804,38 @@ function exportCh01() { downloadChartPng(ch01Instance, `CH01-lab-wise-${pngStamp
 function exportCh02() { downloadChartPng(ch02Instance, `CH02-district-wise-${pngStamp()}.png`) }
 function exportCh03() { downloadSvgPng(ch03SvgRef.value, `CH03-heatmap-${pngStamp()}.png`) }
 
+// ── Expand-chart modal ────────────────────────────────────────────────
+// Clicking ⛶ on a chart header opens it full-size in an in-page modal.
+// We re-mount Chart.js on a fresh canvas inside the modal using a deep
+// clone of the source chart's config — interactive, not just a screenshot.
+const expandedChart      = ref(null)            // 'ch01' | 'ch02' | null
+const expandedTitle      = ref('')
+const expandedCanvasRef  = ref(null)
+let   expandedInstance   = null
+
+function openExpanded(which) {
+  const src = which === 'ch01' ? ch01Instance : ch02Instance
+  if (!src) return
+  expandedTitle.value   = which === 'ch01'
+    ? 'Lab-wise WQ Analysis (CH-01)'
+    : 'District-wise WQ Analysis (CH-02)'
+  expandedChart.value   = which
+  nextTick(() => {
+    if (!expandedCanvasRef.value) return
+    if (expandedInstance) { expandedInstance.destroy(); expandedInstance = null }
+    expandedInstance = new Chart(expandedCanvasRef.value, {
+      type:    src.config.type,
+      data:    JSON.parse(JSON.stringify(src.config.data)),
+      options: { ...src.config.options, responsive: true, maintainAspectRatio: false },
+    })
+  })
+}
+
+function closeExpanded() {
+  if (expandedInstance) { expandedInstance.destroy(); expandedInstance = null }
+  expandedChart.value = null
+}
+
 // Re-fetch when filters change (debounced)
 let fetchTimer = null
 watch(filters, () => {
@@ -1098,12 +1130,6 @@ function exportKpiCsv() {
         <div class="c-sub">Auto-escalated complaints</div>
         <div class="c-nav">→ Review &amp; Resolve</div>
       </div>
-      <div class="card c-amber clickable" @click="router.push('/admin/kpi-framework')">
-        <div class="c-lbl">Pending Inventory</div>
-        <div class="c-val">{{ stats.pendingInventory }}</div>
-        <div class="c-sub">Pending requests</div>
-        <div class="c-nav">→ Inventory</div>
-      </div>
       <div class="card c-gold clickable" @click="router.push('/finance/invoices')">
         <div class="c-lbl">Revenue (Total)</div>
         <div class="c-val">₨ {{ stats.revenue }}</div>
@@ -1117,7 +1143,10 @@ function exportKpiCsv() {
       <div class="chart-box">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
           <h3 style="margin-bottom:0">Lab-wise WQ Analysis — March 2026 <span style="font-size:11px;font-weight:400;color:var(--muted)">(CH-01)</span></h3>
-          <button class="btn btn-sec btn-xs" @click="exportCh01">⬇ PNG</button>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-sec btn-xs" @click="openExpanded('ch01')" title="Open chart full-size">⛶ Expand</button>
+            <button class="btn btn-sec btn-xs" @click="exportCh01">⬇ PNG</button>
+          </div>
         </div>
         <div style="position:relative;height:210px">
           <canvas ref="ch01Ref"></canvas>
@@ -1126,7 +1155,10 @@ function exportKpiCsv() {
       <div class="chart-box">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
           <h3 style="margin-bottom:0">District-wise WQ Analysis — March 2026 <span style="font-size:11px;font-weight:400;color:var(--muted)">(CH-02)</span></h3>
-          <button class="btn btn-sec btn-xs" @click="exportCh02">⬇ PNG</button>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-sec btn-xs" @click="openExpanded('ch02')" title="Open chart full-size">⛶ Expand</button>
+            <button class="btn btn-sec btn-xs" @click="exportCh02">⬇ PNG</button>
+          </div>
         </div>
         <div style="position:relative;height:210px">
           <canvas ref="ch02Ref"></canvas>
@@ -1460,6 +1492,24 @@ function exportKpiCsv() {
     </div>
 
     </template>
+
+    <!-- Expand-chart modal — opens full-size view of CH-01 / CH-02 -->
+    <Teleport to="body">
+      <div v-if="expandedChart"
+           @click.self="closeExpanded"
+           style="position:fixed;inset:0;background:rgba(15,23,42,.62);z-index:9998;display:flex;align-items:center;justify-content:center;padding:24px">
+        <div style="background:#fff;border-radius:8px;width:100%;max-width:1200px;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 12px 48px rgba(0,0,0,.32)">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #e5e7eb">
+            <h3 style="margin:0;font-size:15px;font-weight:700">{{ expandedTitle }}</h3>
+            <button @click="closeExpanded"
+                    style="background:rgba(0,0,0,.06);border:none;border-radius:5px;padding:4px 12px;cursor:pointer;font-size:14px">✕ Close</button>
+          </div>
+          <div style="flex:1;padding:18px;position:relative;min-height:480px">
+            <canvas ref="expandedCanvasRef"></canvas>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
