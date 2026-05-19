@@ -487,7 +487,7 @@ onMounted(async () => {
         </select>
       </div>
 
-      <button class="btn btn-sec btn-sm" style="align-self:flex-end" @click="clearFilters">✕ Clear Filters</button>
+      <button class="btn btn-clear btn-sm" style="align-self:flex-end" @click="clearFilters">✕ Clear Filters</button>
       <div class="tsp"></div>
       <button class="btn btn-sec btn-sm" style="align-self:flex-end" @click="exportReport">Export .xlsx</button>
       <button class="btn btn-sec btn-sm" style="align-self:flex-end" @click="printReport">Print PDF</button>

@@ -4,6 +4,7 @@ import { qualityService } from '../../../services/qualityService.js'
 import { kpiFrameworkService } from '../../../services/kpiFrameworkService.js'
 import { dropdownService } from '../../../services/dropdownService.js'
 import { useUserStore } from '../../../stores/useUserStore.js'
+import ConfirmModal from '../../../components/common/ConfirmModal/ConfirmModal.vue'
 
 const userStore = useUserStore()
 
@@ -13,6 +14,17 @@ function showToast(message, type = 'success') {
   clearTimeout(toastTimer)
   toast.value = { show: true, message, type }
   toastTimer = setTimeout(() => { toast.value.show = false }, 4000)
+}
+
+const confirmState = ref({ show: false, title: '', message: '', confirmText: 'Confirm', variant: 'danger', action: null, busy: false })
+function askConfirm({ title, message, confirmText = 'Confirm', variant = 'danger', action }) {
+  confirmState.value = { show: true, title, message, confirmText, variant, action, busy: false }
+}
+async function onConfirmOk() {
+  const fn = confirmState.value.action
+  if (typeof fn !== 'function') { confirmState.value.show = false; return }
+  confirmState.value.busy = true
+  try { await fn() } finally { confirmState.value.show = false; confirmState.value.busy = false }
 }
 
 const loading  = ref(false)
@@ -122,23 +134,37 @@ async function saveRound() {
   } finally { createSaving.value = false }
 }
 
-async function closeRound(id) {
-  if (!confirm('Close this round? Submissions will no longer be accepted.')) return
-  try {
-    await qualityService.pt.close(id); await load()
-    showToast('Round closed', 'success')
-  } catch (e) {
-    showToast(e.response?.data?.message || 'Could not close', 'error')
-  }
+function closeRound(id) {
+  askConfirm({
+    title: 'Close PT Round',
+    message: 'Close this round? Submissions will no longer be accepted.',
+    confirmText: 'Close Round',
+    variant: 'primary',
+    action: async () => {
+      try {
+        await qualityService.pt.close(id); await load()
+        showToast('Round closed', 'success')
+      } catch (e) {
+        showToast(e.response?.data?.message || 'Could not close', 'error')
+      }
+    },
+  })
 }
-async function removeRound(id) {
-  if (!confirm('Delete this PT round? All submissions will be lost.')) return
-  try {
-    await qualityService.pt.remove(id); await load()
-    showToast('Round deleted', 'success')
-  } catch (e) {
-    showToast(e.response?.data?.message || 'Could not delete', 'error')
-  }
+function removeRound(id) {
+  askConfirm({
+    title: 'Delete PT Round',
+    message: 'Delete this PT round? All submissions will be lost. This cannot be undone.',
+    confirmText: 'Delete',
+    variant: 'danger',
+    action: async () => {
+      try {
+        await qualityService.pt.remove(id); await load()
+        showToast('Round deleted', 'success')
+      } catch (e) {
+        showToast(e.response?.data?.message || 'Could not delete', 'error')
+      }
+    },
+  })
 }
 
 // ── Submit results modal (lab-incharge or admin acting for a lab) ──────
@@ -405,6 +431,14 @@ const submitLabOptions = computed(() => {
         </div>
       </div>
     </div>
+
+    <ConfirmModal v-model="confirmState.show"
+                  :title="confirmState.title"
+                  :message="confirmState.message"
+                  :busy="confirmState.busy"
+                  :confirm-text="confirmState.confirmText"
+                  :variant="confirmState.variant"
+                  @confirm="onConfirmOk" />
   </div>
 </template>
 

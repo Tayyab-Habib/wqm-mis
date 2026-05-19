@@ -526,7 +526,7 @@ function closeAddModal() {
         <option value="none">Not Yet Scheduled</option>
       </select>
 
-      <button class="btn btn-sec btn-sm" :disabled="!hasActiveFilters" @click="clearFilters"
+      <button class="btn btn-clear btn-sm" :disabled="!hasActiveFilters" @click="clearFilters"
               :title="hasActiveFilters ? 'Reset all filters' : 'No filters active'">
         ✕ Clear Filters
       </button>

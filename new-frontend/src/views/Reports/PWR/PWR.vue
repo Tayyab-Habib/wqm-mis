@@ -381,7 +381,7 @@ onMounted(async () => {
         </select>
       </div>
 
-      <button class="btn btn-sec btn-sm" style="align-self:flex-end" @click="clearFilters">✕ Clear Filters</button>
+      <button class="btn btn-clear btn-sm" style="align-self:flex-end" @click="clearFilters">✕ Clear Filters</button>
       <div class="tsp"></div>
       <button class="btn btn-pri btn-sm" style="align-self:flex-end" @click="generateReport" :disabled="loading || !!dateError">
         {{ loading ? 'Generating…' : 'Generate' }}

@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { qualityService } from '../../../services/qualityService.js'
 import { kpiFrameworkService } from '../../../services/kpiFrameworkService.js'
 import { useUserStore } from '../../../stores/useUserStore.js'
+import ConfirmModal from '../../../components/common/ConfirmModal/ConfirmModal.vue'
 
 const userStore = useUserStore()
 
@@ -12,6 +13,17 @@ function showToast(message, type = 'success') {
   clearTimeout(toastTimer)
   toast.value = { show: true, message, type }
   toastTimer = setTimeout(() => { toast.value.show = false }, 4000)
+}
+
+const confirmState = ref({ show: false, title: '', message: '', action: null, busy: false })
+function askConfirm({ title, message, action }) {
+  confirmState.value = { show: true, title, message, action, busy: false }
+}
+async function onConfirmOk() {
+  const fn = confirmState.value.action
+  if (typeof fn !== 'function') { confirmState.value.show = false; return }
+  confirmState.value.busy = true
+  try { await fn() } finally { confirmState.value.show = false; confirmState.value.busy = false }
 }
 
 const tab = ref('inspections')  // 'inspections' | 'items'
@@ -64,15 +76,20 @@ async function saveItem() {
   } finally { itemModalSaving.value = false }
 }
 
-async function removeItem(id) {
-  if (!confirm('Remove this checklist item? Historical answers are preserved.')) return
-  try {
-    await qualityService.audit.items.remove(id)
-    await loadItems()
-    showToast('Checklist item removed', 'success')
-  } catch (e) {
-    showToast(e.response?.data?.message || 'Could not delete', 'error')
-  }
+function removeItem(id) {
+  askConfirm({
+    title: 'Remove Checklist Item',
+    message: 'Remove this checklist item? Historical answers are preserved.',
+    action: async () => {
+      try {
+        await qualityService.audit.items.remove(id)
+        await loadItems()
+        showToast('Checklist item removed', 'success')
+      } catch (e) {
+        showToast(e.response?.data?.message || 'Could not delete', 'error')
+      }
+    },
+  })
 }
 
 // ── Inspections tab ────────────────────────────────────────────────────
@@ -142,15 +159,20 @@ async function saveInsp() {
   } finally { inspModalSaving.value = false }
 }
 
-async function removeInsp(id) {
-  if (!confirm('Delete this inspection?')) return
-  try {
-    await qualityService.audit.inspections.remove(id)
-    await loadInspections()
-    showToast('Inspection deleted', 'success')
-  } catch (e) {
-    showToast(e.response?.data?.message || 'Could not delete', 'error')
-  }
+function removeInsp(id) {
+  askConfirm({
+    title: 'Delete Inspection',
+    message: 'Delete this inspection? This cannot be undone.',
+    action: async () => {
+      try {
+        await qualityService.audit.inspections.remove(id)
+        await loadInspections()
+        showToast('Inspection deleted', 'success')
+      } catch (e) {
+        showToast(e.response?.data?.message || 'Could not delete', 'error')
+      }
+    },
+  })
 }
 
 function scoreClass(p) {
@@ -378,6 +400,14 @@ onMounted(async () => {
         </div>
       </div>
     </div>
+
+    <ConfirmModal v-model="confirmState.show"
+                  :title="confirmState.title"
+                  :message="confirmState.message"
+                  :busy="confirmState.busy"
+                  confirm-text="Delete"
+                  variant="danger"
+                  @confirm="onConfirmOk" />
   </div>
 </template>
 

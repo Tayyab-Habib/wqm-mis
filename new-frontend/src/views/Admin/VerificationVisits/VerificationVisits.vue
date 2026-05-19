@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { qualityService } from '../../../services/qualityService.js'
 import { kpiFrameworkService } from '../../../services/kpiFrameworkService.js'
 import { useUserStore } from '../../../stores/useUserStore.js'
+import ConfirmModal from '../../../components/common/ConfirmModal/ConfirmModal.vue'
 
 const userStore = useUserStore()
 
@@ -12,6 +13,19 @@ function showToast(message, type = 'success') {
   clearTimeout(toastTimer)
   toast.value = { show: true, message, type }
   toastTimer = setTimeout(() => { toast.value.show = false }, 4000)
+}
+
+// In-app confirm modal — replaces native confirm() so destructive prompts
+// match the project's design language and aren't blocked by browser settings.
+const confirmState = ref({ show: false, title: '', message: '', action: null, busy: false })
+function askConfirm({ title, message, action }) {
+  confirmState.value = { show: true, title, message, action, busy: false }
+}
+async function onConfirmOk() {
+  const fn = confirmState.value.action
+  if (typeof fn !== 'function') { confirmState.value.show = false; return }
+  confirmState.value.busy = true
+  try { await fn() } finally { confirmState.value.show = false; confirmState.value.busy = false }
 }
 
 const loading  = ref(false)
@@ -106,15 +120,20 @@ async function save() {
   }
 }
 
-async function remove(id) {
-  if (!confirm('Delete this verification visit?')) return
-  try {
-    await qualityService.verification.remove(id)
-    await load()
-    showToast('Visit deleted', 'success')
-  } catch (e) {
-    showToast(e.response?.data?.message || 'Could not delete', 'error')
-  }
+function remove(id) {
+  askConfirm({
+    title: 'Delete Verification Visit',
+    message: 'Delete this verification visit? This cannot be undone.',
+    action: async () => {
+      try {
+        await qualityService.verification.remove(id)
+        await load()
+        showToast('Visit deleted', 'success')
+      } catch (e) {
+        showToast(e.response?.data?.message || 'Could not delete', 'error')
+      }
+    },
+  })
 }
 
 function rateClass(p) {
@@ -243,6 +262,14 @@ function rateClass(p) {
         </div>
       </div>
     </div>
+
+    <ConfirmModal v-model="confirmState.show"
+                  :title="confirmState.title"
+                  :message="confirmState.message"
+                  :busy="confirmState.busy"
+                  confirm-text="Delete"
+                  variant="danger"
+                  @confirm="onConfirmOk" />
   </div>
 </template>
 

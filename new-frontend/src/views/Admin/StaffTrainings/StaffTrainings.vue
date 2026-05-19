@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { qualityService } from '../../../services/qualityService.js'
 import { kpiFrameworkService } from '../../../services/kpiFrameworkService.js'
 import { useUserStore } from '../../../stores/useUserStore.js'
+import ConfirmModal from '../../../components/common/ConfirmModal/ConfirmModal.vue'
 
 const userStore = useUserStore()
 
@@ -13,6 +14,17 @@ function showToast(message, type = 'success') {
   clearTimeout(toastTimer)
   toast.value = { show: true, message, type }
   toastTimer = setTimeout(() => { toast.value.show = false }, 4000)
+}
+
+const confirmState = ref({ show: false, title: '', message: '', action: null, busy: false })
+function askConfirm({ title, message, action }) {
+  confirmState.value = { show: true, title, message, action, busy: false }
+}
+async function onConfirmOk() {
+  const fn = confirmState.value.action
+  if (typeof fn !== 'function') { confirmState.value.show = false; return }
+  confirmState.value.busy = true
+  try { await fn() } finally { confirmState.value.show = false; confirmState.value.busy = false }
 }
 
 const loading   = ref(false)
@@ -122,15 +134,20 @@ async function save() {
   }
 }
 
-async function remove(id) {
-  if (!confirm('Delete this training record?')) return
-  try {
-    await qualityService.trainings.remove(id)
-    await load()
-    showToast('Training record deleted', 'success')
-  } catch (e) {
-    showToast(e.response?.data?.message || 'Could not delete', 'error')
-  }
+function remove(id) {
+  askConfirm({
+    title: 'Delete Training Record',
+    message: 'Delete this training record? This cannot be undone.',
+    action: async () => {
+      try {
+        await qualityService.trainings.remove(id)
+        await load()
+        showToast('Training record deleted', 'success')
+      } catch (e) {
+        showToast(e.response?.data?.message || 'Could not delete', 'error')
+      }
+    },
+  })
 }
 </script>
 
@@ -260,6 +277,14 @@ async function remove(id) {
         </div>
       </div>
     </div>
+
+    <ConfirmModal v-model="confirmState.show"
+                  :title="confirmState.title"
+                  :message="confirmState.message"
+                  :busy="confirmState.busy"
+                  confirm-text="Delete"
+                  variant="danger"
+                  @confirm="onConfirmOk" />
   </div>
 </template>
 

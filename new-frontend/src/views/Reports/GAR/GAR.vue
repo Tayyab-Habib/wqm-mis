@@ -495,7 +495,7 @@ onMounted(async () => {
           <option value="Private">Private Client</option>
         </select>
       </div>
-      <button class="btn btn-sec btn-sm" style="align-self:flex-end" @click="clearFilters">✕ Clear Filters</button>
+      <button class="btn btn-clear btn-sm" style="align-self:flex-end" @click="clearFilters">✕ Clear Filters</button>
       <div class="tsp"></div>
       <span v-if="loading" style="font-size:11px;color:var(--muted);align-self:flex-end;padding-bottom:6px">Updating…</span>
       <button class="btn btn-sec btn-sm" style="align-self:flex-end" @click="exportReport">Export .xlsx</button>
