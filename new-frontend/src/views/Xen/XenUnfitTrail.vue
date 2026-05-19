@@ -73,6 +73,9 @@ function mapRow(s) {
     currentStatus: cs,
     isClosed:      s.is_closed || false,
     tests,
+    // Transfer-to-Secretary state — surfaced by the backend so we can disable
+    // the action button once the hand-off has happened.
+    transferredAt: s.transferred_to_secretary_at || null,
   }
 }
 
@@ -199,41 +202,37 @@ function openTrail(row) {
   showTrailModal.value = true
 }
 
-// ── Fate decision modal ──────────────────────────────────────────
-const showFateModal = ref(false)
-const fateTarget    = ref(null)
-const fateDecision  = ref('')
-const fateForm      = ref({ authorisedBy: '', date: new Date().toISOString().split('T')[0], remarks: '', docRef: '' })
-const fateSuccess   = ref(false)
-const fateLoading   = ref(false)
+// ── Transfer-to-Secretary modal ──────────────────────────────────
+// XENs no longer record Fate Decisions themselves. When a sample is Persistent
+// Unfit (R2+ still failing), they hand it off to the Secretary, who is the
+// approving authority. The XEN supplies an optional context note.
+const showTransferModal = ref(false)
+const transferTarget    = ref(null)
+const transferRemarks   = ref('')
+const transferSuccess   = ref(false)
+const transferLoading   = ref(false)
 
-function openFate(row) {
-  fateTarget.value   = row
-  fateDecision.value = ''
-  fateSuccess.value  = false
-  fateForm.value     = { authorisedBy: '', date: new Date().toISOString().split('T')[0], remarks: '', docRef: '' }
-  showFateModal.value = true
+function openTransfer(row) {
+  transferTarget.value  = row
+  transferRemarks.value = ''
+  transferSuccess.value = false
+  showTransferModal.value = true
 }
-async function submitFate() {
-  if (!fateDecision.value)        { showToast('⚠️ Please select a decision.', 'error'); return }
-  if (!fateForm.value.remarks)    { showToast('⚠️ Remarks are required.', 'error'); return }
-  fateLoading.value = true
+async function submitTransfer() {
+  if (!transferTarget.value) return
+  transferLoading.value = true
   try {
-    await api.patch(`/water-samples/${fateTarget.value.backendId}/fate`, {
-      decision:      fateDecision.value,
-      authorised_by: fateForm.value.authorisedBy || null,
-      decision_date: fateForm.value.date || null,
-      remarks:       fateForm.value.remarks,
-      doc_ref:       fateForm.value.docRef || null,
+    await xenService.transferToSecretary(transferTarget.value.backendId, {
+      remarks: transferRemarks.value || null,
     })
-    fateSuccess.value = true
-    showToast('✅ Fate decision recorded.', 'success')
+    transferSuccess.value = true
+    showToast(`✅ ${transferTarget.value.id} transferred to Secretary for Fate Decision.`, 'success')
     await load()
   } catch (e) {
-    const msg = e?.response?.data?.message || e?.message || 'Failed to record decision'
+    const msg = e?.response?.data?.message || e?.message || 'Failed to transfer'
     showToast('❌ ' + msg, 'error')
   } finally {
-    fateLoading.value = false
+    transferLoading.value = false
   }
 }
 
@@ -386,7 +385,14 @@ function exportCsv() {
                 </td>
                 <td style="white-space:nowrap">
                   <template v-if="row.actionStatus === 'Fate Decision Req.'">
-                    <button class="btn btn-xs" style="background:#9d174d;color:#fff;border:none;font-size:11px;margin-right:4px" @click="openFate(row)">📋 Decide Fate</button>
+                    <button
+                      class="btn btn-xs"
+                      :style="`background:${row.transferredAt ? '#475569' : '#9d174d'};color:#fff;border:none;font-size:11px;margin-right:4px;${row.transferredAt ? 'cursor:not-allowed;opacity:.75' : ''}`"
+                      :disabled="!!row.transferredAt"
+                      :title="row.transferredAt ? 'Already transferred to Secretary on ' + fmtDate(row.transferredAt) : 'Hand this sample off to the Secretary for a Fate Decision'"
+                      @click="openTransfer(row)">
+                      {{ row.transferredAt ? '✓ Transferred to Secretary' : '↑ Transfer to Secretary' }}
+                    </button>
                     <button class="btn btn-sec btn-xs" style="font-size:11px" @click="openTrail(row)">👁 Trail</button>
                   </template>
                   <template v-else-if="row.actionStatus !== 'Resolved'">
@@ -463,54 +469,45 @@ function exportCsv() {
       </div>
     </Teleport>
 
-    <!-- FATE MODAL -->
+    <!-- TRANSFER-TO-SECRETARY MODAL -->
     <Teleport to="body">
-      <div v-if="showFateModal" @click.self="showFateModal = false"
+      <div v-if="showTransferModal" @click.self="showTransferModal = false"
            style="display:flex;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:3400;align-items:flex-start;justify-content:center;overflow-y:auto;padding:30px">
-        <div style="background:#fff;border-radius:10px;width:100%;max-width:580px;margin:auto;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,.28);font-family:'DM Sans',sans-serif">
+        <div style="background:#fff;border-radius:10px;width:100%;max-width:520px;margin:auto;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,.28);font-family:'DM Sans',sans-serif">
           <div style="background:#9d174d;color:#fff;padding:14px 20px;display:flex;align-items:center;justify-content:space-between">
             <div>
-              <div style="font-size:14px;font-weight:700">📋 WSS Fate Decision</div>
-              <div style="font-size:11px;opacity:.7;margin-top:2px">{{ fateTarget?.wss }} · {{ fateTarget?.district }}</div>
+              <div style="font-size:14px;font-weight:700">↑ Transfer to Secretary</div>
+              <div style="font-size:11px;opacity:.7;margin-top:2px">{{ transferTarget?.id }} · {{ transferTarget?.wss }} · {{ transferTarget?.district }}</div>
             </div>
-            <button @click="showFateModal = false" style="background:rgba(255,255,255,.15);border:none;color:#fff;border-radius:5px;padding:5px 12px;cursor:pointer">✕</button>
+            <button @click="showTransferModal = false" style="background:rgba(255,255,255,.15);border:none;color:#fff;border-radius:5px;padding:5px 12px;cursor:pointer">✕</button>
           </div>
           <div style="padding:20px 24px">
-            <div v-if="!fateSuccess">
-              <div style="background:#fff5f5;border:1px solid #fca5a5;border-radius:6px;padding:10px 14px;margin-bottom:14px;font-size:11.5px">
-                <b style="color:#991b1b">⚠ Persistently Unfit:</b> {{ fateTarget?.round }} consecutive retest failure(s). Immediate decision required.
+            <div v-if="!transferSuccess">
+              <div style="background:#fff5f5;border:1px solid #fca5a5;border-radius:6px;padding:10px 14px;margin-bottom:14px;font-size:11.5px;line-height:1.55">
+                <b style="color:#991b1b">⚠ Persistently Unfit:</b>
+                this sample has failed {{ transferTarget?.round }} retest(s).
+                Authority to decommission, issue a public advisory or continue monitoring lies with the <b>Secretary</b>.
+                Confirming will queue this case on the Secretary's Fate Decisions page.
               </div>
-              <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;margin-bottom:8px">Select Decision</div>
-              <label v-for="opt in [
-                { val:'monitor',      title:'🔄 Continue Monitoring',       desc:'Keep WSS operational. Schedule additional retests.', color:'#1d4ed8' },
-                { val:'advisory',     title:'⚠ Issue Public Advisory',      desc:'WSS remains operational but public advised against drinking.', color:'#b45309' },
-                { val:'decommission', title:'🚫 Decommission / Abandon WSS', desc:'WSS taken out of service permanently. Requires formal approval.', color:'#9d174d' },
-              ]" :key="opt.val"
-                style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:2px solid #e2e8f0;border-radius:6px;cursor:pointer;margin-bottom:8px"
-                :style="fateDecision === opt.val ? `border-color:${opt.color}` : ''"
-                @click="fateDecision = opt.val">
-                <input type="radio" :value="opt.val" v-model="fateDecision" style="margin-top:2px">
-                <div>
-                  <div style="font-size:12px;font-weight:600" :style="{ color: opt.color }">{{ opt.title }}</div>
-                  <div style="font-size:11px;color:#64748b">{{ opt.desc }}</div>
-                </div>
-              </label>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
-                <div class="fg2"><label>Authorising Officer</label><input type="text" v-model="fateForm.authorisedBy" placeholder="Name / Designation"></div>
-                <div class="fg2"><label>Decision Date</label><input type="date" v-model="fateForm.date"></div>
-                <div class="fg2" style="grid-column:1/-1"><label>Remarks / Justification *</label><textarea v-model="fateForm.remarks" rows="3" placeholder="State the basis for this decision…"></textarea></div>
-                <div class="fg2" style="grid-column:1/-1"><label>Document Reference (optional)</label><input type="text" v-model="fateForm.docRef" placeholder="e.g. Field inspection report no."></div>
+              <div class="fg2" style="display:flex;flex-direction:column;gap:4px">
+                <label style="font-size:11px;font-weight:600;color:#475569">Note for Secretary (optional)</label>
+                <textarea v-model="transferRemarks" rows="3"
+                          placeholder="Field observations, suspected source, prior corrective actions…"
+                          style="border:1px solid #cbd5e1;border-radius:4px;padding:8px 10px;font-size:13px;font-family:inherit"></textarea>
               </div>
-              <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
-                <button class="btn btn-sec" @click="showFateModal = false">Cancel</button>
-                <button class="btn" style="background:#9d174d;color:#fff;border:none" @click="submitFate" :disabled="fateLoading">{{ fateLoading ? '⏳ Saving…' : '✔ Record Decision' }}</button>
+              <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+                <button class="btn btn-sec" @click="showTransferModal = false" :disabled="transferLoading">Cancel</button>
+                <button class="btn" style="background:#9d174d;color:#fff;border:none"
+                        @click="submitTransfer" :disabled="transferLoading">
+                  {{ transferLoading ? '⏳ Transferring…' : '↑ Confirm Transfer' }}
+                </button>
               </div>
             </div>
             <div v-else style="text-align:center;padding:20px 0">
-              <div style="font-size:32px;margin-bottom:8px">✅</div>
-              <div style="font-size:14px;font-weight:700;color:#166534;margin-bottom:4px">Decision Recorded</div>
-              <div style="font-size:12px;color:#64748b">WSS status updated. XEN has been notified.</div>
-              <button class="btn btn-sec btn-sm" style="margin-top:14px" @click="showFateModal = false">Close</button>
+              <div style="font-size:32px;margin-bottom:8px">📨</div>
+              <div style="font-size:14px;font-weight:700;color:#166534;margin-bottom:4px">Handed off to Secretary</div>
+              <div style="font-size:12px;color:#64748b">The Secretary will see this in the Fate Decisions queue.</div>
+              <button class="btn btn-sec btn-sm" style="margin-top:14px" @click="showTransferModal = false">Close</button>
             </div>
           </div>
         </div>

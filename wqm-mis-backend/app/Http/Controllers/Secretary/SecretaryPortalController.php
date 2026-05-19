@@ -615,17 +615,29 @@ class SecretaryPortalController extends Controller
 
     private function buildFateDecisionsPending(int $limit = 100): array
     {
+        $hasTransferCols = \Illuminate\Support\Facades\Schema::hasColumn('water_samples', 'transferred_to_secretary_at');
+
         $samples = WaterSample::query()
             ->with(['waterScheme:id,name', 'district:id,name', 'phedDivision:id,name,circle_id', 'tests'])
             ->where('current_status', WaterSampleCurrentStatusEnum::UNFIT->value)
             ->where('current_round', '>=', 2)
+            // Surface XEN-transferred samples first so the Secretary sees
+            // explicit hand-offs at the top, then anything else that is
+            // auto-flagged as Persistent Unfit.
+            ->when($hasTransferCols, fn ($q) => $q->orderByRaw('transferred_to_secretary_at IS NULL ASC'))
             ->orderByDesc('updated_at')
             ->limit($limit)
             ->get();
 
         $regions = Region::pluck('name', 'id');
 
-        return $samples->map(function ($s) use ($regions) {
+        // Fetch the transferring XEN's name in bulk
+        $xenIds = $samples->pluck('transferred_to_secretary_by')->filter()->unique();
+        $xenNames = $xenIds->isEmpty()
+            ? collect()
+            : \App\Models\User::whereIn('id', $xenIds)->pluck('name', 'id');
+
+        return $samples->map(function ($s) use ($regions, $xenNames) {
             $tests = $s->tests->sortBy('round')->values();
             $r0 = $tests->firstWhere('round', 0);
             $r1 = $tests->firstWhere('round', 1);
@@ -633,31 +645,34 @@ class SecretaryPortalController extends Controller
             $circle = $s->phedDivision?->circle;
             $regionName = $circle ? ($regions[$circle->region_id] ?? '—') : '—';
 
-            // contaminant / who_limit are NOT in the schema — removed rather
-            // than hardcoded. r2_value used to alias `remarks` which is free
-            // text, not a concentration value; frontend now reads `r2`
-            // directly and labels it as "R2 Remarks" honestly.
             return [
-                'id'           => $s->id,
-                'slug'         => $s->slug,
-                'wss_name'     => $s->waterScheme?->name ?? '—',
-                'district'     => $s->district?->name ?? '—',
-                'ce'           => $regionName,
-                'ce_short'     => preg_replace('/^CE\s*[\x{2014}\x{2013}-]?\s*/u', '', $regionName),
-                'original'     => $r0?->remarks ?? '—',
-                'r1'           => $r1?->remarks ?? '—',
-                'r2'           => $r2?->remarks ?? '—',
-                'stage'        => $s->current_round >= 3 ? 'R3 Fail' : 'R2 Fail',
+                'id'             => $s->id,
+                'slug'           => $s->slug,
+                'wss_name'       => $s->waterScheme?->name ?? '—',
+                'district'       => $s->district?->name ?? '—',
+                'ce'             => $regionName,
+                'ce_short'       => preg_replace('/^CE\s*[\x{2014}\x{2013}-]?\s*/u', '', $regionName),
+                'original'       => $r0?->remarks ?? '—',
+                'r1'             => $r1?->remarks ?? '—',
+                'r2'             => $r2?->remarks ?? '—',
+                'stage'          => $s->current_round >= 3 ? 'R3 Fail' : 'R2 Fail',
+                'transferred_at'      => $s->transferred_to_secretary_at,
+                'transferred_by_name' => $s->transferred_to_secretary_by ? ($xenNames[$s->transferred_to_secretary_by] ?? null) : null,
+                'transferred_remarks' => $s->transferred_to_secretary_remarks,
             ];
         })->all();
     }
 
     private function buildFateDecisionsPast(int $limit = 100): array
     {
-        if (!DB::getSchemaBuilder()->hasColumn('water_samples', 'fate_decision')) return [];
+        // WaterSampleTestController::recordFate stamps the decision into the
+        // sample's `remarks` field (prefixed `FATE DECISION:`) and flips
+        // `is_closed = 1` + `current_status = CLOSED`. We key off those two
+        // signals instead of a dedicated column.
         $samples = WaterSample::query()
             ->with(['waterScheme:id,name', 'district:id,name', 'phedDivision:id,name,circle_id'])
-            ->whereNotNull('fate_decision')
+            ->where('is_closed', 1)
+            ->where('remarks', 'like', 'FATE DECISION:%')
             ->orderByDesc('updated_at')
             ->limit($limit)
             ->get();
@@ -667,21 +682,30 @@ class SecretaryPortalController extends Controller
         return $samples->map(function ($s) use ($regions) {
             $circle = $s->phedDivision?->circle;
             $regionName = $circle ? ($regions[$circle->region_id] ?? '—') : '—';
-            $decisionLabel = match ($s->fate_decision) {
-                'decommission' => 'Decommissioned',
-                'advisory'     => 'Public Advisory',
-                'monitor'      => 'Continue Monitoring',
-                default        => ucfirst($s->fate_decision),
+
+            // Decision is the first segment of remarks, e.g.
+            //   "FATE DECISION: CONTINUE MONITORING | Auth: ... | Remarks: ..."
+            // recordFate stores the *label* (not the raw enum), so we match on
+            // the label suffix.
+            $remarks = (string) ($s->remarks ?? '');
+            $rawDecision = '';
+            if (preg_match('/FATE DECISION:\s*([^|]+)/i', $remarks, $m)) {
+                $rawDecision = trim($m[1]);
+            }
+            $upper = strtoupper($rawDecision);
+            $decisionLabel = match (true) {
+                str_contains($upper, 'DECOMMISSION') => 'Decommissioned',
+                str_contains($upper, 'ADVISORY')     => 'Public Advisory',
+                str_contains($upper, 'MONITORING')   => 'Continue Monitoring',
+                default                              => $rawDecision ?: 'Recorded',
             };
-            $statusLabel = match ($s->fate_decision) {
-                'decommission' => 'Implemented',
-                'advisory'     => 'Advisory Issued',
-                'monitor'      => 'Monitoring Active',
-                default        => 'Recorded',
+            $statusLabel = match ($decisionLabel) {
+                'Decommissioned'     => 'Implemented',
+                'Public Advisory'    => 'Advisory Issued',
+                'Continue Monitoring'=> 'Monitoring Active',
+                default              => 'Recorded',
             };
             $rawUpdated = $s->getRawOriginal('updated_at');
-            // contaminant dropped — was hardcoded 'Chemical' for every row;
-            // the schema has no contaminant_type column to source from.
             return [
                 'id'        => $s->id,
                 'wss_name'  => $s->waterScheme?->name ?? '—',

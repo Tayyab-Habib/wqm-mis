@@ -327,6 +327,7 @@ class XenDashboardController extends Controller
                 $base['sampled_at']      = $sample->getRawOriginal('sampled_at');
                 $base['current_status']  = (int) ($sample->current_status instanceof \BackedEnum ? $sample->current_status->value : $sample->current_status);
                 $base['is_closed']       = (bool) $sample->is_closed;
+                $base['transferred_to_secretary_at'] = $sample->transferred_to_secretary_at;
                 $base['tests']           = $tests;
 
                 return $base;
@@ -405,6 +406,89 @@ class XenDashboardController extends Controller
             return response()->json([
                 'message' => 'Action logged and retest requested successfully',
                 'action' => $action,
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Error: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Hand off a Persistent Unfit sample to the Secretary for a Fate Decision.
+     *
+     * Only allowed for samples that have already exhausted at least two retest
+     * rounds with UNFIT results — at that point the XEN can't resolve it via
+     * more retests, so authority passes upward. We stamp the audit columns on
+     * water_samples and drop a notification row for every Secretary user so
+     * the Secretary's queue surfaces it immediately.
+     */
+    public function transferToSecretary(Request $request, int $id)
+    {
+        if ($r = $this->gate('submit_xen_retest')) return $r;
+
+        $request->validate([
+            'remarks' => 'nullable|string|max:2000',
+        ]);
+
+        $sample = WaterSample::with('tests')->findOrFail($id);
+
+        // Guard: must be Persistent Unfit (R2+ UNFIT) before XEN can escalate.
+        $isUnfit = (int) ($sample->current_status instanceof \BackedEnum
+            ? $sample->current_status->value
+            : $sample->current_status) === \App\Enums\WaterSampleCurrentStatusEnum::UNFIT->value;
+        if (!$isUnfit || (int) $sample->current_round < 2) {
+            return response()->json([
+                'message' => 'Only samples that are still UNFIT after two retests can be transferred.',
+            ], 422);
+        }
+
+        if (!is_null($sample->transferred_to_secretary_at)) {
+            return response()->json([
+                'message' => 'This sample has already been transferred to the Secretary.',
+                'transferred_at' => $sample->transferred_to_secretary_at,
+            ], 200);
+        }
+
+        DB::beginTransaction();
+        try {
+            $sample->forceFill([
+                'transferred_to_secretary_at'      => now(),
+                'transferred_to_secretary_by'      => auth()->id(),
+                'transferred_to_secretary_remarks' => $request->input('remarks'),
+            ])->save();
+
+            // Drop a notification for every Secretary user so the queue + bell
+            // updates instantly without polling. Multiple secretaries are
+            // possible; we notify each so any of them can act.
+            $secretaryIds = User::role('secretary')->pluck('id');
+            foreach ($secretaryIds as $secId) {
+                DB::table('notifications')->insert([
+                    'id' => \Illuminate\Support\Str::uuid(),
+                    'type' => 'App\Notifications\FateDecisionRequested',
+                    'notifiable_type' => User::class,
+                    'notifiable_id' => $secId,
+                    'data' => json_encode([
+                        'message' => 'XEN has transferred sample ' . $sample->slug . ' for Fate Decision.',
+                        'sample_slug' => $sample->slug,
+                        'remarks' => $request->input('remarks'),
+                    ]),
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                    'water_sample_id' => $sample->id,
+                    'round' => $sample->current_round,
+                    'role' => 'SECRETARY',
+                    'status' => 1,
+                    'type_key' => 'FATE_DECISION_REQUESTED',
+                    'notified_at' => now(),
+                ]);
+            }
+
+            DB::commit();
+            return response()->json([
+                'message' => 'Transferred to Secretary for Fate Decision.',
+                'transferred_at' => $sample->transferred_to_secretary_at,
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
