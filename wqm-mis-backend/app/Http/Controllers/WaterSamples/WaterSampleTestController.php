@@ -308,6 +308,62 @@ class WaterSampleTestController extends Controller
     }
 
     /**
+     * Approve & Issue — Lab In-charge sign-off on a completed sample.
+     * Stamps both research_officer_id (Checked By) and lab_incharge_id
+     * (Issued By) with the authenticated Lab In-charge so the Individual
+     * Sample Report no longer renders "—".
+     */
+    public function issue(WaterSample $waterSample): JsonResponse
+    {
+        $authUser = auth()->user();
+
+        // Lab scoping: lab-incharge can only issue samples from their own lab.
+        // SA bypass — system-administrator can issue any sample.
+        if (! $authUser->hasRole('system-administrator')
+            && $authUser->laboratory_id
+            && $waterSample->laboratory_id !== $authUser->laboratory_id) {
+            return response()->json([
+                'message' => 'You can only issue samples from your own laboratory.',
+                'data'    => null,
+            ], SymfonyResponse::HTTP_FORBIDDEN);
+        }
+
+        // Sample must have a completed analysis (Fit or Unfit). Pending /
+        // In-Progress samples have no result yet — nothing to issue.
+        // current_status is cast to WaterSampleCurrentStatusEnum on the model,
+        // so we compare enum instances (not raw ints).
+        $allowedStatuses = [
+            WaterSampleCurrentStatusEnum::FIT,
+            WaterSampleCurrentStatusEnum::UNFIT,
+            WaterSampleCurrentStatusEnum::CLOSED,
+        ];
+        if (! in_array($waterSample->current_status, $allowedStatuses, true)) {
+            return response()->json([
+                'message' => 'Only samples with completed analysis can be issued.',
+                'data'    => null,
+            ], SymfonyResponse::HTTP_BAD_REQUEST);
+        }
+
+        // Already issued — no-op, idempotent.
+        if ($waterSample->lab_incharge_id) {
+            return response()->json([
+                'message' => 'This sample has already been issued.',
+                'data'    => $waterSample->fresh()->load(['labIncharge:id,name', 'researchOfficer:id,name']),
+            ], SymfonyResponse::HTTP_OK);
+        }
+
+        $waterSample->update([
+            'research_officer_id' => $authUser->id,
+            'lab_incharge_id'     => $authUser->id,
+        ]);
+
+        return response()->json([
+            'message' => 'Sample approved and issued successfully.',
+            'data'    => $waterSample->fresh()->load(['labIncharge:id,name', 'researchOfficer:id,name']),
+        ], SymfonyResponse::HTTP_OK);
+    }
+
+    /**
      * Record WSS Fate Decision — lightweight endpoint, no full sample update required
      */
     public function recordFate(Request $request, WaterSample $waterSample): JsonResponse

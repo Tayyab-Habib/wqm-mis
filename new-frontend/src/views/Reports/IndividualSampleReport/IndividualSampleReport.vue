@@ -1,6 +1,10 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { api } from '../../../services/api.js'
+import { useUserStore } from '../../../stores/useUserStore.js'
+import phedLogo from '../../../assets/phed-logo.png'
+
+const userStore = useUserStore()
 
 const searchId   = ref('')
 const searchLab  = ref('')
@@ -9,6 +13,8 @@ const searchTo   = ref('')
 const allLabs    = ref([])
 const loading    = ref(false)
 const rawData    = ref(null)
+const issuing    = ref(false)
+const currentSampleId = ref(null)   // numeric id of the loaded sample, used by Approve & Issue
 
 // Toast — matches the project-wide pattern (Topbar / UsersHR / Invoices /
 // DiariesDispatches / LabSamples). Slides in from the top-right, auto-
@@ -68,6 +74,7 @@ async function searchSample() {
 
     const res = await api.get(`/water-samples/${numericId}/report`)
     rawData.value = res.data?.data || res.data
+    currentSampleId.value = numericId
   } catch (e) {
     showToast('❌ Sample not found', 'error')
     console.error('Report error:', e)
@@ -272,6 +279,12 @@ const microbialParams = computed(() => {
 
 const isUnfit = computed(() => report.value?.overallResult?.toLowerCase() === 'unfit' || report.value?.overallResult === '2')
 
+// QR code SVG (rendered by simplesoftwareio/simple-qrcode on the backend) +
+// the signed URL it points to. Both are emitted by the API alongside the
+// report payload — see WaterSampleReportController::index.
+const qrSvg          = computed(() => rawData.value?.qr_svg || '')
+const publicShareUrl = computed(() => rawData.value?.public_share_url || '')
+
 function statusBadge(status) {
   if (status === 'Fit')   return { label: 'Fit',   cls: 'background:#16a34a;color:#fff;border-radius:4px;padding:2px 10px;font-size:11px;font-weight:700' }
   if (status === 'Unfit') return { label: 'Unfit', cls: 'background:#dc2626;color:#fff;border-radius:4px;padding:2px 10px;font-size:11px;font-weight:700' }
@@ -279,6 +292,38 @@ function statusBadge(status) {
 }
 
 function printReport() { window.print() }
+
+// ── Approve & Issue (Lab In-charge sign-off) ──────────────────────────
+// Visible only to Lab In-charge (or SA) AND only when:
+//   - a report is loaded
+//   - the sample has a completed result (Fit / Unfit / Closed — not Pending/In Progress)
+//   - it hasn't already been issued (lab_incharge_id is null → checkedBy/issuedBy shows '—')
+const canIssue = computed(() => {
+  if (!report.value || !currentSampleId.value) return false
+  if (!userStore.isLabIncharge) return false
+  const result = (report.value.overallResult || '').toString().toLowerCase()
+  const hasResult = result === 'fit' || result === 'unfit' || result === '2' || result === '3'
+  const notYetIssued = report.value.issuedBy === '—' || !report.value.issuedBy
+  return hasResult && notYetIssued
+})
+
+async function approveAndIssue() {
+  if (!canIssue.value || issuing.value) return
+  issuing.value = true
+  try {
+    await api.patch(`/water-samples/${currentSampleId.value}/issue`)
+    showToast('✅ Sample approved and issued', 'success')
+    // Re-fetch so Checked By / Issued By populate with the freshly stamped names
+    const res = await api.get(`/water-samples/${currentSampleId.value}/report`)
+    rawData.value = res.data?.data || res.data
+  } catch (e) {
+    const msg = e.response?.data?.message || e.message || 'Failed to issue sample'
+    showToast('❌ ' + msg, 'error')
+    console.error('Issue error:', e.response?.data || e)
+  } finally {
+    issuing.value = false
+  }
+}
 </script>
 
 <template>
@@ -294,6 +339,13 @@ function printReport() { window.print() }
         {{ loading ? 'Searching...' : 'Search' }}
       </button>
       <button v-if="report" class="btn btn-sec btn-sm" @click="printReport">Print PDF</button>
+      <button v-if="canIssue"
+              class="btn btn-pri btn-sm"
+              :disabled="issuing"
+              @click="approveAndIssue"
+              title="Sign off this report as Lab In-charge — fills the Checked By and Issued By fields">
+        {{ issuing ? 'Issuing...' : '✓ Approve & Issue' }}
+      </button>
     </div>
 
     <!-- Toast notification (matches project-wide pattern) -->
@@ -359,11 +411,20 @@ function printReport() { window.print() }
          style="background:#fff;border:1px solid #d0d7e0;border-radius:6px;padding:28px 32px;max-width:860px;margin:0 auto;box-shadow:0 2px 12px rgba(0,0,0,.08);font-family:'DM Sans',sans-serif">
 
       <!-- Header -->
-      <div style="text-align:center;border-bottom:2px solid #1a2e4a;padding-bottom:14px;margin-bottom:18px">
+      <div style="position:relative;text-align:center;border-bottom:2px solid #1a2e4a;padding-bottom:14px;margin-bottom:18px">
+        <!-- PHED logo (top-left), mirrors the QR position on the right -->
+        <img :src="phedLogo" alt="PHED" style="position:absolute;top:0;left:0;width:70px;height:70px;object-fit:contain">
         <div style="font-size:12px;font-weight:700;color:#1a2e4a;letter-spacing:.05em;text-transform:uppercase">Government of Khyber Pakhtunkhwa</div>
         <div style="font-size:11.5px;color:#2a3f5f;margin:2px 0">Public Health Engineering Department</div>
         <div style="font-size:14px;font-weight:800;color:#1a2e4a;margin:5px 0">Water Quality Analysis Report</div>
         <div style="font-size:11px;color:#6b7280">{{ report.laboratory }}</div>
+        <!-- Public-share QR (scan to view a signature-gated read-only copy) -->
+        <div v-if="qrSvg"
+             style="position:absolute;top:0;right:0;width:80px;height:80px;display:flex;flex-direction:column;align-items:center"
+             :title="`Scan to view report: ${publicShareUrl}`">
+          <div v-html="qrSvg" style="width:70px;height:70px;display:flex;align-items:center;justify-content:center"></div>
+          <div style="font-size:8.5px;color:#9ca3af;margin-top:2px;letter-spacing:.04em">SCAN TO VIEW</div>
+        </div>
       </div>
 
       <!-- Sample meta grid -->

@@ -420,6 +420,8 @@ Route::middleware(['auth:sanctum', 'dummy.account', 'view.only'])->group(callbac
     Route::put('water-sample-results/{water_sample}', [WaterSampleResultController::class, 'update']);
     Route::post('water-sample-tests/{water_sample}/retest', [WaterSampleTestController::class, 'retest']);
     Route::patch('water-samples/{water_sample}/fate', [WaterSampleTestController::class, 'recordFate']);
+    Route::patch('water-samples/{water_sample}/issue', [WaterSampleTestController::class, 'issue'])
+        ->middleware('role:system-administrator|lab-incharge');
     Route::patch('water-sample-tests/{water_sample}/start', [WaterSampleTestController::class, 'startAnalysis']);
     Route::put('water-sample-tests/{water_sample}/analyze', [WaterSampleTestController::class, 'analyze']);
     Route::apiResource('clients', ClientController::class);

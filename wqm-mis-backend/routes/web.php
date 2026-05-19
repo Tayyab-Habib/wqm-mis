@@ -28,6 +28,16 @@ Route::get('/', function () {
 });
 
 Route::get('water-samples/generate-pdf/{water_sample}', [WaterSampleReportController::class, 'generatePdf']);
+
+// Public, signature-gated viewer for the QR-code workflow. The URL is generated
+// by URL::signedRoute() inside the authenticated /report API response, so anyone
+// holding the URL (e.g. by scanning the QR on a printed report) can read the
+// sample without logging in — but the signature is unguessable, so the slug
+// space cannot be enumerated.
+Route::get('public-report/{water_sample}', [WaterSampleReportController::class, 'publicShow'])
+    ->name('public-water-sample-report')
+    ->middleware('signed');
+
 Route::get('water-sample-invoices/{water_sample_invoice}/pdf-report', [WaterSampleInvoiceController::class, 'generatePdf']);
 Route::get('purchase-orders/{purchase_order}/pdf-report', [PurchaseOrderController::class, 'generatePdf']);
 Route::get('payment/{payment}/pdf-report', [\App\Http\Controllers\PaymentController::class, 'generatePdf']);

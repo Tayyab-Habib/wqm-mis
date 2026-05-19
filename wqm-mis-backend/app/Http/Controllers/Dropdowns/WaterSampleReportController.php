@@ -19,6 +19,8 @@ use Illuminate\Contracts\Container\BindingResolutionException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\URL;
+use SimpleSoftwareIO\QrCode\Facades\QrCode;
 use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 class WaterSampleReportController extends Controller
@@ -98,6 +100,23 @@ class WaterSampleReportController extends Controller
             ->select('description')
             ->get();
 
+        // Build the signed public viewer URL (no expiry — official lab reports
+        // are referenced for years), then encode it as an inline SVG QR. The
+        // signature is HMAC'd with APP_KEY so the slug space cannot be
+        // enumerated by scanning sequential IDs.
+        $publicShareUrl = URL::signedRoute('public-water-sample-report', [
+            'water_sample' => $water_sample->id,
+        ]);
+
+        // ->generate() returns an Illuminate\Support\HtmlString. Laravel's
+        // response()->json() serializes objects to {"html":"..."} instead of
+        // invoking __toString(), so the SPA would receive `[object Object]`.
+        $qrSvg = (string) QrCode::format('svg')
+            ->size(140)
+            ->margin(0)
+            ->errorCorrection('M')
+            ->generate($publicShareUrl);
+
         return response()->json([
             'message' => 'Success fetching water-sample-report',
             'data' => [
@@ -105,6 +124,8 @@ class WaterSampleReportController extends Controller
                 'desired_tests' => implode(', ', $desiredTests),
                 'abbreviations' => $abbreviations,
                 'term_and_conditions' => $termAndConditions,
+                'public_share_url' => $publicShareUrl,
+                'qr_svg' => $qrSvg,
             ],
         ], SymfonyResponse::HTTP_OK);
     }
@@ -136,6 +157,53 @@ class WaterSampleReportController extends Controller
         $controller = app()->make(WaterSampleReportController::class);
 
         return $controller->callAction('index', ['request' => $request, 'water_sample' => $waterSample]);
+    }
+
+    /**
+     * Public, signature-gated HTML viewer for the QR-code workflow. Renders
+     * the same Blade as the PDF endpoint, but as a browser-friendly page so a
+     * stakeholder scanning the QR on a printed report sees the result in their
+     * phone browser without needing to log in. Access control is handled by
+     * Laravel's `signed` middleware on the route.
+     */
+    public function publicShow(WaterSample $waterSample)
+    {
+        $waterSample->load('waterSampleDetails.test', 'collectable');
+
+        $abbreviations = Abbreviation::query()
+            ->select(['name', 'detail'])
+            ->get();
+
+        $termAndConditions = TermAndCondition::query()
+            ->select('description as term_condition')
+            ->get()
+            ->toArray();
+
+        $desiredTests = Test::query()
+            ->select('water_quality_parameter')
+            ->whereHas('waterSampleDetails', fn($query) => $query->where('water_sample_id', '=', $waterSample?->id)
+                ->where('type', '=', TestTypeEnum::ON_DEMAND->value))
+            ->pluck('water_quality_parameter')->toArray();
+
+        $waterSample->collectable_type = $waterSample->collectable_type === User::class
+            ? CollectableTypeEnum::PHE->value
+            : CollectableTypeEnum::PRIVATE->value;
+
+        $desiredTests = implode(',', $desiredTests);
+
+        // Same signed URL + QR that the SPA report receives, so the printed
+        // public view also carries a re-scannable QR at the top-right.
+        $publicShareUrl = URL::signedRoute('public-water-sample-report', [
+            'water_sample' => $waterSample->id,
+        ]);
+
+        $qrSvg = (string) QrCode::format('svg')
+            ->size(100)
+            ->margin(0)
+            ->errorCorrection('M')
+            ->generate($publicShareUrl);
+
+        return view('waterSample.report', compact('waterSample', 'abbreviations', 'termAndConditions', 'desiredTests', 'qrSvg'));
     }
 
     public function generatePdf(WaterSample $waterSample)
