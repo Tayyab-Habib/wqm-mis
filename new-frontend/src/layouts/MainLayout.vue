@@ -1,10 +1,19 @@
 <script setup>
-import { onMounted, onUnmounted } from 'vue'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import Sidebar from '../components/common/Sidebar/Sidebar.vue'
 import Topbar from '../components/common/Topbar/Topbar.vue'
 import { useUserStore } from '../stores/useUserStore.js'
 
 const userStore = useUserStore()
+const route = useRoute()
+
+// ── Mobile off-canvas nav ─────────────────────────────────────────────
+const navOpen = ref(false)
+function toggleNav() { navOpen.value = !navOpen.value }
+function closeNav() { navOpen.value = false }
+// Auto-close when the route changes so taps on a nav item dismiss the drawer
+watch(() => route.fullPath, closeNav)
 
 // Live RBAC: when the tab regains focus, pull fresh roles + permissions
 // from /api/me so admin edits made elsewhere take effect without a logout.
@@ -26,10 +35,12 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="app">
+  <div class="app" :class="{ 'nav-open': navOpen }">
     <Sidebar />
+    <!-- Tap-to-dismiss backdrop, only shown on phone via global responsive CSS -->
+    <div class="mobile-nav-backdrop" @click="closeNav"></div>
     <div class="main">
-      <Topbar />
+      <Topbar @toggle-nav="toggleNav" />
       <!-- ── Dummy-account banner (SRS §1.2 demo mode) ── -->
       <div v-if="userStore.isDummy" class="dummy-banner">
         🎭 Demo Mode — changes are not saved. You're using a training account.

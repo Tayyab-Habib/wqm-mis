@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '../stores/useUserStore.js'
 import { clientPortalService } from '../services/clientPortalService.js'
@@ -7,6 +7,12 @@ import { clientPortalService } from '../services/clientPortalService.js'
 const router    = useRouter()
 const route     = useRoute()
 const userStore = useUserStore()
+
+// Off-canvas mobile nav
+const navOpen = ref(false)
+function toggleNav() { navOpen.value = !navOpen.value }
+function closeNav()  { navOpen.value = false }
+watch(() => route.fullPath, closeNav)
 
 const client = computed(() => userStore.currentUser)
 
@@ -38,7 +44,7 @@ async function logout() {
 </script>
 
 <template>
-  <div class="cp-shell">
+  <div class="cp-shell" :class="{ 'nav-open': navOpen }">
     <!-- ── Sidebar ── -->
     <aside class="cp-sidebar">
       <!-- Brand -->
@@ -82,11 +88,13 @@ async function logout() {
         </button>
       </div>
     </aside>
+    <div class="mobile-nav-backdrop" @click="closeNav"></div>
 
     <!-- ── Main ── -->
     <div class="cp-main">
       <!-- Topbar -->
       <header class="cp-topbar">
+        <button class="mobile-nav-toggle" @click="toggleNav" title="Menu" aria-label="Menu" style="margin-right:10px">☰</button>
         <div class="cp-topbar-left">
           <span class="cp-topbar-breadcrumb">Client Portal</span>
           <span class="cp-topbar-sep">›</span>

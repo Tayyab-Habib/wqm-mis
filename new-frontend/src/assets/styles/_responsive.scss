@@ -1,0 +1,283 @@
+// ────────────────────────────────────────────────────────────────────
+//  GLOBAL RESPONSIVE LAYER
+//  Mobile-first overrides for the entire app. Keeps the desktop look
+//  intact at >= 1025 px and progressively re-stacks at 1024 / 768 / 480.
+// ────────────────────────────────────────────────────────────────────
+
+// ── Tablet ( <= 1024 px ) ───────────────────────────────────────────
+@media (max-width: 1024px) {
+  // KPI / stat grids drop to 3-up
+  .cards                  { grid-template-columns: repeat(3, 1fr) !important; }
+  .cards.cards-4          { grid-template-columns: repeat(3, 1fr) !important; }
+  .cards.cards-3          { grid-template-columns: repeat(3, 1fr) !important; }
+  .cp-stat-row            { grid-template-columns: repeat(3, 1fr) !important; }
+  .kpi-row                { grid-template-columns: repeat(3, 1fr) !important; }
+  .cd-cards               { grid-template-columns: repeat(3, 1fr) !important; }
+  .cd-cards.cards-4       { grid-template-columns: repeat(3, 1fr) !important; }
+  .cd-cards.cards-5       { grid-template-columns: repeat(3, 1fr) !important; }
+  .cd-cards.cards-6       { grid-template-columns: repeat(3, 1fr) !important; }
+  .xd-cards               { grid-template-columns: repeat(3, 1fr) !important; }
+  .sec-cards              { grid-template-columns: repeat(3, 1fr) !important; }
+
+  // Form grids compact
+  .form-grid              { grid-template-columns: 1fr 1fr !important; }
+  .form-grid.c2           { grid-template-columns: 1fr 1fr !important; }
+
+  // Content padding
+  .content                { padding: 14px !important; }
+  .ce-content, .xen-content, .sec-content, .secretary-content {
+    padding: 14px 14px !important;
+  }
+}
+
+// ── Phone ( <= 768 px ) — the big one ───────────────────────────────
+@media (max-width: 768px) {
+  // ── KPI / stat grids drop to 2-up ──
+  .cards,
+  .cards.cards-4,
+  .cards.cards-3,
+  .cp-stat-row,
+  .kpi-row,
+  .cd-cards,
+  .cd-cards.cards-4,
+  .cd-cards.cards-5,
+  .cd-cards.cards-6,
+  .xd-cards,
+  .sec-cards {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px !important;
+  }
+
+  // Tighter card padding so two fit cleanly
+  .card,
+  .cp-stat-card,
+  .kpi-card,
+  .cd-cards .c,
+  .xd-cards .c,
+  .sec-cards .c {
+    padding: 10px 12px !important;
+    .c-val, .cp-stat-val, .kpi-val, .val { font-size: 18px !important; }
+    .c-lbl, .cp-stat-lbl, .kpi-name, .lbl { font-size: 9.5px !important; }
+    .c-sub, .sub { font-size: 10px !important; }
+  }
+
+  // ── Form grids fully stack ──
+  .form-grid,
+  .form-grid.c2 {
+    grid-template-columns: 1fr !important;
+  }
+  .span2, .span3 { grid-column: 1 / -1 !important; }
+
+  // ── Toolbars stack neatly ──
+  .toolbar,
+  .filters,
+  .cd-toolbar,
+  .xen-toolbar,
+  .cp-toolbar,
+  .sec-toolbar {
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+    padding: 10px 12px !important;
+    align-items: stretch !important;
+
+    input[type=text],
+    input[type=date],
+    input[type=time],
+    input[type=number],
+    select,
+    textarea {
+      width: 100% !important;
+      min-width: 0 !important;
+    }
+
+    .fg,
+    .fg2 {
+      flex: 1 1 calc(50% - 4px) !important;
+      min-width: 0 !important;
+    }
+
+    .tsp, .spacer { display: none !important; }
+
+    .btn, .btn-export, .cd-btn {
+      flex: 1 1 auto;
+      justify-content: center;
+    }
+  }
+
+  // ── Topbar gets compact ──
+  .topbar {
+    padding: 0 12px !important;
+    gap: 6px !important;
+    .lab-tag, .user-tag { font-size: 10.5px !important; padding: 3px 7px !important; }
+    .btn-logout { padding: 3px 8px !important; font-size: 10.5px !important; }
+  }
+
+  // ── Tables: force horizontal scroll for ANY direct child of these wrappers ──
+  .tbl-wrap,
+  .cp-table-wrap,
+  .cd-tbl-wrap,
+  .panel,
+  .sec-panel {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  table {
+    font-size: 11.5px !important;
+    th, td { padding: 6px 8px !important; white-space: nowrap; }
+  }
+
+  // ── Page titles & section headers ──
+  .cp-page-title { font-size: 17px !important; }
+  .sh h2 { font-size: 13.5px !important; }
+
+  // ── Workflow steps horizontal-scroll on phone ──
+  .wf-steps {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    .wf-step { min-width: 110px; }
+  }
+
+  // ── Modals: full-bleed on phone ──
+  .modal {
+    width: 95vw !important;
+    max-width: 95vw !important;
+    max-height: 92vh !important;
+    padding: 14px !important;
+    h2 { font-size: 14px; }
+  }
+  .modal-overlay { padding: 12px !important; }
+
+  // Generic inline modal patterns used by various pages — these match the
+  // ad-hoc fixed-position modals in XEN / CE / Secretary / Finance pages.
+  .xl-modal, .xt-modal, .cd-modal, .sec-modal,
+  .invoice-modal, .retest-modal, .fate-modal {
+    width: 95vw !important;
+    max-width: 95vw !important;
+    max-height: 92vh !important;
+  }
+  // Two-column modal body collapses to one
+  .xl-grid-2, .xt-grid-2, .xt-body, .sec-body, .cd-body, .modal-grid-2 {
+    grid-template-columns: 1fr !important;
+  }
+
+  // ── Generic content padding ──
+  .content,
+  .ce-content,
+  .xen-content,
+  .sec-content,
+  .secretary-content {
+    padding: 12px !important;
+  }
+  .cd, .xd, .secd { padding: 0 !important; }
+
+  // ── Login page tweaks ──
+  .login-page {
+    padding: 14px !important;
+    .login-card { max-width: 100% !important; padding: 20px 18px !important; }
+  }
+}
+
+// ── Tiny phone ( <= 480 px ) ────────────────────────────────────────
+@media (max-width: 480px) {
+  .cards,
+  .cards.cards-4,
+  .cards.cards-3,
+  .cp-stat-row,
+  .kpi-row,
+  .cd-cards,
+  .cd-cards.cards-4,
+  .cd-cards.cards-5,
+  .cd-cards.cards-6,
+  .xd-cards,
+  .sec-cards {
+    grid-template-columns: 1fr !important;
+  }
+  .toolbar .fg,
+  .filters .fg,
+  .cd-toolbar .fg,
+  .xen-toolbar .fg,
+  .cd-toolbar .fg2,
+  .xen-toolbar .fg2 {
+    flex: 1 1 100% !important;
+  }
+  .topbar {
+    .lab-tag, .user-tag { display: none !important; }
+  }
+}
+
+// ── Off-canvas mobile sidebar (used by every layout) ────────────────
+// The four layouts each carry their own root class (.app for admin,
+// .xen-app for XEN, .ce-app for CE, .sec-app for Secretary). When the
+// root carries .nav-open, the sidebar slides in and a backdrop appears.
+.mobile-nav-toggle {
+  display: none;
+  background: transparent;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 4px 9px;
+  font-size: 16px;
+  color: #334155;
+  cursor: pointer;
+  font-family: inherit;
+  line-height: 1;
+}
+.mobile-nav-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, .5);
+  z-index: 998;
+}
+
+@media (max-width: 900px) {
+  .mobile-nav-toggle { display: inline-flex !important; align-items: center; justify-content: center; }
+
+  // Hide the desktop topbar bits that crowd a phone
+  .topbar .tbar-bc { font-size: 11px; }
+
+  .app > .sidebar,
+  .xen-app > .xen-sidebar,
+  .ce-app > .ce-sidebar,
+  .sec-app > .sec-sidebar,
+  .cp-shell > .cp-sidebar {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 250px !important;
+    height: 100vh !important;
+    z-index: 999;
+    transform: translateX(-100%);
+    transition: transform .2s ease;
+    box-shadow: 4px 0 18px rgba(0, 0, 0, .25);
+  }
+  .app.nav-open > .sidebar,
+  .xen-app.nav-open > .xen-sidebar,
+  .ce-app.nav-open > .ce-sidebar,
+  .sec-app.nav-open > .sec-sidebar,
+  .cp-shell.nav-open > .cp-sidebar {
+    transform: translateX(0) !important;
+  }
+  .app.nav-open .mobile-nav-backdrop,
+  .xen-app.nav-open .mobile-nav-backdrop,
+  .ce-app.nav-open .mobile-nav-backdrop,
+  .sec-app.nav-open .mobile-nav-backdrop,
+  .cp-shell.nav-open .mobile-nav-backdrop {
+    display: block !important;
+  }
+
+  // Collapse the desktop "your scope" sidebar block that takes vertical room
+  .app > .main,
+  .xen-app > .xen-main,
+  .ce-app > .ce-main,
+  .sec-app > .sec-main,
+  .cp-shell > .cp-main {
+    margin-left: 0 !important;
+    width: 100% !important;
+  }
+}
+
+// ── Print: keep landscape report flow ───────────────────────────────
+@media print {
+  .mobile-nav-toggle, .mobile-nav-backdrop { display: none !important; }
+}

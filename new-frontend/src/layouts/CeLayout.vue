@@ -1,11 +1,18 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { ceService } from '../services/ceService.js'
 import { useUserStore } from '../stores/useUserStore.js'
 
 const router = useRouter()
+const route  = useRoute()
 const userStore = useUserStore()
+
+// Off-canvas mobile nav
+const navOpen = ref(false)
+function toggleNav() { navOpen.value = !navOpen.value }
+function closeNav()  { navOpen.value = false }
+watch(() => route.fullPath, closeNav)
 
 const me = ref(null)
 const ceEscalatedCount = ref(0)
@@ -114,7 +121,7 @@ function badgeFor(ref) {
 </script>
 
 <template>
-  <div class="ce-app">
+  <div class="ce-app" :class="{ 'nav-open': navOpen }">
     <!-- ── Sidebar ────────────────────────────────────────────── -->
     <aside class="ce-sidebar">
       <div class="cb-brand">
@@ -140,10 +147,12 @@ function badgeFor(ref) {
         </template>
       </nav>
     </aside>
+    <div class="mobile-nav-backdrop" @click="closeNav"></div>
 
     <!-- ── Main ───────────────────────────────────────────────── -->
     <div class="ce-main">
       <header class="ce-topbar">
+        <button class="mobile-nav-toggle" @click="toggleNav" title="Menu" aria-label="Menu">☰</button>
         <div class="ct-title">{{ $route.meta?.title || 'Dashboard' }}</div>
         <div class="ct-right">
           <span class="ct-scope-chip">
