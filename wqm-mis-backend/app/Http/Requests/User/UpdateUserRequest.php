@@ -64,7 +64,7 @@ class UpdateUserRequest extends FormRequest
             // Optional direct permission grants on top of role-derived perms.
             'extra_permissions'   => ['nullable', 'array'],
             'extra_permissions.*' => [Rule::exists('permissions', 'name')],
-            'password' => ['nullable', 'string', Password::min(8)->letters()->mixedCase()->numbers()->symbols()->uncompromised()]
+            'password' => ['nullable', 'string'],
         ];
     }
 }

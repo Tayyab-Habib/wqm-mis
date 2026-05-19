@@ -139,6 +139,16 @@ const stepFields = {
 function stepHasErrors(stepN) {
   return stepFields[stepN].some(f => createErrors.value[f])
 }
+// Map a field name back to the step it lives on (1..4), or null if unknown.
+function findStepForField(field) {
+  for (const [n, fields] of Object.entries(stepFields)) {
+    if (fields.includes(field)) return Number(n)
+  }
+  return null
+}
+function prettyFieldName(field) {
+  return field.replace(/_id$/, '').replace(/_/g, ' ')
+}
 function goToStep(n) {
   if (n >= 1 && n <= steps.length) currentStep.value = n
 }
@@ -315,6 +325,11 @@ async function submitCreateUser() {
         fd.append(f, createForm.value[f])
       }
     })
+    // Send assigned_parameters whenever a laboratory is picked — backend pivot
+    // expects the key to exist (nullable column) and PHP 8 warns on missing keys.
+    if (createForm.value.laboratory_id) {
+      fd.append('assigned_parameters', '')
+    }
     if (createForm.value.image) fd.append('image', createForm.value.image)
 
     let res
@@ -560,6 +575,26 @@ onMounted(loadUsers)
             <div v-if="createSuccess" class="cu-alert cu-alert-ok">{{ createSuccess }}</div>
             <!-- General error -->
             <div v-if="createErrors._general" class="cu-alert cu-alert-err">{{ createErrors._general[0] }}</div>
+
+            <!-- Cross-step validation summary — surfaces field errors from ANY step
+                 so they're visible regardless of which step you're currently on. -->
+            <div v-if="Object.keys(createErrors).filter(k => k !== '_general').length"
+                 class="cu-alert cu-alert-warn">
+              <div class="cu-alert-title">⚠ Please fix the following before submitting:</div>
+              <ul class="cu-err-list">
+                <li v-for="(msgs, field) in createErrors" :key="field">
+                  <template v-if="field !== '_general'">
+                    <button type="button" class="cu-err-jump"
+                            v-if="findStepForField(field)"
+                            @click="goToStep(findStepForField(field))">
+                      Step {{ findStepForField(field) }}
+                    </button>
+                    <b>{{ prettyFieldName(field) }}:</b>
+                    {{ Array.isArray(msgs) ? msgs[0] : msgs }}
+                  </template>
+                </li>
+              </ul>
+            </div>
 
             <!-- ── Step 1: Personal Info ── -->
             <div v-show="currentStep === 1" class="cu-step-content">
@@ -975,8 +1010,48 @@ onMounted(loadUsers)
   font-size: 12.5px;
   line-height: 1.5;
 }
-.cu-alert-ok  { background: #d1fae5; border: 1px solid #6ee7b7; color: #065f46; }
-.cu-alert-err { background: #fee2e2; border: 1px solid #fca5a5; color: #991b1b; }
+.cu-alert-ok   { background: #d1fae5; border: 1px solid #6ee7b7; color: #065f46; }
+.cu-alert-err  { background: #fee2e2; border: 1px solid #fca5a5; color: #991b1b; }
+.cu-alert-warn {
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  color: #7c2d12;
+}
+.cu-alert-title { font-weight: 700; margin-bottom: 6px; }
+.cu-err-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cu-err-list li {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 6px;
+  line-height: 1.5;
+  font-size: 12px;
+}
+.cu-err-list li b {
+  text-transform: capitalize;
+  font-weight: 700;
+}
+.cu-err-jump {
+  background: #fb923c;
+  border: none;
+  color: #fff;
+  border-radius: 4px;
+  padding: 1px 8px;
+  font-size: 10.5px;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: .3px;
+  transition: background .15s;
+  flex-shrink: 0;
+}
+.cu-err-jump:hover { background: #ea580c; }
 
 /* Review summary on step 4 */
 .cu-review {
