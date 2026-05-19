@@ -109,8 +109,8 @@ class UserController extends Controller
                 $user->laboratories()
                     ->sync([
                         $validatedData['laboratory_id'] => [
-                            'present_duty' => $validatedData['present_duty'],
-                            'assigned_parameters' => $validatedData['assigned_parameters'],
+                            'present_duty'        => $validatedData['present_duty']        ?? null,
+                            'assigned_parameters' => $validatedData['assigned_parameters'] ?? null,
                         ]
                     ]);
             }

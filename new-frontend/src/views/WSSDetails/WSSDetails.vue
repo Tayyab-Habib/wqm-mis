@@ -278,6 +278,27 @@ const showAddModal   = ref(false)
 const addLoading     = ref(false)
 const addErrors      = ref({})
 
+// Stepper config for the Add WSS wizard
+const wzStep = ref(1)
+const wzSteps = [
+  { n: 1, icon: '📋', title: 'Basic Info',     subtitle: 'Name & address' },
+  { n: 2, icon: '📍', title: 'Location',       subtitle: 'Administrative area' },
+  { n: 3, icon: '🗺️', title: 'GPS',            subtitle: 'Map coordinates' },
+  { n: 4, icon: '⚙️', title: 'Technical',      subtitle: 'Source, power & specs' },
+]
+const wzStepFields = {
+  1: ['name','address'],
+  2: ['division_id','district_id','tehsil_id','union_council_id'],
+  3: ['latitude','longitude'],
+  4: ['source_type','operation','power_input','chamber','years_of_installation','mode','type_of_machine','pipe_type','horse_power_motor','capacity','depth','storage','population','remarks'],
+}
+function wzStepHasErrors(n) {
+  return wzStepFields[n].some(f => addErrors.value[f])
+}
+function wzGoTo(n) { if (n >= 1 && n <= wzSteps.length) wzStep.value = n }
+function wzNext()  { if (wzStep.value < wzSteps.length) wzStep.value++ }
+function wzPrev()  { if (wzStep.value > 1) wzStep.value-- }
+
 // Locality data for the form
 const allProvinces      = ref([])
 const allTehsils        = ref([])
@@ -327,6 +348,7 @@ const addForm = ref(emptyForm())
 async function openAddModal() {
   addForm.value  = emptyForm()
   addErrors.value = {}
+  wzStep.value   = 1
   showAddModal.value = true
 
   // Load locality + wss dropdowns if not yet loaded
@@ -424,6 +446,10 @@ async function submitAddWss() {
     addErrors.value = e.response?.data?.errors || {}
     if (!Object.keys(addErrors.value).length) {
       addErrors.value._general = [e.response?.data?.message || e.message || 'Failed to create water scheme']
+    }
+    // Jump to first step that has a validation error
+    for (const s of wzSteps) {
+      if (wzStepHasErrors(s.n)) { wzStep.value = s.n; break }
     }
   } finally {
     addLoading.value = false
@@ -665,214 +691,262 @@ function closeAddModal() {
         </div>
       </div>
     </Teleport>
-    <!-- ── ADD WSS MODAL ── -->
+    <!-- ── ADD WSS MODAL (step-by-step wizard) ── -->
     <Teleport to="body">
-      <div v-if="showAddModal" @click.self="closeAddModal"
-           style="display:flex;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:5000;align-items:flex-start;justify-content:center;overflow-y:auto;padding:24px 12px">
-        <div style="background:#fff;border-radius:10px;width:100%;max-width:860px;box-shadow:0 8px 48px rgba(0,0,0,.3);overflow:hidden;margin:auto">
+      <div v-if="showAddModal" @click.self="closeAddModal" class="wz-overlay">
+        <div class="wz-modal">
 
           <!-- Header -->
-          <div style="background:var(--navy);color:#fff;padding:14px 22px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:1">
+          <div class="wz-header">
             <div>
-              <div style="font-size:14px;font-weight:700">💧 Create Water Scheme</div>
-              <div style="font-size:11px;opacity:.65;margin-top:2px">Fill in the details below — all starred fields are required</div>
+              <div class="wz-title">💧 Create Water Scheme</div>
+              <div class="wz-subtitle">Complete each step to register a new water supply scheme. Fields marked * are required.</div>
             </div>
-            <button @click="closeAddModal" style="background:rgba(255,255,255,.15);border:none;color:#fff;border-radius:5px;padding:5px 14px;cursor:pointer;font-size:14px">✕</button>
+            <button class="wz-close" @click="closeAddModal" aria-label="Close">✕</button>
           </div>
 
-          <div style="padding:22px 26px">
+          <!-- Stepper -->
+          <div class="wz-stepper">
+            <div
+              v-for="s in wzSteps" :key="s.n"
+              class="wz-step"
+              :class="{
+                'is-active': wzStep === s.n,
+                'is-done':   wzStep > s.n,
+                'has-error': wzStepHasErrors(s.n) && wzStep !== s.n,
+              }"
+              @click="wzGoTo(s.n)"
+            >
+              <div class="wz-step-circle">
+                <span v-if="wzStep > s.n && !wzStepHasErrors(s.n)">✓</span>
+                <span v-else-if="wzStepHasErrors(s.n) && wzStep !== s.n">!</span>
+                <span v-else>{{ s.n }}</span>
+              </div>
+              <div class="wz-step-label">
+                <div class="wz-step-title">{{ s.icon }} {{ s.title }}</div>
+                <div class="wz-step-sub">{{ s.subtitle }}</div>
+              </div>
+              <div v-if="s.n < wzSteps.length" class="wz-step-bar" :class="{ 'is-filled': wzStep > s.n }"></div>
+            </div>
+          </div>
 
-            <!-- General error -->
-            <div v-if="addErrors._general" style="background:#fee2e2;border:1px solid #fca5a5;border-radius:5px;padding:10px 14px;margin-bottom:14px;font-size:12.5px;color:#991b1b">
-              {{ addErrors._general[0] }}
-            </div>
+          <!-- Body -->
+          <div class="wz-body">
 
-            <!-- ── Section: Basic Info ── -->
-            <div style="font-size:11px;font-weight:700;color:var(--navy2);background:var(--sky2);border:1px solid var(--sky);border-radius:4px;padding:5px 12px;margin-bottom:12px">
-              📋 Basic Information
-            </div>
-            <div class="form-grid" style="margin-bottom:14px">
-              <!-- Name -->
-              <div class="fg2 span2">
-                <label>Name <span style="color:var(--red)">*</span></label>
-                <input type="text" v-model="addForm.name" placeholder="e.g. Peshawar City WSS" :style="addErrors.name ? 'border-color:var(--red)' : ''">
-                <span v-if="addErrors.name" style="font-size:11px;color:var(--red)">{{ addErrors.name[0] }}</span>
-              </div>
-              <!-- Address -->
-              <div class="fg2 span2">
-                <label>Address <span style="color:var(--red)">*</span></label>
-                <input type="text" v-model="addForm.address" placeholder="Full address" :style="addErrors.address ? 'border-color:var(--red)' : ''">
-                <span v-if="addErrors.address" style="font-size:11px;color:var(--red)">{{ addErrors.address[0] }}</span>
-              </div>
-            </div>
+            <div v-if="addErrors._general" class="wz-alert wz-alert-err">{{ addErrors._general[0] }}</div>
 
-            <!-- ── Section: Location ── -->
-            <div style="font-size:11px;font-weight:700;color:var(--navy2);background:var(--sky2);border:1px solid var(--sky);border-radius:4px;padding:5px 12px;margin-bottom:12px">
-              📍 Location
-            </div>
-            <div class="form-grid" style="margin-bottom:14px">
-              <!-- Division -->
-              <div class="fg2">
-                <label>Division <span style="color:var(--red)">*</span></label>
-                <select v-model="addForm.division_id" @change="onFormDivisionChange(addForm.division_id)" :style="addErrors.division_id ? 'border-color:var(--red)' : ''">
-                  <option value="">— Select Division —</option>
-                  <option v-for="d in allDivisions" :key="d.id" :value="d.id">{{ d.name }}</option>
-                </select>
-                <span v-if="addErrors.division_id" style="font-size:11px;color:var(--red)">{{ addErrors.division_id[0] }}</span>
+            <!-- Step 1 — Basic Info -->
+            <div v-show="wzStep === 1" class="wz-step-content">
+              <div class="wz-section-head">
+                <div class="wz-section-title">📋 Basic Information</div>
+                <div class="wz-section-sub">Identify the scheme with a clear name and physical address.</div>
               </div>
-              <!-- District -->
-              <div class="fg2">
-                <label>District <span style="color:var(--red)">*</span></label>
-                <select v-model="addForm.district_id" @change="onFormDistrictChange(addForm.district_id)" :disabled="!addForm.division_id" :style="addErrors.district_id ? 'border-color:var(--red)' : ''">
-                  <option value="">— Select District —</option>
-                  <option v-for="d in formDistricts" :key="d.id" :value="d.id">{{ d.name }}</option>
-                </select>
-                <span v-if="addErrors.district_id" style="font-size:11px;color:var(--red)">{{ addErrors.district_id[0] }}</span>
-              </div>
-              <!-- Tehsil -->
-              <div class="fg2">
-                <label>Tehsil <span style="color:var(--red)">*</span></label>
-                <select v-model="addForm.tehsil_id" @change="onFormTehsilChange(addForm.tehsil_id)" :disabled="!addForm.district_id" :style="addErrors.tehsil_id ? 'border-color:var(--red)' : ''">
-                  <option value="">— Select Tehsil —</option>
-                  <option v-for="t in formTehsils" :key="t.id" :value="t.id">{{ t.name }}</option>
-                </select>
-                <span v-if="addErrors.tehsil_id" style="font-size:11px;color:var(--red)">{{ addErrors.tehsil_id[0] }}</span>
-              </div>
-              <!-- Union Council -->
-              <div class="fg2">
-                <label>Union Council</label>
-                <select v-model="addForm.union_council_id" :disabled="!addForm.tehsil_id">
-                  <option value="">— Select Union Council —</option>
-                  <option v-for="u in formUnionCouncils" :key="u.id" :value="u.id">{{ u.name }}</option>
-                </select>
-              </div>
-            </div>
-
-            <!-- ── Section: GPS Coordinates ── -->
-            <div style="font-size:11px;font-weight:700;color:var(--navy2);background:var(--sky2);border:1px solid var(--sky);border-radius:4px;padding:5px 12px;margin-bottom:12px">
-              🗺 GPS Coordinates <span style="font-weight:400;opacity:.7">(auto-filled from district, or enter manually)</span>
-            </div>
-            <div class="form-grid" style="margin-bottom:14px">
-              <div class="fg2">
-                <label>Latitude <span style="color:var(--red)">*</span></label>
-                <input type="number" step="any" v-model="addForm.latitude" @input="onLatLngInput" placeholder="e.g. 34.0151" :style="addErrors.latitude ? 'border-color:var(--red)' : ''">
-                <span v-if="addErrors.latitude" style="font-size:11px;color:var(--red)">{{ addErrors.latitude[0] }}</span>
-              </div>
-              <div class="fg2">
-                <label>Longitude <span style="color:var(--red)">*</span></label>
-                <input type="number" step="any" v-model="addForm.longitude" @input="onLatLngInput" placeholder="e.g. 71.5249" :style="addErrors.longitude ? 'border-color:var(--red)' : ''">
-                <span v-if="addErrors.longitude" style="font-size:11px;color:var(--red)">{{ addErrors.longitude[0] }}</span>
-              </div>
-              <!-- Map placeholder — shows current pin coordinates -->
-              <div class="fg2 span2" style="background:#f0f7ff;border:1px solid var(--sky);border-radius:6px;padding:12px 14px;font-size:12px;color:var(--navy2)">
-                📌 <b>Pin Location:</b>
-                <span v-if="addForm.latitude && addForm.longitude"> {{ addForm.latitude }}, {{ addForm.longitude }}</span>
-                <span v-else style="color:var(--muted)"> Select a district or enter coordinates above</span>
-                <div style="font-size:11px;color:var(--muted);margin-top:4px">
-                  Tip: Select a district to auto-fill coordinates, then adjust manually if needed.
+              <div class="wz-grid wz-grid-1">
+                <div class="wz-field">
+                  <label>WSS Name <span class="req">*</span></label>
+                  <input type="text" v-model="addForm.name" placeholder="e.g. Peshawar City WSS" :class="{ 'has-err': addErrors.name }">
+                  <span v-if="addErrors.name" class="wz-err">{{ addErrors.name[0] }}</span>
+                </div>
+                <div class="wz-field">
+                  <label>Address <span class="req">*</span></label>
+                  <input type="text" v-model="addForm.address" placeholder="Full physical address of the scheme" :class="{ 'has-err': addErrors.address }">
+                  <span v-if="addErrors.address" class="wz-err">{{ addErrors.address[0] }}</span>
                 </div>
               </div>
             </div>
 
-            <!-- ── Section: Technical Details ── -->
-            <div style="font-size:11px;font-weight:700;color:var(--navy2);background:var(--sky2);border:1px solid var(--sky);border-radius:4px;padding:5px 12px;margin-bottom:12px">
-              ⚙ Technical Details
-            </div>
-            <div class="form-grid" style="margin-bottom:14px">
-              <!-- Source Type -->
-              <div class="fg2">
-                <label>Source Type</label>
-                <select v-model="addForm.source_type">
-                  <option value="">— Select —</option>
-                  <option v-for="s in sourceTypeOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
-                </select>
+            <!-- Step 2 — Location -->
+            <div v-show="wzStep === 2" class="wz-step-content">
+              <div class="wz-section-head">
+                <div class="wz-section-title">📍 Administrative Location</div>
+                <div class="wz-section-sub">Cascading selection — pick Division first, then District, Tehsil, and Union Council.</div>
               </div>
-              <!-- Operation -->
-              <div class="fg2">
-                <label>Operation</label>
-                <select v-model="addForm.operation">
-                  <option value="">— Select —</option>
-                  <option v-for="o in operationOptions" :key="o.id" :value="o.id">{{ o.name }}</option>
-                </select>
-              </div>
-              <!-- Power Input -->
-              <div class="fg2">
-                <label>Power Input</label>
-                <select v-model="addForm.power_input">
-                  <option value="">— Select —</option>
-                  <option v-for="p in powerInputs" :key="p.value" :value="p.value">{{ p.name }}</option>
-                </select>
-              </div>
-              <!-- Chamber -->
-              <div class="fg2">
-                <label>Chamber</label>
-                <select v-model="addForm.chamber">
-                  <option value="">— Select —</option>
-                  <option v-for="c in chamberOptions" :key="c.id" :value="c.id">{{ c.name }}</option>
-                </select>
-              </div>
-              <!-- Year of Installation -->
-              <div class="fg2">
-                <label>Year of Installation</label>
-                <input type="number" v-model="addForm.years_of_installation" :min="1947" :max="new Date().getFullYear()" placeholder="e.g. 2005">
-              </div>
-              <!-- Mode -->
-              <div class="fg2">
-                <label>Mode</label>
-                <input type="text" v-model="addForm.mode" placeholder="e.g. Continuous">
-              </div>
-              <!-- Type of Machine -->
-              <div class="fg2">
-                <label>Type of Machine</label>
-                <input type="text" v-model="addForm.type_of_machine" placeholder="e.g. Submersible">
-              </div>
-              <!-- Pipe Type -->
-              <div class="fg2">
-                <label>Type of Pipe</label>
-                <input type="text" v-model="addForm.pipe_type" placeholder="e.g. GI, PVC">
-              </div>
-              <!-- Horse Power Motor -->
-              <div class="fg2">
-                <label>Horse Power Motor</label>
-                <input type="number" v-model="addForm.horse_power_motor" placeholder="e.g. 10">
-              </div>
-              <!-- Capacity -->
-              <div class="fg2">
-                <label>Capacity</label>
-                <input type="number" v-model="addForm.capacity" placeholder="Gallons/hour">
-              </div>
-              <!-- Depth -->
-              <div class="fg2">
-                <label>Depth</label>
-                <input type="number" v-model="addForm.depth" placeholder="Feet">
-              </div>
-              <!-- Storage -->
-              <div class="fg2">
-                <label>Storage</label>
-                <input type="number" v-model="addForm.storage" placeholder="Gallons">
-              </div>
-              <!-- Population -->
-              <div class="fg2">
-                <label>Population Served</label>
-                <input type="number" v-model="addForm.population" placeholder="e.g. 5000">
-              </div>
-              <!-- Remarks -->
-              <div class="fg2 span2">
-                <label>Remarks</label>
-                <textarea v-model="addForm.remarks" rows="2" placeholder="Any additional notes…" style="width:100%;border:1px solid var(--border);border-radius:5px;padding:7px 10px;font-size:12.5px;font-family:inherit;resize:vertical;box-sizing:border-box"></textarea>
+              <div class="wz-grid wz-grid-2">
+                <div class="wz-field">
+                  <label>Division <span class="req">*</span></label>
+                  <select v-model="addForm.division_id" @change="onFormDivisionChange(addForm.division_id)" :class="{ 'has-err': addErrors.division_id }">
+                    <option value="">— Select Division —</option>
+                    <option v-for="d in allDivisions" :key="d.id" :value="d.id">{{ d.name }}</option>
+                  </select>
+                  <span v-if="addErrors.division_id" class="wz-err">{{ addErrors.division_id[0] }}</span>
+                </div>
+                <div class="wz-field">
+                  <label>District <span class="req">*</span></label>
+                  <select v-model="addForm.district_id" @change="onFormDistrictChange(addForm.district_id)" :disabled="!addForm.division_id" :class="{ 'has-err': addErrors.district_id }">
+                    <option value="">{{ addForm.division_id ? '— Select District —' : 'Pick a division first' }}</option>
+                    <option v-for="d in formDistricts" :key="d.id" :value="d.id">{{ d.name }}</option>
+                  </select>
+                  <span v-if="addErrors.district_id" class="wz-err">{{ addErrors.district_id[0] }}</span>
+                </div>
+                <div class="wz-field">
+                  <label>Tehsil <span class="req">*</span></label>
+                  <select v-model="addForm.tehsil_id" @change="onFormTehsilChange(addForm.tehsil_id)" :disabled="!addForm.district_id" :class="{ 'has-err': addErrors.tehsil_id }">
+                    <option value="">{{ addForm.district_id ? '— Select Tehsil —' : 'Pick a district first' }}</option>
+                    <option v-for="t in formTehsils" :key="t.id" :value="t.id">{{ t.name }}</option>
+                  </select>
+                  <span v-if="addErrors.tehsil_id" class="wz-err">{{ addErrors.tehsil_id[0] }}</span>
+                </div>
+                <div class="wz-field">
+                  <label>Union Council</label>
+                  <select v-model="addForm.union_council_id" :disabled="!addForm.tehsil_id">
+                    <option value="">{{ addForm.tehsil_id ? '— Select Union Council —' : 'Pick a tehsil first' }}</option>
+                    <option v-for="u in formUnionCouncils" :key="u.id" :value="u.id">{{ u.name }}</option>
+                  </select>
+                </div>
               </div>
             </div>
 
-            <!-- Footer actions -->
-            <div style="display:flex;justify-content:flex-end;gap:10px;padding-top:6px;border-top:1px solid var(--border)">
-              <button v-write class="btn btn-sec" @click="closeAddModal" :disabled="addLoading">Cancel</button>
-              <button v-write="'add_water_schemes'" class="btn btn-pri" @click="submitAddWss" :disabled="addLoading">
+            <!-- Step 3 — GPS Coordinates -->
+            <div v-show="wzStep === 3" class="wz-step-content">
+              <div class="wz-section-head">
+                <div class="wz-section-title">🗺️ GPS Coordinates</div>
+                <div class="wz-section-sub">Auto-filled from the selected district — adjust manually if you have a more precise pin.</div>
+              </div>
+              <div class="wz-grid wz-grid-2">
+                <div class="wz-field">
+                  <label>Latitude <span class="req">*</span></label>
+                  <input type="number" step="any" v-model="addForm.latitude" @input="onLatLngInput" placeholder="e.g. 34.0151" :class="{ 'has-err': addErrors.latitude }">
+                  <span v-if="addErrors.latitude" class="wz-err">{{ addErrors.latitude[0] }}</span>
+                </div>
+                <div class="wz-field">
+                  <label>Longitude <span class="req">*</span></label>
+                  <input type="number" step="any" v-model="addForm.longitude" @input="onLatLngInput" placeholder="e.g. 71.5249" :class="{ 'has-err': addErrors.longitude }">
+                  <span v-if="addErrors.longitude" class="wz-err">{{ addErrors.longitude[0] }}</span>
+                </div>
+              </div>
+              <div class="wz-pin">
+                <div class="wz-pin-icon">📌</div>
+                <div class="wz-pin-body">
+                  <div class="wz-pin-title">Current Pin Location</div>
+                  <div v-if="addForm.latitude && addForm.longitude" class="wz-pin-value">{{ addForm.latitude }}, {{ addForm.longitude }}</div>
+                  <div v-else class="wz-pin-empty">No coordinates set — select a district in Step 2 to auto-fill, or enter them above.</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Step 4 — Technical Details -->
+            <div v-show="wzStep === 4" class="wz-step-content">
+              <div class="wz-section-head">
+                <div class="wz-section-title">⚙️ Technical Details</div>
+                <div class="wz-section-sub">Source, power, machinery and capacity. All optional — fill what you have.</div>
+              </div>
+              <div class="wz-subhead">Source & Operation</div>
+              <div class="wz-grid wz-grid-3">
+                <div class="wz-field">
+                  <label>Source Type</label>
+                  <select v-model="addForm.source_type">
+                    <option value="">— Select —</option>
+                    <option v-for="s in sourceTypeOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
+                  </select>
+                </div>
+                <div class="wz-field">
+                  <label>Operation</label>
+                  <select v-model="addForm.operation">
+                    <option value="">— Select —</option>
+                    <option v-for="o in operationOptions" :key="o.id" :value="o.id">{{ o.name }}</option>
+                  </select>
+                </div>
+                <div class="wz-field">
+                  <label>Power Input</label>
+                  <select v-model="addForm.power_input">
+                    <option value="">— Select —</option>
+                    <option v-for="p in powerInputs" :key="p.value" :value="p.value">{{ p.name }}</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="wz-subhead">Machinery</div>
+              <div class="wz-grid wz-grid-3">
+                <div class="wz-field">
+                  <label>Type of Machine</label>
+                  <input type="text" v-model="addForm.type_of_machine" placeholder="e.g. Submersible">
+                </div>
+                <div class="wz-field">
+                  <label>Horse Power Motor</label>
+                  <input type="number" v-model="addForm.horse_power_motor" placeholder="e.g. 10">
+                </div>
+                <div class="wz-field">
+                  <label>Chamber</label>
+                  <select v-model="addForm.chamber">
+                    <option value="">— Select —</option>
+                    <option v-for="c in chamberOptions" :key="c.id" :value="c.id">{{ c.name }}</option>
+                  </select>
+                </div>
+                <div class="wz-field">
+                  <label>Pipe Type</label>
+                  <input type="text" v-model="addForm.pipe_type" placeholder="e.g. GI, PVC">
+                </div>
+                <div class="wz-field">
+                  <label>Mode</label>
+                  <input type="text" v-model="addForm.mode" placeholder="e.g. Continuous">
+                </div>
+                <div class="wz-field">
+                  <label>Year of Installation</label>
+                  <input type="number" v-model="addForm.years_of_installation" :min="1947" :max="new Date().getFullYear()" placeholder="e.g. 2005">
+                </div>
+              </div>
+
+              <div class="wz-subhead">Capacity & Storage</div>
+              <div class="wz-grid wz-grid-4">
+                <div class="wz-field">
+                  <label>Capacity</label>
+                  <input type="number" v-model="addForm.capacity" placeholder="Gallons / hr">
+                </div>
+                <div class="wz-field">
+                  <label>Storage</label>
+                  <input type="number" v-model="addForm.storage" placeholder="Gallons">
+                </div>
+                <div class="wz-field">
+                  <label>Depth</label>
+                  <input type="number" v-model="addForm.depth" placeholder="Feet">
+                </div>
+                <div class="wz-field">
+                  <label>Population Served</label>
+                  <input type="number" v-model="addForm.population" placeholder="e.g. 5000">
+                </div>
+              </div>
+
+              <div class="wz-grid wz-grid-1">
+                <div class="wz-field">
+                  <label>Remarks</label>
+                  <textarea v-model="addForm.remarks" rows="3" placeholder="Any additional notes about this scheme…"></textarea>
+                </div>
+              </div>
+
+              <!-- Review summary -->
+              <div class="wz-review">
+                <div class="wz-review-title">📋 Review Before Submitting</div>
+                <div class="wz-review-grid">
+                  <div><span>WSS Name</span><b>{{ addForm.name || '—' }}</b></div>
+                  <div><span>Address</span><b>{{ addForm.address || '—' }}</b></div>
+                  <div><span>Division</span><b>{{ allDivisions.find(d => d.id == addForm.division_id)?.name || '—' }}</b></div>
+                  <div><span>District</span><b>{{ allDistricts.find(d => d.id == addForm.district_id)?.name || '—' }}</b></div>
+                  <div><span>Tehsil</span><b>{{ formTehsils.find(t => t.id == addForm.tehsil_id)?.name || '—' }}</b></div>
+                  <div><span>Union Council</span><b>{{ formUnionCouncils.find(u => u.id == addForm.union_council_id)?.name || '—' }}</b></div>
+                  <div><span>Coordinates</span><b>{{ addForm.latitude && addForm.longitude ? `${addForm.latitude}, ${addForm.longitude}` : '—' }}</b></div>
+                  <div><span>Power Input</span><b>{{ addForm.power_input || '—' }}</b></div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Footer -->
+          <div class="wz-footer">
+            <div class="wz-footer-left">
+              <span class="wz-step-counter">Step {{ wzStep }} of {{ wzSteps.length }}</span>
+            </div>
+            <div class="wz-footer-right">
+              <button class="btn btn-sec" @click="closeAddModal" :disabled="addLoading">Cancel</button>
+              <button v-if="wzStep > 1" class="btn btn-sec" @click="wzPrev" :disabled="addLoading">← Back</button>
+              <button v-if="wzStep < wzSteps.length" class="btn btn-pri" @click="wzNext">Next →</button>
+              <button v-else v-write="'add_water_schemes'" class="btn btn-pri" @click="submitAddWss" :disabled="addLoading">
                 <span v-if="addLoading">⏳ Saving…</span>
                 <span v-else>💾 Create Water Scheme</span>
               </button>
             </div>
-
           </div>
+
         </div>
       </div>
     </Teleport>
@@ -904,5 +978,206 @@ function closeAddModal() {
 @keyframes skel-shimmer {
   0%   { background-position: 200% 0; }
   100% { background-position: -200% 0; }
+}
+
+/* ── Add WSS wizard ─────────────────────────────────────────────── */
+.wz-overlay {
+  position: fixed; inset: 0;
+  background: rgba(15, 23, 42, .55);
+  z-index: 5000;
+  display: flex; align-items: flex-start; justify-content: center;
+  overflow-y: auto;
+  padding: 24px 12px;
+  backdrop-filter: blur(2px);
+}
+.wz-modal {
+  background: #fff;
+  border-radius: 12px;
+  width: 100%;
+  max-width: 960px;
+  margin: auto;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .35);
+  overflow: hidden;
+  display: flex; flex-direction: column;
+  max-height: calc(100vh - 48px);
+}
+
+.wz-header {
+  background: linear-gradient(135deg, var(--navy, #0f2945) 0%, #1e3a5f 100%);
+  color: #fff;
+  padding: 16px 24px;
+  display: flex; align-items: center; justify-content: space-between;
+  flex-shrink: 0;
+}
+.wz-title    { font-size: 15px; font-weight: 700; letter-spacing: .2px; }
+.wz-subtitle { font-size: 11.5px; opacity: .72; margin-top: 3px; }
+.wz-close {
+  background: rgba(255, 255, 255, .15);
+  border: none; color: #fff; border-radius: 6px;
+  padding: 6px 12px; cursor: pointer; font-size: 14px;
+  transition: background .15s;
+}
+.wz-close:hover { background: rgba(255, 255, 255, .28); }
+
+.wz-stepper {
+  display: flex; align-items: stretch;
+  padding: 18px 24px 16px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+  flex-shrink: 0;
+}
+.wz-step {
+  flex: 1; display: flex; align-items: center; gap: 10px;
+  cursor: pointer; position: relative; min-width: 0; user-select: none;
+}
+.wz-step-circle {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: #e2e8f0; color: #64748b;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700; flex-shrink: 0;
+  border: 2px solid transparent;
+  transition: all .2s;
+}
+.wz-step.is-active .wz-step-circle {
+  background: var(--navy, #0f2945); color: #fff;
+  border-color: var(--navy, #0f2945);
+  box-shadow: 0 0 0 4px rgba(15, 41, 69, .15);
+}
+.wz-step.is-done .wz-step-circle   { background: #10b981; color: #fff; }
+.wz-step.has-error .wz-step-circle { background: #ef4444; color: #fff; }
+.wz-step-label  { min-width: 0; flex: 1; }
+.wz-step-title  { font-size: 12px; font-weight: 700; color: #334155; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wz-step.is-active .wz-step-title { color: var(--navy, #0f2945); }
+.wz-step-sub    { font-size: 10.5px; color: #64748b; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wz-step-bar {
+  position: absolute; top: 16px; right: -50%;
+  width: 100%; height: 2px;
+  background: #e2e8f0; z-index: 0;
+}
+.wz-step-bar.is-filled { background: #10b981; }
+
+.wz-body {
+  padding: 24px 28px;
+  overflow-y: auto;
+  flex: 1;
+}
+.wz-step-content { animation: wzFadeIn .22s ease; }
+@keyframes wzFadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.wz-section-head  { margin-bottom: 18px; padding-bottom: 12px; border-bottom: 1px dashed #e2e8f0; }
+.wz-section-title { font-size: 14px; font-weight: 700; color: var(--navy, #0f2945); }
+.wz-section-sub   { font-size: 12px; color: #64748b; margin-top: 4px; line-height: 1.5; }
+.wz-subhead {
+  font-size: 11px; font-weight: 700; color: #475569;
+  text-transform: uppercase; letter-spacing: .5px;
+  margin: 6px 0 10px; padding-left: 6px;
+  border-left: 3px solid var(--navy, #0f2945);
+}
+
+.wz-grid { display: grid; gap: 14px 18px; margin-bottom: 14px; }
+.wz-grid-1 { grid-template-columns: 1fr; }
+.wz-grid-2 { grid-template-columns: 1fr 1fr; }
+.wz-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+.wz-grid-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+
+.wz-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.wz-field label {
+  font-size: 11.5px; font-weight: 600; color: #334155; letter-spacing: .15px;
+}
+.wz-field .req { color: #ef4444; font-weight: 700; }
+.wz-field input[type="text"],
+.wz-field input[type="email"],
+.wz-field input[type="number"],
+.wz-field input[type="date"],
+.wz-field select,
+.wz-field textarea {
+  width: 100%;
+  padding: 8px 11px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-family: inherit;
+  background: #fff;
+  color: #0f172a;
+  box-sizing: border-box;
+  transition: border-color .15s, box-shadow .15s, background .15s;
+}
+.wz-field textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
+.wz-field input:focus,
+.wz-field select:focus,
+.wz-field textarea:focus {
+  outline: none;
+  border-color: var(--navy, #0f2945);
+  box-shadow: 0 0 0 3px rgba(15, 41, 69, .12);
+}
+.wz-field input:disabled,
+.wz-field select:disabled {
+  background: #f1f5f9; color: #94a3b8; cursor: not-allowed;
+}
+.wz-field .has-err { border-color: #ef4444 !important; background: #fef2f2; }
+.wz-field .has-err:focus { box-shadow: 0 0 0 3px rgba(239, 68, 68, .12); }
+
+.wz-err { font-size: 11px; color: #dc2626; font-weight: 500; }
+
+.wz-alert { border-radius: 6px; padding: 10px 14px; margin-bottom: 16px; font-size: 12.5px; line-height: 1.5; }
+.wz-alert-err { background: #fee2e2; border: 1px solid #fca5a5; color: #991b1b; }
+
+.wz-pin {
+  display: flex; gap: 14px; align-items: flex-start;
+  background: #f0f7ff;
+  border: 1px solid #bae6fd;
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-top: 4px;
+}
+.wz-pin-icon { font-size: 22px; line-height: 1; }
+.wz-pin-body { flex: 1; }
+.wz-pin-title { font-size: 11px; font-weight: 700; color: #0c4a6e; text-transform: uppercase; letter-spacing: .4px; }
+.wz-pin-value { font-size: 13px; color: #0f172a; font-weight: 600; margin-top: 4px; font-family: 'JetBrains Mono', ui-monospace, monospace; }
+.wz-pin-empty { font-size: 12px; color: #64748b; margin-top: 4px; line-height: 1.5; }
+
+.wz-review {
+  margin-top: 22px; padding: 16px 18px;
+  background: #f8fafc; border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+.wz-review-title { font-size: 12px; font-weight: 700; color: var(--navy, #0f2945); margin-bottom: 10px; }
+.wz-review-grid {
+  display: grid; grid-template-columns: repeat(2, 1fr);
+  gap: 10px 16px;
+}
+.wz-review-grid > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.wz-review-grid span  { font-size: 10.5px; color: #64748b; text-transform: uppercase; letter-spacing: .3px; }
+.wz-review-grid b     { font-size: 12px; color: #0f172a; font-weight: 600; word-break: break-word; }
+
+.wz-footer {
+  padding: 14px 24px;
+  border-top: 1px solid #e2e8f0;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  background: #fafbfc; flex-shrink: 0;
+}
+.wz-footer-left  { font-size: 11.5px; color: #64748b; font-weight: 600; }
+.wz-footer-right { display: flex; gap: 8px; }
+.wz-step-counter {
+  background: #e2e8f0; padding: 5px 11px; border-radius: 99px;
+  color: #475569; font-size: 11px; letter-spacing: .3px;
+}
+
+@media (max-width: 720px) {
+  .wz-modal    { max-height: calc(100vh - 24px); }
+  .wz-stepper  { padding: 14px 14px 12px; gap: 4px; overflow-x: auto; }
+  .wz-step     { flex: 0 0 auto; }
+  .wz-step-label { display: none; }
+  .wz-step-bar   { display: none; }
+  .wz-body     { padding: 18px 16px; }
+  .wz-grid-2,
+  .wz-grid-3,
+  .wz-grid-4   { grid-template-columns: 1fr; }
+  .wz-review-grid { grid-template-columns: 1fr; }
+  .wz-footer   { flex-direction: column-reverse; align-items: stretch; }
+  .wz-footer-right { justify-content: flex-end; }
 }
 </style>
