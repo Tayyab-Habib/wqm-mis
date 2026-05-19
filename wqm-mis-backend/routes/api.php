@@ -548,6 +548,7 @@ Route::middleware(['auth:sanctum', 'dummy.account', 'view.only'])->group(callbac
     Route::post('search-water-sample', SearchWaterSampleController::class);
     Route::post('search-payment', SearchPaymentController::class);
     Route::post('search-water-scheme', SearchWaterSchemeController::class);
+    Route::post('water-schemes-map', \App\Http\Controllers\Search\WaterSchemeMapController::class);
     Route::post('search-water-sample-invoices', SearchWaterSampleInvoiceController::class);
     Route::post('search-clients', SearchClientController::class);
     Route::get('organizations', [SearchClientController::class, 'organizations']);
