@@ -90,6 +90,9 @@ class WaterSample extends Model
         'is_draft',
         'collectable_id',
         'collectable_type',
+        // Logical sample kind: PHE / Private / PT. Distinguishes PT from PHE
+        // since both store User::class in the polymorphic collectable_type.
+        'sample_kind',
         'lab_incharge_id',
         'research_officer_id',
         'current_status',
@@ -167,11 +170,20 @@ class WaterSample extends Model
                 ->select('abbreviation')
                 ->find($waterSample->division_id);
 
+            // Slug kind segment: prefer the explicit sample_kind (so PT samples
+            // get a 'PT' prefix even though their polymorphic collectable_type
+            // is User::class, same as PHE). Fall back to the polymorphic-class
+            // inference for legacy rows that haven't been backfilled.
+            $kindSegment = $waterSample->sample_kind
+                ?? ($waterSample->collectable_type === User::class
+                    ? CollectableTypeEnum::PHE->value
+                    : CollectableTypeEnum::PRIVATE->value);
+
             $waterSample->slug = now()->format('y')
                 . '/'
                 . $division->abbreviation
                 . '/'
-                . ($waterSample->collectable_type === User::class ? CollectableTypeEnum::PHE->value : CollectableTypeEnum::PRIVATE->value)
+                . $kindSegment
                 . '/'
                 . str_pad($waterSample->id, 4, '0', STR_PAD_LEFT);
 

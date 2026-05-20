@@ -23,7 +23,7 @@ class PWRController extends Controller
             'district_id'     => ['nullable', 'exists:districts,id'],
             'phed_division_id'=> ['nullable', 'exists:phed_divisions,id'],
             'laboratory_id'   => ['nullable', 'exists:laboratories,id'],
-            'sample_type'     => ['nullable', 'in:PHE,Private'],     // collectable_type (PT will land with the PT model)
+            'sample_type'     => ['nullable', 'in:PHE,Private,PT'],  // maps to water_samples.sample_kind
             'test_type'       => ['nullable', 'string'],              // accepted for back-compat
             'test_id'         => ['nullable', 'exists:tests,id'],
         ]);
@@ -46,9 +46,20 @@ class PWRController extends Controller
             ->when($request->filled('district_id'),      fn($q) => $q->where('water_samples.district_id',      $request->district_id))
             ->when($request->filled('phed_division_id'), fn($q) => $q->where('water_samples.phed_division_id', $request->phed_division_id))
             ->when($request->filled('laboratory_id'),    fn($q) => $q->where('water_samples.laboratory_id',    $request->laboratory_id))
-            // sample_type maps to collectable_type (User class = PHE)
-            ->when($sampleType === 'PHE',     fn($q) => $q->where('water_samples.collectable_type', User::class))
-            ->when($sampleType === 'Private', fn($q) => $q->where('water_samples.collectable_type', '!=', User::class));
+            // sample_type maps to the durable sample_kind column. Falling back
+            // to the old polymorphic-class inference for rows without a kind
+            // (i.e. pre-migration legacy data) so behavior is unchanged for
+            // PHE/Private filters; the PT filter has no fallback because PT
+            // didn't exist before this column.
+            ->when($sampleType === 'PHE', fn($q) => $q->where(function ($w) {
+                $w->where('water_samples.sample_kind', 'PHE')
+                    ->orWhere(function ($l) { $l->whereNull('water_samples.sample_kind')->where('water_samples.collectable_type', User::class); });
+            }))
+            ->when($sampleType === 'Private', fn($q) => $q->where(function ($w) {
+                $w->where('water_samples.sample_kind', 'Private')
+                    ->orWhere(function ($l) { $l->whereNull('water_samples.sample_kind')->where('water_samples.collectable_type', '!=', User::class); });
+            }))
+            ->when($sampleType === 'PT', fn($q) => $q->where('water_samples.sample_kind', 'PT'));
 
         $sampleIds = (clone $sampleQuery)->pluck('water_samples.id');
 

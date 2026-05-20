@@ -462,8 +462,12 @@ async function savePT() {
     const loc  = user?.district_id ? resolveLocation(user.district_id) : {}
     if (!loc.province_id) { errorMsg.value = 'User location not set — cannot save PT sample'; saveLoading.value = false; return }
 
+    // PT samples are external blind QC samples, NOT bound to any WSS. Tagging
+    // them with collectable_type='PT' makes the backend stamp sample_kind='PT',
+    // skip the water_scheme_id requirement, and emit a slug like
+    // '26/CLB/PT/0001' instead of '26/CLB/PHE/0001'.
     const payload = {
-      collectable_type:      'PHE',
+      collectable_type:      'PT',
       test_type:             'Fresh',
       desired_test:          ['Physical', 'Physical & Chemical', 'Microbiological(MF)'],
       sampling_point:        'Source',
