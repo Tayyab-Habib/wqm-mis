@@ -1,11 +1,10 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { seService } from '../services/seService.js'
 import { useUserStore } from '../stores/useUserStore.js'
 
 const router = useRouter()
-const route  = useRoute()
 const userStore = useUserStore()
 
 const me = ref(null)
@@ -20,10 +19,6 @@ const notifLoading = ref(false)
 const bellRef      = ref(null)
 let pollTimer = null
 
-const navOpen = ref(false)
-function toggleNav() { navOpen.value = !navOpen.value }
-function closeNav()  { navOpen.value = false }
-watch(() => route.fullPath, closeNav)
 
 async function loadIdentity() {
   try { me.value = await seService.me() }
@@ -129,7 +124,27 @@ function logout() {
 
 const circleName = computed(() => me.value?.circle?.name || '—')
 const seName     = computed(() => me.value?.name || 'SE Officer')
-const districtsLabel = computed(() => (me.value?.districts || []).map(d => d.name).join(' · ') || '—')
+
+// Districts scope label — collapse to a count + first 3 names when there are
+// many districts (e.g. the test SA account has access to all 34 KP districts,
+// which otherwise becomes a 3-line wall of comma-separated text in the
+// sidebar). Click to expand / collapse.
+const districtsList = computed(() => (me.value?.districts || []).map(d => d.name))
+const districtsExpanded = ref(false)
+const SCOPE_PREVIEW_COUNT = 3
+const districtsLabel = computed(() => {
+  const names = districtsList.value
+  if (!names.length) return '—'
+  if (districtsExpanded.value || names.length <= SCOPE_PREVIEW_COUNT + 1) {
+    return names.join(' · ')
+  }
+  const more = names.length - SCOPE_PREVIEW_COUNT
+  return `${names.slice(0, SCOPE_PREVIEW_COUNT).join(' · ')} +${more} more`
+})
+const districtsToggleable = computed(() => districtsList.value.length > SCOPE_PREVIEW_COUNT + 1)
+function toggleDistricts() {
+  if (districtsToggleable.value) districtsExpanded.value = !districtsExpanded.value
+}
 
 const navItems = [
   { kind: 'section', label: 'My Division' },
@@ -152,7 +167,7 @@ function badgeFor(ref) {
 </script>
 
 <template>
-  <div class="se-app" :class="{ 'nav-open': navOpen }">
+  <div class="se-app">
     <aside class="se-sidebar">
       <div class="sb-brand">
         <div class="sb-eyebrow">PHED KP — SE PORTAL</div>
@@ -163,7 +178,14 @@ function badgeFor(ref) {
       <div class="sb-scope">
         <div class="sb-scope-label">YOUR SCOPE</div>
         <div class="sb-scope-name">SE — {{ circleName }} Circle</div>
-        <div class="sb-scope-sub">{{ districtsLabel }}</div>
+        <div class="sb-scope-sub" :class="{ clickable: districtsToggleable }"
+             :title="districtsToggleable ? (districtsExpanded ? 'Click to collapse' : 'Click to see all districts') : ''"
+             @click="toggleDistricts">
+          <span class="sb-scope-count">{{ districtsList.length }} districts</span>
+          <span v-if="districtsList.length">:</span>
+          {{ districtsLabel }}
+          <span v-if="districtsToggleable" class="sb-scope-caret">{{ districtsExpanded ? '▴' : '▾' }}</span>
+        </div>
       </div>
 
       <nav class="sb-nav">
@@ -177,11 +199,8 @@ function badgeFor(ref) {
         </template>
       </nav>
     </aside>
-    <div class="mobile-nav-backdrop" @click="closeNav"></div>
-
     <div class="se-main">
       <header class="se-topbar">
-        <button class="mobile-nav-toggle" @click="toggleNav" title="Menu" aria-label="Menu">☰</button>
         <div class="st-title">{{ $route.meta?.title || 'Dashboard' }}</div>
         <div class="st-right">
           <span class="st-scope-chip">
@@ -276,7 +295,32 @@ function badgeFor(ref) {
 }
 .sb-scope-label { font-size: 9.5px; color: rgba(255,255,255,.5); letter-spacing: .07em; }
 .sb-scope-name  { font-size: 13.5px; font-weight: 700; margin-top: 4px; }
-.sb-scope-sub   { font-size: 11px; color: rgba(255,255,255,.62); margin-top: 2px; line-height: 1.3; }
+.sb-scope-sub   {
+  font-size: 11px; color: rgba(255,255,255,.62); margin-top: 4px; line-height: 1.4;
+  user-select: none;
+  &.clickable {
+    cursor: pointer;
+    transition: color .15s;
+    &:hover { color: rgba(255,255,255,.85); }
+  }
+}
+.sb-scope-count {
+  display: inline-block;
+  font-weight: 700;
+  color: rgba(255,255,255,.92);
+  background: rgba(255,255,255,.10);
+  border-radius: 10px;
+  padding: 1px 8px;
+  font-size: 10px;
+  letter-spacing: .03em;
+  margin-right: 2px;
+}
+.sb-scope-caret {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 10px;
+  color: rgba(255,255,255,.55);
+}
 
 .sb-nav { padding: 6px 0 12px; }
 .sb-sec {
