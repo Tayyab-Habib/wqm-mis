@@ -3,6 +3,8 @@ import { ref, computed, onMounted } from 'vue'
 import { userService } from '../../../services/userService.js'
 import { api } from '../../../services/api.js'
 import { exportToXLSX } from '../../../utils/exportHelpers.js'
+import SkelRow from '../../../components/common/SkelRow/SkelRow.vue'
+import ConfirmModal from '../../../components/common/ConfirmModal/ConfirmModal.vue'
 
 const loading   = ref(false)
 const errorMsg  = ref('')
@@ -105,13 +107,68 @@ async function openTrail(user) {
   trailLoading.value = true
   try {
     const res = await api.get(`/acitivity-logs?user_id=${user.id}`)
-    activityLogs.value = res.data || []
+    // Backend returns `{ message, data: <paginator> }` and the paginator has
+    // its own `data` array. After the axios interceptor unwraps to body, the
+    // row array lives at res.data.data — fall back to flatter shapes so any
+    // legacy callers still work.
+    const body = res.data?.data ?? res.data ?? {}
+    activityLogs.value = Array.isArray(body)
+      ? body
+      : (Array.isArray(body.data) ? body.data : [])
   } catch (e) { console.error('Activity log error:', e) }
   finally { trailLoading.value = false }
 }
 
+// Spatie writes lowercase events ("created"/"updated"/"deleted") whereas the
+// legacy mock used capitalized ones ("Create"/"Edit"/"Delete"). Normalize so
+// both render with proper colors.
 function actionClass(type) {
-  return type === 'Create' ? 'r-green' : type === 'Edit' ? 'r-amber' : type === 'Delete' ? 'r-red' : 'r-grey'
+  const t = String(type || '').toLowerCase()
+  if (t === 'create'  || t === 'created')           return 'r-green'
+  if (t === 'edit'    || t === 'updated' || t === 'update') return 'r-amber'
+  if (t === 'delete'  || t === 'deleted')           return 'r-red'
+  return 'r-grey'
+}
+
+// activity_log.subject_type is the full class path
+// ("App\\Models\\WaterSamples\\WaterSample"). Show just the short name in
+// the Activity Trail modal so the column is readable.
+function shortSubject(subject) {
+  if (!subject) return '—'
+  const s = String(subject)
+  const i = s.lastIndexOf('\\')
+  return i >= 0 ? s.slice(i + 1) : s
+}
+
+// ── Delete confirmation (shared ConfirmModal pattern, same as PtRounds) ──
+const confirmState = ref({ show: false, title: '', message: '', confirmText: 'Confirm', variant: 'danger', action: null, busy: false })
+function askConfirm({ title, message, confirmText = 'Confirm', variant = 'danger', action }) {
+  confirmState.value = { show: true, title, message, confirmText, variant, action, busy: false }
+}
+async function onConfirmOk() {
+  const fn = confirmState.value.action
+  if (typeof fn !== 'function') { confirmState.value.show = false; return }
+  confirmState.value.busy = true
+  try { await fn() } finally { confirmState.value.show = false; confirmState.value.busy = false }
+}
+
+function confirmDeleteUser(user) {
+  askConfirm({
+    title: 'Delete user?',
+    message: `Permanently remove "${user.name}" (${user.email}). This cannot be undone.`,
+    confirmText: 'Delete user',
+    variant: 'danger',
+    action: async () => {
+      try {
+        await userService.remove(user.id)
+        users.value = users.value.filter(u => u.id !== user.id)
+        showToast(`✓ Deleted "${user.name}"`, 'success')
+      } catch (e) {
+        const msg = e?.response?.data?.message || 'Failed to delete user'
+        showToast('✕ ' + msg, 'error')
+      }
+    },
+  })
 }
 
 // ── Create User Modal ─────────────────────────────────────────────────
@@ -408,19 +465,30 @@ onMounted(loadUsers)
           <tr><th>User ID</th><th>Name</th><th>Designation</th><th>Role</th><th>Lab / Jurisdiction</th><th>District</th><th>Status</th><th>Actions</th></tr>
         </thead>
         <tbody>
-          <tr v-for="(u, i) in filtered" :key="u.id" :class="i%2===1?'alt':''">
-            <td class="mono">{{ u.id }}</td>
-            <td><b>{{ u.name }}</b></td>
-            <td>{{ u.designation }}</td>
-            <td><span class="rag" :class="roleClass(u.role)">{{ u.role }}</span></td>
-            <td>{{ u.lab }}</td>
-            <td>{{ u.district }}</td>
-            <td><span class="rag" :class="u.status === 'Active' ? 'r-green' : 'r-red'">{{ u.status }}</span></td>
-            <td>
-              <button class="btn btn-sec btn-xs" @click="openTrail(u)">🕵 Activity Trail</button>
-              <button v-write class="btn btn-sec btn-xs" style="margin-left:4px" @click="openEditModal(u)">✏ Edit</button>
-            </td>
-          </tr>
+          <template v-if="loading">
+            <SkelRow v-for="n in 6" :key="'uh-sk'+n" :cols="[60, 140, 110, 90, 130, 90, 70, 130]" />
+          </template>
+          <template v-else>
+            <tr v-for="(u, i) in filtered" :key="u.id" :class="i%2===1?'alt':''">
+              <td class="mono">{{ u.id }}</td>
+              <td><b>{{ u.name }}</b></td>
+              <td>{{ u.designation }}</td>
+              <td><span class="rag" :class="roleClass(u.role)">{{ u.role }}</span></td>
+              <td>{{ u.lab }}</td>
+              <td>{{ u.district }}</td>
+              <td><span class="rag" :class="u.status === 'Active' ? 'r-green' : 'r-red'">{{ u.status }}</span></td>
+              <td style="white-space:nowrap">
+                <div style="display:inline-flex;gap:4px;align-items:center">
+                  <button class="btn btn-sec btn-xs" @click="openTrail(u)">🕵 Activity Trail</button>
+                  <button v-write class="btn btn-sec btn-xs" @click="openEditModal(u)">✏ Edit</button>
+                  <button v-write class="btn btn-clear btn-xs" @click="confirmDeleteUser(u)" title="Delete user">🗑 Delete</button>
+                </div>
+              </td>
+            </tr>
+            <tr v-if="!filtered.length">
+              <td colspan="8" style="text-align:center;padding:28px;color:var(--muted)">No users found.</td>
+            </tr>
+          </template>
         </tbody>
       </table>
       <div class="tbl-footer">
@@ -442,8 +510,7 @@ onMounted(loadUsers)
       </div>
 
       <div class="tbl-wrap">
-        <div v-if="loading" style="text-align:center;padding:32px;color:var(--muted);font-size:13px">⏳ Loading…</div>
-        <table v-else style="font-size:11.5px">
+        <table style="font-size:11.5px">
           <thead>
             <tr>
               <th>S#</th>
@@ -461,10 +528,13 @@ onMounted(loadUsers)
             </tr>
           </thead>
           <tbody>
-            <tr v-if="!filtered.length">
+            <template v-if="loading">
+              <SkelRow v-for="n in 6" :key="'hr-sk'+n" :cols="[40, 130, 160, 100, 90, 60, 110, 90, 90, 120, 100, 100]" />
+            </template>
+            <tr v-else-if="!filtered.length">
               <td colspan="12" style="text-align:center;padding:28px;color:var(--muted)">No records found.</td>
             </tr>
-            <tr v-for="(u, i) in filtered" :key="u.id" :class="i%2===1?'alt':''">
+            <tr v-else v-for="(u, i) in filtered" :key="u.id" :class="i%2===1?'alt':''">
               <td class="mono" style="color:var(--muted)">{{ i + 1 }}</td>
               <td><b>{{ u.name }}</b></td>
               <td style="color:var(--blue)">{{ u.email }}</td>
@@ -506,12 +576,15 @@ onMounted(loadUsers)
                 </tr>
               </thead>
               <tbody>
-                <template v-if="activityLogs?.length">
+                <template v-if="trailLoading">
+                  <SkelRow v-for="n in 5" :key="'at-sk'+n" :cols="[120, 90, 70, 130, 100, 180]" />
+                </template>
+                <template v-else-if="activityLogs?.length">
                   <tr v-for="(r, i) in activityLogs" :key="i" :class="i%2===1?'alt':''">
                     <td class="mono" style="font-size:10.5px;white-space:nowrap;padding:7px 10px">{{ r.created_at || r.dt }}</td>
                     <td style="font-size:11px;font-weight:600;color:var(--navy2)">{{ r.log_name || r.module }}</td>
                     <td><span class="rag" :class="actionClass(r.event || r.type)" style="font-size:10px">{{ r.event || r.type }}</span></td>
-                    <td class="mono" style="font-size:10.5px">{{ r.subject_type || r.record }}</td>
+                    <td class="mono" style="font-size:10.5px">{{ shortSubject(r.subject_type || r.record) }}<span v-if="r.subject_id" style="color:var(--muted)">#{{ r.subject_id }}</span></td>
                     <td style="font-size:10.5px;color:var(--muted)">{{ r.properties?.ip || r.ip || '—' }}</td>
                     <td style="font-size:11px">{{ r.description || r.detail }}</td>
                   </tr>
@@ -812,6 +885,15 @@ onMounted(loadUsers)
         </div>
       </div>
     </Teleport>
+
+    <!-- Shared confirm-prompt for destructive actions (Delete user) -->
+    <ConfirmModal v-model="confirmState.show"
+                  :title="confirmState.title"
+                  :message="confirmState.message"
+                  :busy="confirmState.busy"
+                  :confirm-text="confirmState.confirmText"
+                  :variant="confirmState.variant"
+                  @confirm="onConfirmOk" />
   </div>
 </template>
 

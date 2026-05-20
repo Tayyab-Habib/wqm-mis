@@ -41,6 +41,7 @@ class UserController extends Controller
                 'region_id',
                 'circle_id',
                 'phed_division_id',
+                'is_active',
                 'created_at',
             ])
             ->when(
