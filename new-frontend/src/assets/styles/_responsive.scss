@@ -18,14 +18,21 @@
   .cd-cards.cards-6       { grid-template-columns: repeat(3, 1fr) !important; }
   .xd-cards               { grid-template-columns: repeat(3, 1fr) !important; }
   .sec-cards              { grid-template-columns: repeat(3, 1fr) !important; }
+  .sd-cards               { grid-template-columns: repeat(3, 1fr) !important; }
+  .sd-cards.cards-4       { grid-template-columns: repeat(3, 1fr) !important; }
+  .sd-cards.cards-5       { grid-template-columns: repeat(3, 1fr) !important; }
+  .sd-cards.cards-6       { grid-template-columns: repeat(3, 1fr) !important; }
 
   // Form grids compact
   .form-grid              { grid-template-columns: 1fr 1fr !important; }
   .form-grid.c2           { grid-template-columns: 1fr 1fr !important; }
 
+  // SE two-column dashboard rows collapse on tablet
+  .sd-two-col             { grid-template-columns: 1fr !important; }
+
   // Content padding
   .content                { padding: 14px !important; }
-  .ce-content, .xen-content, .sec-content, .secretary-content {
+  .ce-content, .xen-content, .sec-content, .secretary-content, .se-content {
     padding: 14px 14px !important;
   }
 }
@@ -43,7 +50,11 @@
   .cd-cards.cards-5,
   .cd-cards.cards-6,
   .xd-cards,
-  .sec-cards {
+  .sec-cards,
+  .sd-cards,
+  .sd-cards.cards-4,
+  .sd-cards.cards-5,
+  .sd-cards.cards-6 {
     grid-template-columns: repeat(2, 1fr) !important;
     gap: 8px !important;
   }
@@ -54,7 +65,8 @@
   .kpi-card,
   .cd-cards .c,
   .xd-cards .c,
-  .sec-cards .c {
+  .sec-cards .c,
+  .sd-cards .c {
     padding: 10px 12px !important;
     .c-val, .cp-stat-val, .kpi-val, .val { font-size: 18px !important; }
     .c-lbl, .cp-stat-lbl, .kpi-name, .lbl { font-size: 9.5px !important; }
@@ -74,7 +86,8 @@
   .cd-toolbar,
   .xen-toolbar,
   .cp-toolbar,
-  .sec-toolbar {
+  .sec-toolbar,
+  .sd-toolbar {
     flex-wrap: wrap !important;
     gap: 8px !important;
     padding: 10px 12px !important;
@@ -117,9 +130,19 @@
   .cp-table-wrap,
   .cd-tbl-wrap,
   .panel,
-  .sec-panel {
+  .sec-panel,
+  .sd-tbl-wrap {
     overflow-x: auto !important;
     -webkit-overflow-scrolling: touch;
+  }
+  // SE pages render some tables directly inside .sd (no wrapper) — give
+  // them a horizontal scroll container too.
+  .sd > table.sd-tbl,
+  .sd .sd-two-col table.sd-tbl {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
   }
   table {
     font-size: 11.5px !important;
@@ -165,10 +188,28 @@
   .ce-content,
   .xen-content,
   .sec-content,
-  .secretary-content {
+  .secretary-content,
+  .se-content {
     padding: 12px !important;
   }
-  .cd, .xd, .secd { padding: 0 !important; }
+  .cd, .xd, .secd, .sd { padding: 0 !important; }
+
+  // SE scope bar wraps cleanly on phone
+  .sd-scope {
+    font-size: 11.5px !important;
+    padding: 8px 11px !important;
+    line-height: 1.45;
+  }
+  // SE side-panels: when used inside two-col grid, collapse below table
+  .sd-side-panel { width: 100%; }
+
+  // SE topbar scope chip becomes huge on phones — hide the long
+  // "district · district · …" text and keep only the circle name.
+  .se-topbar .st-scope-chip { display: none !important; }
+  .se-topbar .st-user       { display: none !important; }
+  .se-topbar { padding: 8px 12px !important; gap: 8px !important; }
+  .se-topbar .st-right      { gap: 8px !important; }
+  .se-topbar .st-title      { font-size: 14px !important; }
 
   // ── Login page tweaks ──
   .login-page {
@@ -189,13 +230,18 @@
   .cd-cards.cards-5,
   .cd-cards.cards-6,
   .xd-cards,
-  .sec-cards {
+  .sec-cards,
+  .sd-cards,
+  .sd-cards.cards-4,
+  .sd-cards.cards-5,
+  .sd-cards.cards-6 {
     grid-template-columns: 1fr !important;
   }
   .toolbar .fg,
   .filters .fg,
   .cd-toolbar .fg,
   .xen-toolbar .fg,
+  .sd-toolbar .fg,
   .cd-toolbar .fg2,
   .xen-toolbar .fg2 {
     flex: 1 1 100% !important;
@@ -239,6 +285,7 @@
   .xen-app > .xen-sidebar,
   .ce-app > .ce-sidebar,
   .sec-app > .sec-sidebar,
+  .se-app > .se-sidebar,
   .cp-shell > .cp-sidebar {
     position: fixed !important;
     top: 0;
@@ -255,6 +302,7 @@
   .xen-app.nav-open > .xen-sidebar,
   .ce-app.nav-open > .ce-sidebar,
   .sec-app.nav-open > .sec-sidebar,
+  .se-app.nav-open > .se-sidebar,
   .cp-shell.nav-open > .cp-sidebar {
     transform: translateX(0) !important;
   }
@@ -262,6 +310,7 @@
   .xen-app.nav-open .mobile-nav-backdrop,
   .ce-app.nav-open .mobile-nav-backdrop,
   .sec-app.nav-open .mobile-nav-backdrop,
+  .se-app.nav-open .mobile-nav-backdrop,
   .cp-shell.nav-open .mobile-nav-backdrop {
     display: block !important;
   }
@@ -271,6 +320,7 @@
   .xen-app > .xen-main,
   .ce-app > .ce-main,
   .sec-app > .sec-main,
+  .se-app > .se-main,
   .cp-shell > .cp-main {
     margin-left: 0 !important;
     width: 100% !important;

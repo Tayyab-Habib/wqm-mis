@@ -90,7 +90,7 @@ function onActionSaved() { load() }
       </div>
 
       <!-- Two-column row skeleton -->
-      <div style="display:grid;grid-template-columns:1fr 320px;gap:14px;align-items:start">
+      <div class="sd-two-col">
         <!-- Unfit Samples table skeleton -->
         <div class="sd-tbl-wrap">
           <div class="sd-tbl-head">
@@ -111,7 +111,7 @@ function onActionSaved() { load() }
         </div>
 
         <!-- Side panels skeleton -->
-        <div style="display:flex;flex-direction:column;gap:12px">
+        <div class="sd-side-stack">
           <div class="sd-side-panel">
             <div class="ps-h"><span class="sd-skel" style="width:140px;height:12px"></span></div>
             <div class="ps-row" v-for="n in 3" :key="'sk-oh'+n">
@@ -184,7 +184,7 @@ function onActionSaved() { load() }
     </div>
 
     <!-- Two-column: Unfit Samples table | side panels -->
-    <div style="display:grid;grid-template-columns:1fr 320px;gap:14px;align-items:start">
+    <div class="sd-two-col">
 
       <!-- Left: Unfit Samples — Action Required -->
       <div class="sd-tbl-wrap">
@@ -223,7 +223,7 @@ function onActionSaved() { load() }
       </div>
 
       <!-- Right: side panels -->
-      <div style="display:flex;flex-direction:column;gap:12px">
+      <div class="sd-side-stack">
         <div class="sd-side-panel">
           <div class="ps-h">Overdue WSS — {{ scope.name }}</div>
           <div class="ps-row" v-for="o in overduePanel" :key="o.id">
@@ -279,9 +279,19 @@ function onActionSaved() { load() }
 
 <style scoped lang="scss">
 @use './se-shared.scss' as *;
-@media (max-width: 1200px) {
-  .sd > div[style*="grid-template-columns"] {
-    grid-template-columns: 1fr !important;
-  }
+
+.sd-two-col {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 14px;
+  align-items: start;
+  // Without min-width:0 grid children refuse to shrink below their content
+  // size, which lets a wide table push the right-hand panels off-screen.
+  > * { min-width: 0; }
+}
+.sd-side-stack { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+@media (max-width: 1280px) {
+  .sd-two-col { grid-template-columns: 1fr; }
 }
 </style>
