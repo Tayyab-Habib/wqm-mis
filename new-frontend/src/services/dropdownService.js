@@ -4,7 +4,7 @@ export const dropdownService = {
   // Location
   getDivisions: () => api.get('/all-divisions'),
   getDistricts: () => api.get('/all-districts'),
-  getProvinces: () => api.get('/provinces'),
+  getProvinces: () => api.get('/all-provinces'),
   getTehsils: () => api.get('/tehsils'),
   getLocality: () => api.get('/locality'),
   getRegions: () => api.get('/regions'),

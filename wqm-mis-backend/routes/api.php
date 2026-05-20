@@ -71,6 +71,7 @@ use App\Http\Controllers\Dropdowns\HubLabController;
 use App\Http\Controllers\Dropdowns\SubDivisionController;
 use App\Http\Controllers\Dropdowns\DivisionController as DropdownDivisionController;
 use App\Http\Controllers\Dropdowns\DistrictController as DropdownDistrictController;
+use App\Http\Controllers\Dropdowns\ProvinceController as DropdownProvinceController;
 use App\Http\Controllers\Exports\ExportLaboratoryController;
 use App\Http\Controllers\Exports\ExportUserController;
 use App\Http\Controllers\Exports\ExportWaterSampleController;
@@ -357,6 +358,7 @@ Route::middleware(['auth:sanctum', 'dummy.account', 'view.only'])->group(callbac
     Route::get('hub-labs', HubLabController::class);
     Route::get('circles', CircleController::class);
     Route::get('all-districts', DropdownDistrictController::class);
+    Route::get('all-provinces', DropdownProvinceController::class);
     Route::get('phed-divisions', PhedDivisionController::class);
     Route::get('sub-divisions', SubDivisionController::class);
     //end dropdowns routes

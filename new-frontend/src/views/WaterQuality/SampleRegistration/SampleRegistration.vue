@@ -42,7 +42,7 @@ onMounted(async () => {
       api.get('/hub-labs'),
       api.get('/regions'),
       api.get('/circles'),
-      api.get('/provinces'),
+      api.get('/all-provinces'),
       api.get('/all-water-schemes'),
       api.get('/collected-in-status'),
       api.get('/reason-for-testing-status'),

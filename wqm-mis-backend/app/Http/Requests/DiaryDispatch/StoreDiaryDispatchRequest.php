@@ -31,7 +31,7 @@ class StoreDiaryDispatchRequest extends FormRequest
             'person_name'          => ['nullable', 'string', 'max:255'],
             'date_on_letter'       => ['nullable', 'date', 'date_format:Y-m-d'],
             'attachment_name'      => ['nullable', 'string', 'max:255'],
-            'attachment'           => ['nullable', 'file', 'mimetypes:application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,image/jpeg,image/png,image/jpg', 'max:2048'],
+            'attachment'           => ['required', 'file', 'mimetypes:application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,image/jpeg,image/png,image/jpg', 'max:2048'],
             'designation_id'       => ['nullable', 'integer', 'exists:designations,id'],
             'folder_id'            => ['nullable', 'integer', 'exists:folders,id'],
             // Shared SRS fields
@@ -53,6 +53,16 @@ class StoreDiaryDispatchRequest extends FormRequest
             'dispatch_reference_no'=> ['nullable', 'string', 'max:255'],
             'prepared_by'          => ['nullable', 'string', 'max:255'],
             'dispatched_by'        => ['nullable', 'string', 'max:255'],
+        ];
+    }
+
+    public function messages()
+    {
+        return [
+            'attachment.required'  => 'Attachment file is required.',
+            'attachment.file'      => 'Attachment must be a valid file.',
+            'attachment.mimetypes' => 'Attachment must be a PDF, Word document, or image (JPG/PNG).',
+            'attachment.max'       => 'Attachment may not be larger than 2 MB.',
         ];
     }
 }
