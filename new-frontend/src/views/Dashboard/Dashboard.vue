@@ -1,7 +1,9 @@
 <script setup>
-import { ref, computed, watch, onMounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { Chart, registerables } from 'chart.js'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
 import { api } from '../../services/api.js'
 import { useUserStore } from '../../stores/useUserStore.js'
 Chart.register(...registerables)
@@ -67,6 +69,9 @@ const chartFont = { family: "'DM Sans', sans-serif", size: 11 }
 // ── CH-03 Heatmap ─────────────────────────────────────────────────────
 const hmParam  = ref('overall')
 const hmSub    = ref('')
+// Heatmap visual style: 'modern' (dark gradient backdrop) | 'classic' (original light-blue look)
+const hmStyle  = ref('modern')
+function toggleHmStyle() { hmStyle.value = hmStyle.value === 'modern' ? 'classic' : 'modern' }
 
 const hmSubs = {
   overall:  [],
@@ -156,10 +161,10 @@ const districtData = {
 }
 
 function ragColor(u) {
-  if (u > 35) return '#d32f2f'
-  if (u > 20) return '#f4a236'
-  if (u > 10) return '#7dc97a'
-  return '#1a7a3f'
+  if (u > 35) return '#dc2626'   // vivid red
+  if (u > 20) return '#f59e0b'   // amber
+  if (u > 10) return '#22c55e'   // vibrant green
+  return '#15803d'               // deep green
 }
 
 // Reactive fill colors per district
@@ -205,14 +210,315 @@ function recolorHeatmap() {
     }
   })
   districtColors.value = colors
+  renderHeatmapBubbles()
+}
+
+// ── KP district centroids (lat, lng) ─────────────────────────────────
+// Approximate geographic centers — used to anchor heat bubbles on the
+// real map. Keys match polygonToDbNames / districtData IDs above.
+const districtCoords = {
+  chitral:    [35.85, 71.78],
+  upperdir:   [35.40, 72.05],
+  lowerdir:   [34.90, 71.85],
+  swat:       [35.20, 72.45],
+  malakand:   [34.55, 71.93],
+  shangla:    [34.70, 72.75],
+  buner:      [34.42, 72.50],
+  bajaur:     [34.75, 71.55],
+  mohmand:    [34.50, 71.30],
+  charsadda:  [34.15, 71.74],
+  mardan:     [34.20, 72.04],
+  swabi:      [34.12, 72.47],
+  peshawar:   [34.01, 71.55],
+  nowshera:   [33.99, 71.97],
+  khyber:     [34.05, 71.10],
+  kurram:     [33.85, 70.10],
+  kohat:      [33.59, 71.44],
+  orakzai:    [33.60, 70.90],
+  hangu:      [33.53, 71.06],
+  attock:     [33.77, 72.36],
+  haripur:    [33.99, 72.93],
+  abbottabad: [34.15, 73.22],
+  mansehra:   [34.33, 73.20],
+  kohistanu:  [35.50, 73.10],
+  kohistanl:  [35.10, 73.05],
+  torghar:    [34.65, 72.95],
+  battagram:  [34.68, 73.02],
+  karak:      [33.12, 71.10],
+  bannu:      [32.99, 70.61],
+  nwaz:       [33.00, 70.00],
+  swaz:       [32.45, 69.65],
+  lakki:      [32.61, 70.91],
+  tank:       [32.22, 70.39],
+  dik:        [31.83, 70.90],
+}
+
+// Leaflet state (held outside Vue's reactivity so it doesn't get proxied).
+const heatmapMapRef = ref(null)
+let heatLeafletMap   = null
+let heatBubbleLayer  = null    // aggregated district bubbles (top layer)
+let heatSampleLayer  = null    // individual sample/scheme dots (bottom layer)
+
+// User-controllable toggle for the secondary sample-dot layer.
+const showSamplesLayer = ref(true)
+const sampleCounts     = ref({ fit: 0, unfit: 0, untested: 0 })
+
+// KP bounding box — opens centered on the province with all districts visible.
+const KP_CENTER = [33.9, 71.8]
+const KP_ZOOM   = 7
+
+function initHeatmapMap() {
+  if (heatLeafletMap || !heatmapMapRef.value) return
+
+  // Bounds = the smallest box that contains every KPK district centroid.
+  const allCoords = Object.values(districtCoords)
+  const districtBounds = L.latLngBounds(allCoords)
+
+  // Fully static map — no panning, no scrolling, no zooming. The user
+  // gets one fixed view that shows every KP district with plenty of
+  // horizontal breathing room thanks to the 21:9 landscape canvas.
+  heatLeafletMap = L.map(heatmapMapRef.value, {
+    center:           KP_CENTER,
+    zoom:             KP_ZOOM,
+    zoomSnap:         0.25,
+    // Disable every interaction so the view stays locked
+    dragging:         false,
+    touchZoom:        false,
+    scrollWheelZoom:  false,
+    doubleClickZoom:  false,
+    boxZoom:          false,
+    keyboard:         false,
+    zoomControl:      false,
+    attributionControl: false,
+  })
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    maxZoom: 20,
+    subdomains: 'abcd',
+  }).addTo(heatLeafletMap)
+  heatSampleLayer = L.layerGroup().addTo(heatLeafletMap)
+  heatBubbleLayer = L.layerGroup().addTo(heatLeafletMap)
+
+  // Single fixed view: fit every district inside the landscape frame.
+  // Compact padding so the bubbles spread across the wide canvas and the
+  // horizontal distance between district centroids reads clearly.
+  heatLeafletMap.whenReady(() => {
+    heatLeafletMap.invalidateSize()
+    heatLeafletMap.fitBounds(districtBounds, {
+      padding: [40, 40],
+      animate: false,
+    })
+  })
+
+  renderHeatmapBubbles()
+  fetchHeatmapSamples()
+}
+
+// ── Sample-level overlay ─────────────────────────────────────────────
+// Fetches water schemes with valid coordinates + their last sample result
+// and renders them as small RAG-coloured dots beneath the district bubbles.
+// Hits the same /water-schemes-map endpoint used by the dedicated WSS Map
+// report, so we don't introduce new backend surface area.
+async function fetchHeatmapSamples() {
+  if (!heatLeafletMap) return
+  try {
+    const res = await api.post('/water-schemes-map', {})
+    const rows = res.data?.data || res.data || []
+    renderSampleDots(rows)
+  } catch (e) {
+    // Silent — the sample layer is decorative. The aggregate bubbles
+    // are the source of truth and they stay regardless.
+    console.warn('Sample layer fetch failed:', e?.response?.status || e?.message)
+  }
+}
+
+function sampleColor(result) {
+  if (result === 'Fit')   return '#16a34a'
+  if (result === 'Unfit') return '#dc2626'
+  return '#94a3b8'
+}
+
+function renderSampleDots(rows) {
+  if (!heatLeafletMap || !heatSampleLayer) return
+  heatSampleLayer.clearLayers()
+  let fit = 0, unfit = 0, untested = 0
+
+  rows.forEach(w => {
+    const lat = parseFloat(w.latitude)
+    const lng = parseFloat(w.longitude)
+    if (Number.isNaN(lat) || Number.isNaN(lng)) return
+    const result = w.last_sample_result || 'Untested'
+    if (result === 'Fit')        fit++
+    else if (result === 'Unfit') unfit++
+    else                         untested++
+
+    const dot = L.circleMarker([lat, lng], {
+      radius: 4.5,
+      color: '#ffffff',          // crisp white outline so dots pop on any tile
+      weight: 1.4,
+      opacity: 1,
+      fillColor: sampleColor(result),
+      fillOpacity: result === 'Untested' ? 0.55 : 0.92,
+      pane: 'overlayPane',
+    })
+    const tip = `<b>${w.name || '—'}</b><br>${w.district?.name || '—'}<br>
+                 <span style="color:${sampleColor(result)};font-weight:700">${result}</span>`
+    dot.bindTooltip(tip, { direction: 'top', offset: [0, -4], className: 'hm-tip' })
+    dot.addTo(heatSampleLayer)
+  })
+
+  sampleCounts.value = { fit, unfit, untested }
+  // Honor current visibility toggle (in case the user flipped it before
+  // the fetch finished).
+  applySampleLayerVisibility()
+}
+
+function applySampleLayerVisibility() {
+  if (!heatLeafletMap || !heatSampleLayer) return
+  if (showSamplesLayer.value) {
+    if (!heatLeafletMap.hasLayer(heatSampleLayer)) heatSampleLayer.addTo(heatLeafletMap)
+  } else {
+    if (heatLeafletMap.hasLayer(heatSampleLayer)) heatLeafletMap.removeLayer(heatSampleLayer)
+  }
+}
+
+watch(showSamplesLayer, applySampleLayerVisibility)
+
+// Translate a district's stats into a Leaflet divIcon that LOOKS like a
+// gradient heat blob. The bubble has two concentric layers:
+//   - outer halo: soft radial-gradient blur scaled by sample volume,
+//     conveys "intensity" at a glance.
+//   - inner core: solid RAG-coloured dot with the unfit %.
+// High-risk districts (>35% unfit) get a CSS keyframe pulse to draw the eye.
+function makeBubbleIcon(polyId, color, unfitPct, tested, isHighRisk) {
+  // Tighter sizing — bubbles need to coexist on a crowded map without
+  // their halos bleeding across district boundaries. Pill grows modestly
+  // with sqrt(tested); the halo is just a subtle 1.35× glow.
+  const base = 26
+  const grow = Math.min(20, Math.round(Math.sqrt(Math.max(0, tested)) * 2.0))
+  const coreSize = base + grow                                  // inner pill px
+  const haloSize = Math.round(coreSize * 1.35)                  // tight glow
+
+  const label = unfitPct != null ? `${unfitPct}%` : '—'
+  const pulseCls = isHighRisk ? 'hm-bubble--pulse' : ''
+  const grayCls  = unfitPct == null ? 'hm-bubble--nodata' : ''
+
+  // Halo: a SOFT colored ring around the pill — translucent so stacked
+  // halos in dense areas don't blow out into one smeared blob. The pill
+  // itself stays crisp and clearly bordered.
+  const html = `
+    <div class="hm-bubble ${pulseCls} ${grayCls}" data-poly="${polyId}"
+         style="width:${haloSize}px;height:${haloSize}px">
+      <span class="hm-bubble__halo"
+            style="background:radial-gradient(circle, ${color}88 0%, ${color}44 38%, ${color}1a 62%, ${color}00 82%)"></span>
+      <span class="hm-bubble__core"
+            style="width:${coreSize}px;height:${coreSize}px;
+                   background:radial-gradient(circle at 32% 28%, ${shadeColor(color, 14)} 0%, ${color} 45%, ${shadeColor(color, -22)} 100%)">
+        <span class="hm-bubble__core-label">${label}</span>
+      </span>
+    </div>`
+  return L.divIcon({
+    html,
+    className: 'hm-bubble-wrap',
+    iconSize:   [haloSize, haloSize],
+    iconAnchor: [haloSize / 2, haloSize / 2],
+  })
+}
+
+// Darken/lighten a hex colour. Used for the bubble core's top-highlight +
+// bottom-shadow gradient so each pill reads as a 3-D sphere.
+function shadeColor(hex, percent) {
+  if (!hex || hex[0] !== '#') return hex
+  const num = parseInt(hex.slice(1), 16)
+  const amt = Math.round(2.55 * percent)
+  const R = Math.max(0, Math.min(255, (num >> 16) + amt))
+  const G = Math.max(0, Math.min(255, ((num >> 8) & 0xff) + amt))
+  const B = Math.max(0, Math.min(255, (num & 0xff) + amt))
+  return '#' + ((R << 16) | (G << 8) | B).toString(16).padStart(6, '0')
+}
+
+// Wipe and redraw every district bubble from current districtStats /
+// districtColors. Idempotent — safe to call on every fetch.
+function renderHeatmapBubbles() {
+  if (!heatLeafletMap || !heatBubbleLayer) return
+  heatBubbleLayer.clearLayers()
+
+  Object.entries(districtCoords).forEach(([polyId, latlng]) => {
+    const stats = districtStats.value[polyId]
+    const meta  = districtData[polyId]
+    const u     = stats?.unfitPct ?? null
+    const tested = stats?.tested ?? 0
+    const color = districtColors.value[polyId]?.color || '#cccccc'
+    const isHighRisk = u != null && u > 35
+
+    const icon = makeBubbleIcon(polyId, color, u, tested, isHighRisk)
+    // Z-ordering: no-data sits at the bottom, then by unfit% so red
+    // bubbles always end up visually on top of greens when they overlap.
+    // Hover offset (riseOnHover) bumps the focused marker an extra +600.
+    const baseZ = u == null ? -200 : Math.round((u - 50) * 10)
+    const marker = L.marker(latlng, {
+      icon,
+      riseOnHover: true,
+      riseOffset: 600,
+      zIndexOffset: baseZ,
+    })
+
+    const name = meta?.name || polyId
+    const tip = u == null
+      ? `<b>${name}</b><br><span style="opacity:.7">No samples in current filter</span>`
+      : `<b>${name}</b><br>❌ Unfit: ${u}% · ✅ Fit: ${100 - u}%<br><span style="opacity:.75">Tested: ${tested}</span>`
+    marker.bindTooltip(tip, { direction: 'top', offset: [0, -8], className: 'hm-tip' })
+
+    marker.on('mouseover', () => { hoveredDistrict.value = polyId })
+    marker.on('mouseout',  () => { hoveredDistrict.value = null   })
+    marker.on('click',     () => { onDistrictClick(polyId) })
+
+    marker.addTo(heatBubbleLayer)
+  })
 }
 
 // Fold a backend district row (matched by name) into the polygon-keyed store.
 // Multiple DB districts can map to one polygon (e.g. Kohistan Lower + Kolai Palas),
 // so we sum the per-type breakdowns as well as the aggregate counts.
 function aggregateBackendDistricts(rows) {
+  // The `districts` table has duplicate rows for some KP districts (same name,
+  // different id, typically split across divisions). The heatmap endpoint
+  // returns one row per id; if we simply assigned by name the later duplicate
+  // would clobber the first. Sum numeric counts across all rows that share
+  // a (lower-cased) name so totals reflect the whole district.
   const byName = {}
-  rows.forEach(r => { byName[String(r.name).toLowerCase()] = r })
+  const sumNum = (a, b) => Number(a || 0) + Number(b || 0)
+  rows.forEach(r => {
+    const k = String(r.name).toLowerCase()
+    if (!byName[k]) {
+      // Deep-clone the row so we can safely mutate accumulator copies below.
+      byName[k] = {
+        name:       r.name,
+        tested:     Number(r.tested     || 0),
+        fit:        Number(r.fit        || 0),
+        unfit:      Number(r.unfit      || 0),
+        wss:        Number(r.wss        || 0),
+        tested_wss: Number(r.tested_wss || 0),
+        unfit_wss:  Number(r.unfit_wss  || 0),
+        by_type: {
+          microbial: { tested: Number(r.by_type?.microbial?.tested || 0), unfit: Number(r.by_type?.microbial?.unfit || 0) },
+          chemical:  { tested: Number(r.by_type?.chemical?.tested  || 0), unfit: Number(r.by_type?.chemical?.unfit  || 0) },
+          physical:  { tested: Number(r.by_type?.physical?.tested  || 0), unfit: Number(r.by_type?.physical?.unfit  || 0) },
+        },
+      }
+    } else {
+      const a = byName[k]
+      a.tested     = sumNum(a.tested,     r.tested)
+      a.fit        = sumNum(a.fit,        r.fit)
+      a.unfit      = sumNum(a.unfit,      r.unfit)
+      a.wss        = sumNum(a.wss,        r.wss)
+      a.tested_wss = sumNum(a.tested_wss, r.tested_wss)
+      a.unfit_wss  = sumNum(a.unfit_wss,  r.unfit_wss)
+      ;['microbial','chemical','physical'].forEach(t => {
+        a.by_type[t].tested = sumNum(a.by_type[t].tested, r.by_type?.[t]?.tested)
+        a.by_type[t].unfit  = sumNum(a.by_type[t].unfit,  r.by_type?.[t]?.unfit)
+      })
+    }
+  })
   const stats = {}
   Object.entries(polygonToDbNames).forEach(([polyId, dbNames]) => {
     let tested = 0, fit = 0, unfit = 0
@@ -847,6 +1153,16 @@ onMounted(async () => {
   await loadFilterDropdowns()
   await fetchDashboard()
   updateHeatmap()   // also run static heatmap as fallback
+  // Defer Leaflet init one tick so the map container has its computed size.
+  nextTick(() => initHeatmapMap())
+})
+
+onBeforeUnmount(() => {
+  if (heatLeafletMap) {
+    heatLeafletMap.remove()
+    heatLeafletMap = null
+    heatBubbleLayer = null
+  }
 })
 
 // ── CH-05: KPI Performance — Labs ────────────────────────────────────
@@ -1183,26 +1499,31 @@ function exportKpiCsv() {
           <select v-if="hmSubOptions.length" v-model="hmSub" style="border:1px solid var(--border);border-radius:4px;padding:4px 7px;font-size:11.5px;font-family:inherit">
             <option v-for="s in hmSubOptions" :key="s" :value="s.toLowerCase().replace(/[^a-z]/g,'')">{{ s }}</option>
           </select>
+
+          <!-- View-style toggle: Modern (Leaflet) ↔ Classic (legacy SVG) -->
+          <div class="hm-view-toggle" role="tablist" aria-label="Heatmap view style">
+            <button type="button" role="tab" :aria-selected="hmStyle === 'modern'"
+                    :class="{ active: hmStyle === 'modern' }" @click="hmStyle = 'modern'">
+              🛰 Modern
+            </button>
+            <button type="button" role="tab" :aria-selected="hmStyle === 'classic'"
+                    :class="{ active: hmStyle === 'classic' }" @click="hmStyle = 'classic'">
+              🗂 Classic
+            </button>
+          </div>
+
           <button class="btn btn-sec btn-xs" @click="exportCh03">⬇ PNG</button>
         </div>
       </div>
 
-      <!-- Floating tooltip -->
-      <div v-if="hoveredData" style="position:fixed;background:rgba(13,33,55,.93);color:#fff;border-radius:6px;padding:8px 12px;font-size:11.5px;pointer-events:none;z-index:9999;line-height:1.6;max-width:200px"
-           :style="tooltipStyle">
-        <b>{{ hoveredData.name }}</b><br>
-        <template v-if="hoveredData.hasData">
-          ✅ Fit: {{ hoveredData.fitPct }}% &nbsp; ❌ Unfit: {{ hoveredData.u }}%<br>
-          <span style="opacity:.8">{{ hoveredData.rag }}</span>
-        </template>
-        <template v-else>
-          <span style="opacity:.7">No samples in current filter</span>
-        </template>
-      </div>
+      <!-- Interactive Leaflet heat map (Modern) + legacy SVG (Classic) -->
+      <div class="hm-leaflet-wrap" :class="{ 'is-classic': hmStyle === 'classic' }">
+        <div ref="heatmapMapRef" class="hm-leaflet" v-show="hmStyle === 'modern'"></div>
 
-      <!-- SVG Map -->
-      <div style="background:#d6eaf8;border-radius:6px;border:1px solid var(--border);overflow:hidden;position:relative">
-        <svg ref="ch03SvgRef" viewBox="0 0 620 375" style="width:100%;display:block;cursor:default">
+        <!-- Legacy SVG — shown in Classic mode, kept in DOM (display:none)
+             during Modern mode so the SVG-driven PNG exporter keeps working. -->
+        <svg ref="ch03SvgRef" viewBox="0 0 620 375" class="hm-classic-svg"
+             :style="{ display: hmStyle === 'classic' ? 'block' : 'none' }">
           <rect width="620" height="375" fill="#cce5f5"/>
 
           <!-- Districts -->
@@ -1277,20 +1598,50 @@ function exportKpiCsv() {
           <text x="248" y="328" class="hm-label">D.I. Khan</text>
         </svg>
 
-        <!-- Legend -->
-        <div style="position:absolute;bottom:10px;right:10px;background:rgba(255,255,255,.95);border-radius:6px;padding:8px 12px;font-size:11px;box-shadow:0 1px 6px rgba(0,0,0,.12)">
-          <div style="font-weight:700;color:var(--navy2);margin-bottom:5px;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em">% Unfit</div>
-          <div style="display:flex;flex-direction:column;gap:3px">
-            <div style="display:flex;align-items:center;gap:6px"><span style="width:16px;height:12px;background:#1a7a3f;border-radius:2px;display:inline-block"></span> &lt; 10% — Good</div>
-            <div style="display:flex;align-items:center;gap:6px"><span style="width:16px;height:12px;background:#7dc97a;border-radius:2px;display:inline-block"></span> 10–20% — Moderate</div>
-            <div style="display:flex;align-items:center;gap:6px"><span style="width:16px;height:12px;background:#f4a236;border-radius:2px;display:inline-block"></span> 20–35% — Concern</div>
-            <div style="display:flex;align-items:center;gap:6px"><span style="width:16px;height:12px;background:#d32f2f;border-radius:2px;display:inline-block"></span> &gt; 35% — High Risk</div>
-          </div>
+        <!-- Sample layer toggle (Modern only) -->
+        <label v-show="hmStyle === 'modern'" class="hm-toggle" :class="{ 'is-on': showSamplesLayer }">
+          <input type="checkbox" v-model="showSamplesLayer">
+          <span class="hm-toggle__track"><span class="hm-toggle__thumb"></span></span>
+          <span class="hm-toggle__label">
+            Sample Pins
+            <span class="hm-toggle__count">{{ sampleCounts.fit + sampleCounts.unfit + sampleCounts.untested }}</span>
+          </span>
+        </label>
+
+        <!-- Classic-mode legend + title (visible only when hmStyle === 'classic') -->
+        <div v-show="hmStyle === 'classic'" class="hm-classic-legend">
+          <div class="hm-classic-legend__title">% UNFIT</div>
+          <div class="hm-classic-legend__row"><span class="hm-classic-sw" style="background:#15803d"></span> &lt; 10% — Good</div>
+          <div class="hm-classic-legend__row"><span class="hm-classic-sw" style="background:#22c55e"></span> 10–20% — Moderate</div>
+          <div class="hm-classic-legend__row"><span class="hm-classic-sw" style="background:#f59e0b"></span> 20–35% — Concern</div>
+          <div class="hm-classic-legend__row"><span class="hm-classic-sw" style="background:#dc2626"></span> &gt; 35% — High Risk</div>
+        </div>
+        <div v-show="hmStyle === 'classic'" class="hm-classic-title">
+          KP Province · District Heatmap · {{ hmTitleSuffix }}
         </div>
 
-        <!-- Title overlay -->
-        <div style="position:absolute;top:8px;left:10px;background:rgba(13,33,55,.82);color:#fff;border-radius:4px;padding:3px 10px;font-size:11px;font-weight:600">
-          KP Province · District Heatmap · {{ hmTitleSuffix }}
+        <!-- Modern legend overlay -->
+        <div v-show="hmStyle === 'modern'" class="hm-legend">
+          <div class="hm-legend__title">District Risk · % Unfit</div>
+          <div class="hm-legend__row"><span class="hm-legend__sw" style="background:#15803d"></span> &lt; 10% · Good</div>
+          <div class="hm-legend__row"><span class="hm-legend__sw" style="background:#22c55e"></span> 10–20% · Moderate</div>
+          <div class="hm-legend__row"><span class="hm-legend__sw" style="background:#f59e0b"></span> 20–35% · Concern</div>
+          <div class="hm-legend__row"><span class="hm-legend__sw hm-legend__sw--pulse" style="background:#dc2626"></span> &gt; 35% · High Risk</div>
+
+          <div v-show="showSamplesLayer" class="hm-legend__samples">
+            <div class="hm-legend__title">Individual Samples</div>
+            <div class="hm-legend__row"><span class="hm-legend__dot" style="background:#16a34a"></span> Fit <b>{{ sampleCounts.fit }}</b></div>
+            <div class="hm-legend__row"><span class="hm-legend__dot" style="background:#dc2626"></span> Unfit <b>{{ sampleCounts.unfit }}</b></div>
+            <div class="hm-legend__row"><span class="hm-legend__dot" style="background:#94a3b8;opacity:.6"></span> Untested <b>{{ sampleCounts.untested }}</b></div>
+          </div>
+
+          <div class="hm-legend__foot">Bubble size ∝ samples tested</div>
+        </div>
+
+        <!-- Modern title overlay -->
+        <div v-show="hmStyle === 'modern'" class="hm-title">
+          <span class="hm-title__dot"></span>
+          KP Province · District Heatmap · <b>{{ hmTitleSuffix }}</b>
         </div>
       </div>
 
@@ -1650,4 +2001,489 @@ function exportKpiCsv() {
   stroke-width: 2.5px;
   stroke-linejoin: round;
 }
+
+/* ── CH-03 Modern/Classic view toggle ───────────────────────────── */
+.hm-view-toggle {
+  display: inline-flex;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 99px;
+  padding: 2px;
+  gap: 2px;
+}
+.hm-view-toggle button {
+  background: transparent;
+  border: none;
+  padding: 4px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #475569;
+  border-radius: 99px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background .15s, color .15s, box-shadow .15s;
+  letter-spacing: .2px;
+}
+.hm-view-toggle button:hover { color: #0b1d3a; }
+.hm-view-toggle button.active {
+  background: linear-gradient(135deg, #0e7ad1 0%, #1556b0 100%);
+  color: #fff;
+  box-shadow: 0 4px 10px rgba(14, 122, 209, .3);
+}
+
+/* Classic SVG view — restores the legacy light-blue look */
+.hm-leaflet-wrap.is-classic {
+  aspect-ratio: auto;
+  min-height: 0;
+  background: #d6eaf8;
+}
+.hm-leaflet-wrap.is-classic::before { box-shadow: none; }
+.hm-classic-svg {
+  width: 100%;
+  display: block;
+  border-radius: 16px;
+  background: #cce5f5;
+}
+/* When in classic mode, override the global dark .hm-label so it reads
+   against the light-blue backdrop, matching the legacy screenshot. */
+.hm-leaflet-wrap.is-classic .hm-d {
+  stroke: #fff;
+  stroke-width: 1;
+  transition: opacity .2s, stroke .15s;
+}
+.hm-leaflet-wrap.is-classic .hm-d:hover {
+  opacity: .8;
+  stroke: #1a3658;
+  stroke-width: 1.5;
+}
+
+/* Classic legend — white pill, matches old screenshot */
+.hm-classic-legend {
+  position: absolute;
+  bottom: 14px;
+  right: 14px;
+  z-index: 500;
+  background: rgba(255, 255, 255, .98);
+  border-radius: 6px;
+  padding: 9px 13px 10px;
+  font-size: 11px;
+  color: #334155;
+  box-shadow: 0 2px 8px rgba(15, 41, 69, .14);
+  border: 1px solid #e2e8f0;
+  line-height: 1.55;
+}
+.hm-classic-legend__title {
+  font-weight: 800;
+  color: #0b1d3a;
+  margin-bottom: 5px;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: .6px;
+}
+.hm-classic-legend__row { display: flex; align-items: center; gap: 7px; }
+.hm-classic-sw {
+  width: 16px;
+  height: 12px;
+  border-radius: 2px;
+  display: inline-block;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .08);
+}
+
+/* Classic title bar — solid navy pill, matches old screenshot */
+.hm-classic-title {
+  position: absolute;
+  top: 12px;
+  left: 14px;
+  z-index: 500;
+  background: rgba(13, 33, 55, .92);
+  color: #fff;
+  border-radius: 4px;
+  padding: 4px 11px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .2px;
+}
+
+/* ── CH-03 interactive Leaflet heat map — premium pass ────────────── */
+.hm-leaflet-wrap {
+  position: relative;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  background: linear-gradient(160deg, #f8fafc 0%, #eef2f7 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, .9) inset,
+    0 1px 0 rgba(15, 41, 69, .04),
+    0 20px 48px rgba(15, 41, 69, .14),
+    0 6px 16px rgba(15, 41, 69, .06);
+}
+.hm-leaflet-wrap::before {
+  /* Hairline inner border + vignette for added depth. Kept below the chips
+     (z 500) but above the map so the vignette can subtly darken edges. */
+  content: '';
+  position: absolute; inset: 0;
+  border-radius: 16px;
+  pointer-events: none;
+  z-index: 450;
+  box-shadow:
+    inset 0 0 0 1px rgba(15, 41, 69, .04),
+    inset 0 -80px 120px -60px rgba(15, 41, 69, .12);
+}
+.hm-leaflet {
+  width: 100%;
+  aspect-ratio: 21 / 9;        /* landscape — wide cinematic ratio */
+  min-height: 420px;
+  max-height: 78vh;
+  background: #eef2f7;
+  cursor: default;             /* static view — no grab */
+}
+@media (max-width: 720px) {
+  .hm-leaflet { aspect-ratio: 4 / 3; min-height: 380px; }
+}
+
+/* Lightly desaturate the basemap so RAG colours pop. Kept gentle (.85)
+   so the map stays readable — over-desaturation makes the tiles muddy
+   and pulls the perceived saturation out of the bubble halos too. */
+.hm-leaflet .leaflet-tile-pane { filter: saturate(.85) brightness(1.04); }
+
+/* Re-skin Leaflet's zoom buttons to a premium pill */
+.hm-leaflet-wrap .leaflet-control-zoom {
+  border: none !important;
+  box-shadow: 0 6px 18px rgba(15, 41, 69, .18) !important;
+  border-radius: 10px !important;
+  overflow: hidden;
+  margin: 14px !important;
+}
+.hm-leaflet-wrap .leaflet-control-zoom a {
+  border: none !important;
+  background: rgba(255, 255, 255, .98) !important;
+  color: #0d2137 !important;
+  font-weight: 700 !important;
+  width: 32px !important; height: 32px !important;
+  line-height: 32px !important;
+  transition: background .15s, color .15s, transform .1s;
+}
+.hm-leaflet-wrap .leaflet-control-zoom a:hover {
+  background: #0d2137 !important;
+  color: #fff !important;
+}
+.hm-leaflet-wrap .leaflet-control-zoom a:active { transform: scale(.96); }
+
+/* Title chip — premium glassmorphism */
+.hm-title {
+  position: absolute; top: 16px; left: 16px; z-index: 500;
+  display: inline-flex; align-items: center; gap: 10px;
+  background: linear-gradient(135deg, rgba(13, 33, 55, .94) 0%, rgba(28, 56, 102, .94) 100%);
+  color: #fff;
+  padding: 8px 16px 8px 14px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: .3px;
+  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, .15) inset,
+    0 8px 24px rgba(13, 33, 55, .35);
+  border: 1px solid rgba(255, 255, 255, .08);
+}
+.hm-title b {
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, #cfe9ff 0%, #fff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.hm-title__dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: linear-gradient(135deg, #38bdf8 0%, #0e7ad1 100%);
+  box-shadow:
+    0 0 0 4px rgba(56, 189, 248, .25),
+    0 0 8px rgba(56, 189, 248, .6);
+  animation: hm-dot-pulse 2.4s ease-in-out infinite;
+}
+@keyframes hm-dot-pulse {
+  0%, 100% { box-shadow: 0 0 0 4px rgba(56, 189, 248, .28), 0 0 8px rgba(56, 189, 248, .6); }
+  50%      { box-shadow: 0 0 0 9px rgba(56, 189, 248, .04), 0 0 14px rgba(56, 189, 248, .35); }
+}
+
+/* Legend card — premium frosted glass */
+.hm-legend {
+  position: absolute; bottom: 16px; right: 16px; z-index: 500;
+  background: linear-gradient(160deg, rgba(255, 255, 255, .98) 0%, rgba(248, 250, 252, .96) 100%);
+  border-radius: 14px;
+  padding: 13px 16px 11px;
+  font-size: 11px;
+  border: 1px solid rgba(255, 255, 255, .8);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, .8) inset,
+    0 12px 32px rgba(15, 41, 69, .18),
+    0 0 0 1px rgba(15, 41, 69, .04);
+  display: flex; flex-direction: column; gap: 5px;
+  min-width: 200px;
+}
+.hm-legend__title {
+  font-weight: 800;
+  color: #0d2137;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .9px;
+  margin-bottom: 6px;
+  display: flex; align-items: center; gap: 6px;
+}
+.hm-legend__title::before {
+  content: '';
+  width: 3px; height: 11px;
+  background: linear-gradient(180deg, #38bdf8 0%, #0e7ad1 100%);
+  border-radius: 2px;
+  display: inline-block;
+}
+.hm-legend__row {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 11.5px;
+  color: #334155;
+  font-weight: 500;
+  letter-spacing: .15px;
+}
+.hm-legend__sw {
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, .95),
+    0 2px 5px rgba(0, 0, 0, .22),
+    inset 0 1px 0 rgba(255, 255, 255, .25);
+}
+.hm-legend__sw--pulse { animation: hm-legend-pulse 2s ease-in-out infinite; }
+@keyframes hm-legend-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(255, 255, 255, .95), 0 0 0 0 rgba(211, 47, 47, .55), inset 0 1px 0 rgba(255, 255, 255, .25); }
+  50%      { box-shadow: 0 0 0 2px rgba(255, 255, 255, .95), 0 0 0 8px rgba(211, 47, 47, 0), inset 0 1px 0 rgba(255, 255, 255, .25); }
+}
+.hm-legend__foot {
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px dashed #e2e8f0;
+  font-size: 10px;
+  color: #64748b;
+  font-style: italic;
+  letter-spacing: .15px;
+}
+.hm-legend__samples {
+  margin-top: 8px;
+  padding-top: 9px;
+  border-top: 1px dashed #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.hm-legend__samples b {
+  margin-left: auto;
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 11px;
+  color: #0d2137;
+  font-weight: 800;
+  background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+  padding: 1px 7px;
+  border-radius: 5px;
+  min-width: 24px;
+  text-align: center;
+}
+.hm-legend__dot {
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 1.5px #fff, 0 1px 3px rgba(0, 0, 0, .28);
+}
+
+/* Sample-layer toggle — premium pill */
+.hm-toggle {
+  position: absolute; top: 16px; right: 16px; z-index: 500;
+  display: inline-flex; align-items: center; gap: 10px;
+  background: linear-gradient(160deg, rgba(255, 255, 255, .98) 0%, rgba(248, 250, 252, .94) 100%);
+  border: 1px solid rgba(255, 255, 255, .8);
+  border-radius: 999px;
+  padding: 6px 14px 6px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  cursor: pointer;
+  user-select: none;
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, .8) inset,
+    0 8px 22px rgba(15, 41, 69, .14),
+    0 0 0 1px rgba(15, 41, 69, .04);
+  transition: transform .15s, box-shadow .2s, color .2s;
+}
+.hm-toggle:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, .8) inset,
+    0 12px 28px rgba(15, 41, 69, .18),
+    0 0 0 1px rgba(15, 41, 69, .04);
+}
+.hm-toggle.is-on { color: #0d2137; }
+.hm-toggle input { display: none; }
+.hm-toggle__track {
+  width: 30px; height: 17px;
+  border-radius: 999px;
+  background: #cbd5e1;
+  position: relative;
+  transition: background .25s ease;
+  flex-shrink: 0;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, .12);
+}
+.hm-toggle.is-on .hm-toggle__track {
+  background: linear-gradient(135deg, #38bdf8 0%, #0e7ad1 60%, #1556b0 100%);
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, .18),
+    0 0 0 3px rgba(14, 122, 209, .15);
+}
+.hm-toggle__thumb {
+  position: absolute;
+  top: 2.5px; left: 2.5px;
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, .25),
+    inset 0 1px 0 rgba(255, 255, 255, .8);
+  transition: left .25s cubic-bezier(.34, 1.56, .64, 1);
+}
+.hm-toggle.is-on .hm-toggle__thumb { left: 15.5px; }
+.hm-toggle__label {
+  display: inline-flex; align-items: center; gap: 7px;
+  letter-spacing: .25px;
+}
+.hm-toggle__count {
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  color: #fff;
+  background: linear-gradient(135deg, #0d2137 0%, #1c3866 100%);
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 700;
+  min-width: 24px;
+  text-align: center;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .15);
+}
+.hm-toggle:not(.is-on) .hm-toggle__count {
+  background: linear-gradient(135deg, #94a3b8 0%, #64748b 100%);
+}
+
+/* Bubble divIcon — premium */
+.hm-bubble-wrap {
+  background: transparent !important;
+  border: none !important;
+}
+.hm-bubble {
+  position: relative;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: transform .25s cubic-bezier(.34, 1.56, .64, 1);
+  will-change: transform;
+}
+.hm-bubble:hover { transform: scale(1.15); z-index: 3; }
+
+/* Soft halo — tight + translucent so adjacent bubbles in dense areas
+   don't smear together. */
+.hm-bubble__halo {
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  filter: blur(5px);
+  opacity: .65;
+  pointer-events: none;
+}
+
+/* Inner pill — the readable number plate. Crisp white border defines
+   each bubble's boundary even when halos overlap. */
+.hm-bubble__core {
+  position: relative;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff;
+  font-family: 'DM Mono', ui-monospace, monospace;
+  border: 2.5px solid #ffffff;
+  box-shadow:
+    0 0 0 1px rgba(15, 41, 69, .15),
+    0 3px 8px rgba(0, 0, 0, .28),
+    0 1px 2px rgba(0, 0, 0, .18),
+    inset 0 1.5px 0 rgba(255, 255, 255, .4),
+    inset 0 -2px 6px rgba(0, 0, 0, .18);
+  transition: transform .18s ease, box-shadow .18s ease;
+}
+.hm-bubble__core-label {
+  font-weight: 900;
+  font-size: 12.5px;
+  letter-spacing: .2px;
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, .6),
+    0 0 3px rgba(0, 0, 0, .35);
+  position: relative;
+  z-index: 1;
+  white-space: nowrap;
+  line-height: 1;
+}
+.hm-bubble:hover .hm-bubble__core {
+  box-shadow:
+    0 10px 22px rgba(0, 0, 0, .4),
+    0 3px 6px rgba(0, 0, 0, .25),
+    inset 0 1.5px 0 rgba(255, 255, 255, .5),
+    inset 0 -3px 8px rgba(0, 0, 0, .18);
+}
+
+/* High-risk pulse — both halo grows AND ring expands like a ripple */
+.hm-bubble--pulse .hm-bubble__halo {
+  animation: hm-bubble-halo-pulse 2.4s ease-in-out infinite;
+}
+.hm-bubble--pulse::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(220, 38, 38, .55);
+  animation: hm-bubble-ripple 2.4s ease-out infinite;
+  pointer-events: none;
+}
+@keyframes hm-bubble-halo-pulse {
+  0%, 100% { transform: scale(1);    opacity: .85; }
+  50%      { transform: scale(1.22); opacity: .55; }
+}
+@keyframes hm-bubble-ripple {
+  0%   { transform: scale(1);   opacity: .6;  border-width: 2px; }
+  80%  { transform: scale(1.6); opacity: 0;   border-width: 1px; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+
+/* No-data fallback — softer, smaller, less attention-grabbing */
+.hm-bubble--nodata .hm-bubble__core {
+  background: linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%) !important;
+  color: #64748b;
+  font-size: 14px;
+  border-color: rgba(255, 255, 255, .9);
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, .12),
+    inset 0 1px 0 rgba(255, 255, 255, .5);
+}
+.hm-bubble--nodata .hm-bubble__halo { opacity: .15; }
+
+/* Leaflet tooltip — match our dark chip aesthetic */
+.leaflet-tooltip.hm-tip {
+  background: rgba(13, 33, 55, .94) !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 6px !important;
+  padding: 8px 12px !important;
+  font-size: 11.5px;
+  line-height: 1.55;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .35) !important;
+  font-family: inherit;
+}
+.leaflet-tooltip.hm-tip::before { display: none !important; }
 </style>
