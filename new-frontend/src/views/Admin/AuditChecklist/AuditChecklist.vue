@@ -239,7 +239,7 @@ onMounted(async () => {
               <th>Fail</th>
               <th>N/A</th>
               <th>Score</th>
-              <th></th>
+              <th style="width:110px">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -257,7 +257,9 @@ onMounted(async () => {
               <td class="num">{{ i.fail_count }}</td>
               <td class="num">{{ i.na_count }}</td>
               <td><span class="pill" :class="scoreClass(i.score_pct)">{{ i.score_pct == null ? '—' : i.score_pct + '%' }}</span></td>
-              <td><button v-if="canManage" class="btn-link" @click="removeInsp(i.id)">Delete</button></td>
+              <td style="white-space:nowrap">
+                <button v-if="canManage" class="btn btn-clear btn-xs" @click="removeInsp(i.id)">🗑 Delete</button>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -280,7 +282,7 @@ onMounted(async () => {
               <th>Question</th>
               <th>Category</th>
               <th>Active</th>
-              <th></th>
+              <th style="width:160px">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -295,9 +297,11 @@ onMounted(async () => {
               <td>{{ it.question }}</td>
               <td>{{ it.category || '—' }}</td>
               <td><span class="pill" :class="it.is_active ? 'pill-green' : 'pill-gray'">{{ it.is_active ? 'Active' : 'Inactive' }}</span></td>
-              <td>
-                <button v-if="canManage" class="btn-link blue" @click="openItemEdit(it)">Edit</button>
-                <button v-if="canManage" class="btn-link" @click="removeItem(it.id)">Delete</button>
+              <td style="white-space:nowrap">
+                <div style="display:inline-flex;gap:4px;align-items:center">
+                  <button v-if="canManage" class="btn btn-sec btn-xs" @click="openItemEdit(it)">✏ Edit</button>
+                  <button v-if="canManage" class="btn btn-clear btn-xs" @click="removeItem(it.id)">🗑 Delete</button>
+                </div>
               </td>
             </tr>
           </tbody>
