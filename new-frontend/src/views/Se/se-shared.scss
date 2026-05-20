@@ -241,4 +241,42 @@
 }
 @media (max-width: 760px) {
   .sd-cards, .sd-cards.cards-4, .sd-cards.cards-5, .sd-cards.cards-6 { grid-template-columns: repeat(2, 1fr); }
+
+  // Scope banner wraps onto its own lines instead of being a 3-line wall
+  .sd-scope {
+    font-size: 11.5px;
+    padding: 8px 11px;
+    line-height: 1.45;
+    b { word-break: break-word; }
+  }
+
+  // Toolbar: filters stretch full width, export button drops to its own row
+  .sd-toolbar {
+    padding: 10px 12px;
+    gap: 8px;
+    .fg {
+      flex: 1 1 calc(50% - 4px);
+      min-width: 0;
+      input, select { width: 100%; min-width: 0; }
+    }
+    .spacer { display: none; }
+    .sd-btn { flex: 1 1 100%; justify-content: center; }
+  }
+
+  // Tables wrapped in .sd-tbl-wrap get horizontal scroll
+  .sd-tbl-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .sd-tbl { min-width: 640px; font-size: 11.5px;
+    th, td { padding: 6px 8px; white-space: nowrap; }
+  }
+
+  // Side-panel rows breathe better
+  .sd-side-panel .ps-row {
+    padding: 8px 11px;
+    .right { float: none; display: block; margin-top: 4px; }
+  }
+}
+
+@media (max-width: 480px) {
+  .sd-cards, .sd-cards.cards-4, .sd-cards.cards-5, .sd-cards.cards-6 { grid-template-columns: 1fr; }
+  .sd-toolbar .fg { flex: 1 1 100%; }
 }

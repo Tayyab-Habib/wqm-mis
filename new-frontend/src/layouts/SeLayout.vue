@@ -1,11 +1,18 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { seService } from '../services/seService.js'
 import { useUserStore } from '../stores/useUserStore.js'
 
 const router = useRouter()
+const route  = useRoute()
 const userStore = useUserStore()
+
+// Off-canvas mobile nav (same pattern as XEN / CE / Secretary)
+const navOpen = ref(false)
+function toggleNav() { navOpen.value = !navOpen.value }
+function closeNav()  { navOpen.value = false }
+watch(() => route.fullPath, closeNav)
 
 const me = ref(null)
 const unfitCount = ref(0)
@@ -167,7 +174,7 @@ function badgeFor(ref) {
 </script>
 
 <template>
-  <div class="se-app">
+  <div class="se-app" :class="{ 'nav-open': navOpen }">
     <aside class="se-sidebar">
       <div class="sb-brand">
         <div class="sb-eyebrow">PHED KP — SE PORTAL</div>
@@ -199,8 +206,10 @@ function badgeFor(ref) {
         </template>
       </nav>
     </aside>
+    <div class="mobile-nav-backdrop" @click="closeNav"></div>
     <div class="se-main">
       <header class="se-topbar">
+        <button class="mobile-nav-toggle" @click="toggleNav" title="Menu" aria-label="Menu">☰</button>
         <div class="st-title">{{ $route.meta?.title || 'Dashboard' }}</div>
         <div class="st-right">
           <span class="st-scope-chip">
