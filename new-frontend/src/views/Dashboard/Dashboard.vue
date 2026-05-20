@@ -69,6 +69,9 @@ const chartFont = { family: "'DM Sans', sans-serif", size: 11 }
 // ── CH-03 Heatmap ─────────────────────────────────────────────────────
 const hmParam  = ref('overall')
 const hmSub    = ref('')
+// Heatmap visual style: 'modern' (dark gradient backdrop) | 'classic' (original light-blue look)
+const hmStyle  = ref('modern')
+function toggleHmStyle() { hmStyle.value = hmStyle.value === 'modern' ? 'classic' : 'modern' }
 
 const hmSubs = {
   overall:  [],
@@ -1496,18 +1499,31 @@ function exportKpiCsv() {
           <select v-if="hmSubOptions.length" v-model="hmSub" style="border:1px solid var(--border);border-radius:4px;padding:4px 7px;font-size:11.5px;font-family:inherit">
             <option v-for="s in hmSubOptions" :key="s" :value="s.toLowerCase().replace(/[^a-z]/g,'')">{{ s }}</option>
           </select>
+
+          <!-- View-style toggle: Modern (Leaflet) ↔ Classic (legacy SVG) -->
+          <div class="hm-view-toggle" role="tablist" aria-label="Heatmap view style">
+            <button type="button" role="tab" :aria-selected="hmStyle === 'modern'"
+                    :class="{ active: hmStyle === 'modern' }" @click="hmStyle = 'modern'">
+              🛰 Modern
+            </button>
+            <button type="button" role="tab" :aria-selected="hmStyle === 'classic'"
+                    :class="{ active: hmStyle === 'classic' }" @click="hmStyle = 'classic'">
+              🗂 Classic
+            </button>
+          </div>
+
           <button class="btn btn-sec btn-xs" @click="exportCh03">⬇ PNG</button>
         </div>
       </div>
 
-      <!-- Interactive Leaflet heat map -->
-      <div class="hm-leaflet-wrap">
-        <div ref="heatmapMapRef" class="hm-leaflet"></div>
+      <!-- Interactive Leaflet heat map (Modern) + legacy SVG (Classic) -->
+      <div class="hm-leaflet-wrap" :class="{ 'is-classic': hmStyle === 'classic' }">
+        <div ref="heatmapMapRef" class="hm-leaflet" v-show="hmStyle === 'modern'"></div>
 
-        <!-- Hidden legacy SVG (kept off-screen so we don't have to delete
-             the polygons or rewire the SVG-driven exporter). The Leaflet
-             map above is what's actually shown. -->
-        <svg ref="ch03SvgRef" viewBox="0 0 620 375" style="display:none">
+        <!-- Legacy SVG — shown in Classic mode, kept in DOM (display:none)
+             during Modern mode so the SVG-driven PNG exporter keeps working. -->
+        <svg ref="ch03SvgRef" viewBox="0 0 620 375" class="hm-classic-svg"
+             :style="{ display: hmStyle === 'classic' ? 'block' : 'none' }">
           <rect width="620" height="375" fill="#cce5f5"/>
 
           <!-- Districts -->
@@ -1582,8 +1598,8 @@ function exportKpiCsv() {
           <text x="248" y="328" class="hm-label">D.I. Khan</text>
         </svg>
 
-        <!-- Sample layer toggle -->
-        <label class="hm-toggle" :class="{ 'is-on': showSamplesLayer }">
+        <!-- Sample layer toggle (Modern only) -->
+        <label v-show="hmStyle === 'modern'" class="hm-toggle" :class="{ 'is-on': showSamplesLayer }">
           <input type="checkbox" v-model="showSamplesLayer">
           <span class="hm-toggle__track"><span class="hm-toggle__thumb"></span></span>
           <span class="hm-toggle__label">
@@ -1592,8 +1608,20 @@ function exportKpiCsv() {
           </span>
         </label>
 
-        <!-- Legend overlay -->
-        <div class="hm-legend">
+        <!-- Classic-mode legend + title (visible only when hmStyle === 'classic') -->
+        <div v-show="hmStyle === 'classic'" class="hm-classic-legend">
+          <div class="hm-classic-legend__title">% UNFIT</div>
+          <div class="hm-classic-legend__row"><span class="hm-classic-sw" style="background:#15803d"></span> &lt; 10% — Good</div>
+          <div class="hm-classic-legend__row"><span class="hm-classic-sw" style="background:#22c55e"></span> 10–20% — Moderate</div>
+          <div class="hm-classic-legend__row"><span class="hm-classic-sw" style="background:#f59e0b"></span> 20–35% — Concern</div>
+          <div class="hm-classic-legend__row"><span class="hm-classic-sw" style="background:#dc2626"></span> &gt; 35% — High Risk</div>
+        </div>
+        <div v-show="hmStyle === 'classic'" class="hm-classic-title">
+          KP Province · District Heatmap · {{ hmTitleSuffix }}
+        </div>
+
+        <!-- Modern legend overlay -->
+        <div v-show="hmStyle === 'modern'" class="hm-legend">
           <div class="hm-legend__title">District Risk · % Unfit</div>
           <div class="hm-legend__row"><span class="hm-legend__sw" style="background:#15803d"></span> &lt; 10% · Good</div>
           <div class="hm-legend__row"><span class="hm-legend__sw" style="background:#22c55e"></span> 10–20% · Moderate</div>
@@ -1610,8 +1638,8 @@ function exportKpiCsv() {
           <div class="hm-legend__foot">Bubble size ∝ samples tested</div>
         </div>
 
-        <!-- Title overlay -->
-        <div class="hm-title">
+        <!-- Modern title overlay -->
+        <div v-show="hmStyle === 'modern'" class="hm-title">
           <span class="hm-title__dot"></span>
           KP Province · District Heatmap · <b>{{ hmTitleSuffix }}</b>
         </div>
@@ -1972,6 +2000,108 @@ function exportKpiCsv() {
   stroke: #0d2137;
   stroke-width: 2.5px;
   stroke-linejoin: round;
+}
+
+/* ── CH-03 Modern/Classic view toggle ───────────────────────────── */
+.hm-view-toggle {
+  display: inline-flex;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 99px;
+  padding: 2px;
+  gap: 2px;
+}
+.hm-view-toggle button {
+  background: transparent;
+  border: none;
+  padding: 4px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #475569;
+  border-radius: 99px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background .15s, color .15s, box-shadow .15s;
+  letter-spacing: .2px;
+}
+.hm-view-toggle button:hover { color: #0b1d3a; }
+.hm-view-toggle button.active {
+  background: linear-gradient(135deg, #0e7ad1 0%, #1556b0 100%);
+  color: #fff;
+  box-shadow: 0 4px 10px rgba(14, 122, 209, .3);
+}
+
+/* Classic SVG view — restores the legacy light-blue look */
+.hm-leaflet-wrap.is-classic {
+  aspect-ratio: auto;
+  min-height: 0;
+  background: #d6eaf8;
+}
+.hm-leaflet-wrap.is-classic::before { box-shadow: none; }
+.hm-classic-svg {
+  width: 100%;
+  display: block;
+  border-radius: 16px;
+  background: #cce5f5;
+}
+/* When in classic mode, override the global dark .hm-label so it reads
+   against the light-blue backdrop, matching the legacy screenshot. */
+.hm-leaflet-wrap.is-classic .hm-d {
+  stroke: #fff;
+  stroke-width: 1;
+  transition: opacity .2s, stroke .15s;
+}
+.hm-leaflet-wrap.is-classic .hm-d:hover {
+  opacity: .8;
+  stroke: #1a3658;
+  stroke-width: 1.5;
+}
+
+/* Classic legend — white pill, matches old screenshot */
+.hm-classic-legend {
+  position: absolute;
+  bottom: 14px;
+  right: 14px;
+  z-index: 500;
+  background: rgba(255, 255, 255, .98);
+  border-radius: 6px;
+  padding: 9px 13px 10px;
+  font-size: 11px;
+  color: #334155;
+  box-shadow: 0 2px 8px rgba(15, 41, 69, .14);
+  border: 1px solid #e2e8f0;
+  line-height: 1.55;
+}
+.hm-classic-legend__title {
+  font-weight: 800;
+  color: #0b1d3a;
+  margin-bottom: 5px;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: .6px;
+}
+.hm-classic-legend__row { display: flex; align-items: center; gap: 7px; }
+.hm-classic-sw {
+  width: 16px;
+  height: 12px;
+  border-radius: 2px;
+  display: inline-block;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .08);
+}
+
+/* Classic title bar — solid navy pill, matches old screenshot */
+.hm-classic-title {
+  position: absolute;
+  top: 12px;
+  left: 14px;
+  z-index: 500;
+  background: rgba(13, 33, 55, .92);
+  color: #fff;
+  border-radius: 4px;
+  padding: 4px 11px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .2px;
 }
 
 /* ── CH-03 interactive Leaflet heat map — premium pass ────────────── */
